@@ -426,7 +426,7 @@ type EventBaseInput = {
           raw: {
             source: "opencode.sdk.event",
             payload: input.raw,
-          } as unknown as ProviderRuntimeEvent["raw"],
+          },
         }
       : {}),
   };
