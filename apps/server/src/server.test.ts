@@ -569,13 +569,10 @@ const buildAppUnderTest = (options?: {
       ),
     );
 
-    const servedRoutesLayer = HttpRouter.serve(
-      makeRoutesLayer.pipe(Layer.provide(ServiceLauncherClient.layer)),
-      {
-        disableListenLog: true,
-        disableLogger: true,
-      },
-    ).pipe(
+    const servedRoutesBaseLayer = HttpRouter.serve(makeRoutesLayer, {
+      disableListenLog: true,
+      disableLogger: true,
+    }).pipe(
       Layer.provide(
         Layer.mock(Keybindings.Keybindings)({
           loadConfigState: Effect.succeed({
@@ -789,6 +786,9 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
+    );
+
+    const servedRoutesLayer = servedRoutesBaseLayer.pipe(
       Layer.provide(OrchestrationV2UnavailableTestLayer),
     );
 
