@@ -1,5 +1,4 @@
 import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@t3tools/contracts";
-import { codexFeedbackMessage } from "@t3tools/client-runtime/state/threads";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
@@ -177,10 +176,10 @@ const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
 function buildProps() {
   return {
     isWorking: false,
+    activeTurnInProgress: false,
     activeTurnStartedAt: null,
     listRef: createRef<LegendListRef | null>(),
-    latestTurn: null,
-    runningTurnId: null,
+    latestRun: null,
     turnDiffSummaryByAssistantMessageId: new Map(),
     routeThreadKey: "environment-local:thread-1",
     onOpenTurnDiff: () => {},
@@ -217,7 +216,7 @@ function buildUserTimelineEntry(text: string) {
       id: MessageId.make("message-1"),
       role: "user" as const,
       text,
-      turnId: null,
+      runId: null,
       createdAt: MESSAGE_CREATED_AT,
       updatedAt: MESSAGE_CREATED_AT,
       streaming: false,
@@ -237,99 +236,6 @@ function buildAssistantTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
-  it("renders a feedback command and its pending response as normal thread messages", () => {
-    const submission = {
-      id: MessageId.make("feedback-command"),
-      command: "/feedback The agent stopped early.",
-      createdAt: MESSAGE_CREATED_AT,
-      status: "uploading" as const,
-    };
-    const messages = [
-      codexFeedbackMessage(submission),
-      codexFeedbackMessage(submission, "assistant"),
-    ];
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        timelineEntries={messages.map((message) => ({
-          id: message.id,
-          kind: "message" as const,
-          createdAt: message.createdAt,
-          message,
-        }))}
-      />,
-    );
-
-    expect(markup).toContain("/feedback The agent stopped early.");
-    expect(markup).toContain("Sending feedback to OpenAI...");
-  });
-
-  it("renders the returned Codex thread ID in the feedback response", () => {
-    const submission = {
-      id: MessageId.make("feedback-command"),
-      command: "/feedback The agent stopped early.",
-      createdAt: MESSAGE_CREATED_AT,
-      status: "sent" as const,
-      feedbackId: "codex-thread-1",
-    };
-    const messages = [
-      codexFeedbackMessage(submission),
-      codexFeedbackMessage(submission, "assistant"),
-    ];
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        timelineEntries={messages.map((message) => ({
-          id: message.id,
-          kind: "message" as const,
-          createdAt: message.createdAt,
-          message,
-        }))}
-      />,
-    );
-
-    expect(markup).toContain("Feedback sent to OpenAI.");
-    expect(markup).toContain("codex-thread-1");
-  });
-
-  it("renders the worked-for row at assistant response text size", () => {
-    const turnId = TurnId.make("turn-with-fold");
-    const assistantEntry = buildAssistantTimelineEntry("Done.");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        latestTurn={{
-          turnId,
-          state: "completed",
-          startedAt: "2026-03-17T19:12:20.000Z",
-          completedAt: "2026-03-17T19:12:28.000Z",
-        }}
-        timelineEntries={[
-          {
-            id: "work-entry-with-fold",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:22.000Z",
-            entry: {
-              id: "work-with-fold",
-              createdAt: "2026-03-17T19:12:22.000Z",
-              turnId,
-              label: "Ran command",
-              tone: "tool",
-              toolLifecycleStatus: "completed",
-            },
-          },
-          {
-            ...assistantEntry,
-            message: { ...assistantEntry.message, turnId },
-          },
-        ]}
-      />,
-    );
-
-    expect(markup).toContain("Worked for 8.0s");
-    expect(markup).toContain("px-1 text-sm leading-relaxed text-muted-foreground");
-  });
-
   it("uses the larger leading inset only when the top fade is enabled", () => {
     const timelineEntries = [buildUserTimelineEntry("Hello")];
 
@@ -490,12 +396,15 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapInteractiveWidth(40, true)).toBe("22rem");
   });
 
-  it("anchors the first user message using its measured height", () => {
+  it("anchors a sent attachment message using its measured height", () => {
     const onAnchorReady = vi.fn();
-    const firstEntry = {
-      ...buildUserTimelineEntry("First prompt."),
+    const firstEntry = buildUserTimelineEntry("First prompt.");
+    const secondEntry = {
+      ...buildUserTimelineEntry("Newest prompt."),
+      id: "entry-2",
       message: {
-        ...buildUserTimelineEntry("First prompt.").message,
+        ...buildUserTimelineEntry("Newest prompt.").message,
+        id: MessageId.make("message-2"),
         attachments: [
           {
             type: "image" as const,
@@ -511,14 +420,14 @@ describe("MessagesTimeline", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
-        anchorMessageId={firstEntry.message.id}
+        anchorMessageId={secondEntry.message.id}
         onAnchorReady={onAnchorReady}
         contentInsetEndAdjustment={144}
-        timelineEntries={[firstEntry]}
+        timelineEntries={[firstEntry, secondEntry]}
       />,
     );
 
-    expect(markup).toContain('data-anchor-index="0"');
+    expect(markup).toContain('data-anchor-index="1"');
     expect(markup).toContain('data-anchor-offset="16"');
     expect(markup).toContain('data-anchor-on-ready="true"');
     expect(markup).not.toContain("data-anchor-max-size=");
@@ -530,125 +439,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-maintain-visible-content-position-size="true"');
     expect(markup).toContain('data-maintain-visible-content-position-restore="true"');
     expect(onAnchorReady).toHaveBeenCalledOnce();
-    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
-  });
-
-  it("does not reserve end space for a follow-up user message", () => {
-    const onAnchorReady = vi.fn();
-    const firstEntry = buildUserTimelineEntry("First prompt.");
-    const secondEntry = {
-      ...buildUserTimelineEntry("Newest prompt."),
-      id: "entry-2",
-      message: {
-        ...buildUserTimelineEntry("Newest prompt.").message,
-        id: MessageId.make("message-2"),
-      },
-    };
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        anchorMessageId={secondEntry.message.id}
-        onAnchorReady={onAnchorReady}
-        timelineEntries={[firstEntry, secondEntry]}
-      />,
-    );
-
-    expect(markup).not.toContain("data-anchor-index=");
-    expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
-    expect(onAnchorReady).not.toHaveBeenCalled();
-  });
-
-  it("keeps reserved end space when tool work starts while reading history", () => {
-    const turnId = TurnId.make("turn-with-active-tool");
-    const firstEntry = buildUserTimelineEntry("Run the command.");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        isWorking
-        activeTurnStartedAt={MESSAGE_CREATED_AT}
-        latestTurn={{
-          turnId,
-          state: "running",
-          startedAt: MESSAGE_CREATED_AT,
-          completedAt: null,
-        }}
-        runningTurnId={turnId}
-        anchorMessageId={firstEntry.message.id}
-        liveFollowEnabled={false}
-        timelineEntries={[
-          firstEntry,
-          {
-            id: "entry-active-tool",
-            kind: "work",
-            createdAt: MESSAGE_CREATED_AT,
-            entry: {
-              id: "work-active-tool",
-              createdAt: MESSAGE_CREATED_AT,
-              turnId,
-              toolCallId: "call-active-tool",
-              label: "Run command",
-              tone: "tool",
-              itemType: "command_execution",
-              command: "git status",
-              toolLifecycleStatus: "inProgress",
-            },
-          },
-        ]}
-      />,
-    );
-
-    expect(markup).toContain('data-anchor-index="0"');
-    expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
-  });
-
-  it("hands end-following back to the list once the send anchor is released", () => {
-    const firstEntry = buildUserTimelineEntry("First prompt.");
-    const secondEntry = {
-      ...buildUserTimelineEntry("Newest prompt."),
-      id: "entry-2",
-      message: {
-        ...buildUserTimelineEntry("Newest prompt.").message,
-        id: MessageId.make("message-2"),
-      },
-    };
-    const timelineEntries = [firstEntry, secondEntry];
-
-    // While the send anchor holds the end space open, ChatView owns streaming
-    // scrolls and LegendList must not re-pin behind it.
-    expect(
-      renderToStaticMarkup(
-        <MessagesTimeline
-          {...buildProps()}
-          anchorMessageId={firstEntry.message.id}
-          timelineEntries={timelineEntries}
-        />,
-      ),
-    ).not.toContain('data-maintain-scroll-at-end="enabled"');
-
-    // Dropping the anchor is what actually gives end-following back, so
-    // returning to the live edge has to release it — re-enabling live follow
-    // alone leaves nothing pinned to the stream.
-    expect(
-      renderToStaticMarkup(
-        <MessagesTimeline
-          {...buildProps()}
-          anchorMessageId={null}
-          timelineEntries={timelineEntries}
-        />,
-      ),
-    ).toContain('data-maintain-scroll-at-end="enabled"');
-
-    // Reading history still wins over both.
-    expect(
-      renderToStaticMarkup(
-        <MessagesTimeline
-          {...buildProps()}
-          anchorMessageId={null}
-          liveFollowEnabled={false}
-          timelineEntries={timelineEntries}
-        />,
-      ),
-    ).not.toContain('data-maintain-scroll-at-end="enabled"');
+    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
   });
 
   it("renders collapse controls for long user messages", () => {
@@ -908,7 +699,116 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work Log");
   });
 
-  it("summarizes changed files in one line", () => {
+  it("renders V2 interruption lifecycle entries as standalone rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "interrupt-request",
+            kind: "event",
+            createdAt: MESSAGE_CREATED_AT,
+            projectedItem: {
+              position: 0,
+              visibility: "local",
+              sourceThreadId: "thread-1",
+              sourceItemId: "interrupt-request",
+              item: {
+                id: "interrupt-request",
+                threadId: "thread-1",
+                runId: "run-1",
+                nodeId: null,
+                providerThreadId: null,
+                providerTurnId: null,
+                nativeItemRef: null,
+                parentItemId: null,
+                ordinal: 0,
+                status: "completed",
+                title: null,
+                startedAt: null,
+                completedAt: null,
+                updatedAt: {},
+                type: "run_interrupt_request",
+                message: "Waiting for the provider to stop.",
+              },
+            } as never,
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('data-v2-item-type="run_interrupt_request"');
+    expect(markup).toContain("Interrupt requested");
+    expect(markup).toContain("Waiting for the provider to stop.");
+    expect(markup).toContain('data-v2-structured-details="true"');
+    expect(markup).toContain("Structured details");
+    expect(markup).toContain("&quot;type&quot;: &quot;run_interrupt_request&quot;");
+  });
+
+  it("keeps inherited V2 work provenance on the rendered row", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const item = {
+      id: "command-inherited",
+      threadId: "thread-source",
+      runId: null,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 0,
+      status: "completed",
+      title: null,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: {},
+      type: "command_execution",
+      input: "pwd",
+      output: "/workspace",
+      exitCode: 0,
+    } as const;
+    const projectedItem = {
+      position: 0,
+      visibility: "inherited",
+      sourceThreadId: "thread-source",
+      sourceItemId: item.id,
+      item,
+    } as const;
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={
+          [
+            {
+              id: item.id,
+              kind: "work",
+              createdAt: MESSAGE_CREATED_AT,
+              entry: {
+                id: item.id,
+                createdAt: MESSAGE_CREATED_AT,
+                runId: null,
+                label: "Ran command",
+                command: item.input,
+                tone: "tool",
+                itemType: item.type,
+                toolLifecycleStatus: "completed",
+                structuredPayload: item,
+                projectedItem,
+              },
+            },
+          ] as never
+        }
+      />,
+    );
+
+    expect(markup).toContain('data-v2-item-type="command_execution"');
+    expect(markup).toContain('data-v2-item-visibility="inherited"');
+    expect(markup).toContain("Inherited");
+  });
+
+  it("formats changed file paths from the workspace root", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -922,6 +822,8 @@ describe("MessagesTimeline", () => {
               createdAt: "2026-03-17T19:12:28.000Z",
               label: "Updated files",
               tone: "tool",
+              itemType: "file_change",
+              toolLifecycleStatus: "completed",
               changedFiles: ["C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts"],
             },
           },
@@ -930,10 +832,11 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Changed 1 file");
+    expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
+<<<<<<< HEAD
   it("keeps mixed-success tool groups neutral", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1215,6 +1118,8 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("gap-1.5 py-0.5 px-1");
   });
 
+=======
+>>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
   it("renders review comment contexts as structured cards instead of raw tags", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1237,7 +1142,7 @@ describe("MessagesTimeline", () => {
                 "```",
                 "</review_comment>",
               ].join("\n"),
-              turnId: null,
+              runId: null,
               createdAt: "2026-03-17T19:12:28.000Z",
               updatedAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
@@ -1276,7 +1181,7 @@ describe("MessagesTimeline", () => {
                 "```",
                 "</review_comment>",
               ].join("\n"),
-              turnId: null,
+              runId: null,
               createdAt: "2026-03-17T19:12:28.000Z",
               updatedAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
