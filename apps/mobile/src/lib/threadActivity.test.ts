@@ -1,317 +1,101 @@
+import type { ThreadWorkEntry } from "@t3tools/client-runtime/state/shell";
+import { MessageId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { codexFeedbackMessage } from "@t3tools/client-runtime/state/threads";
 
-import {
-  EventId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-  TurnId,
-  type OrchestrationThread,
-  type OrchestrationThreadActivity,
-} from "@t3tools/contracts";
+import { makeThreadFixture } from "../test-fixtures";
+import { buildThreadFeed, deriveThreadFeedPresentation } from "./threadActivity";
 
-import {
-  buildPendingUserInputAnswers,
-  buildThreadFeed,
-  derivePendingApprovals,
-  deriveThreadFeedPresentation,
-  isPendingUserInputOptionSelected,
-  setPendingUserInputCustomAnswer,
-  togglePendingUserInputOptionSelection,
-  type ThreadFeedActivity,
-  type ThreadFeedEntry,
-} from "./threadActivity";
+const runId = RunId.make("run-1");
 
-describe("Codex feedback pseudo-messages", () => {
-  it("keeps pending and completed feedback messages in the mobile thread body", () => {
-    const pending = {
-      id: MessageId.make("feedback-command"),
-      command: "/feedback The agent stopped early.",
-      createdAt: "2026-08-23T00:00:00.000Z",
-      status: "uploading" as const,
-    };
-    const entries = [codexFeedbackMessage(pending), codexFeedbackMessage(pending, "assistant")].map(
-      (message) => ({
-        type: "message" as const,
-        id: message.id,
-        createdAt: message.createdAt,
-        message,
-      }),
-    );
-
-    expect(deriveThreadFeedPresentation(entries, null, new Set())).toEqual(entries);
-    expect(entries[1]?.message.text).toBe("Sending feedback to OpenAI...");
-
-    const completed = codexFeedbackMessage(
-      { ...pending, status: "sent", feedbackId: "codex-thread-1" },
-      "assistant",
-    );
-    expect(completed.text).toContain("codex-thread-1");
-  });
-});
-
-const singleSelectQuestion = {
-  id: "runtime",
-  header: "Runtime",
-  question: "Which runtime should be used?",
-  options: [
-    { label: "Go", description: "One binary" },
-    { label: "Node.js", description: "Reuse TypeScript" },
-  ],
-  multiSelect: false,
-} as const;
-
-const multiSelectQuestion = {
-  id: "scope",
-  header: "Scope",
-  question: "Which data should be collected?",
-  options: [
-    { label: "Orders", description: "Receipts" },
-    { label: "Listings", description: "Inventory" },
-  ],
-  multiSelect: true,
-} as const;
-
-describe("pending user input answers", () => {
-  it("replaces single-select options and toggles multi-select options", () => {
-    expect(
-      togglePendingUserInputOptionSelection(
-        singleSelectQuestion,
-        { selectedOptionLabels: ["Go"] },
-        "Node.js",
-      ),
-    ).toEqual({ customAnswer: "", selectedOptionLabels: ["Node.js"] });
-
-    const orders = togglePendingUserInputOptionSelection(multiSelectQuestion, undefined, "Orders");
-    const ordersAndListings = togglePendingUserInputOptionSelection(
-      multiSelectQuestion,
-      orders,
-      "Listings",
-    );
-    expect(ordersAndListings).toEqual({
-      customAnswer: "",
-      selectedOptionLabels: ["Orders", "Listings"],
-    });
-    expect(
-      togglePendingUserInputOptionSelection(multiSelectQuestion, ordersAndListings, "Orders"),
-    ).toEqual({ customAnswer: "", selectedOptionLabels: ["Listings"] });
-
-    const paddedOrders = togglePendingUserInputOptionSelection(
-      multiSelectQuestion,
-      undefined,
-      "  Orders  ",
-    );
-    expect(paddedOrders).toEqual({ customAnswer: "", selectedOptionLabels: ["Orders"] });
-    expect(
-      togglePendingUserInputOptionSelection(multiSelectQuestion, paddedOrders, "  Orders  "),
-    ).toEqual({ customAnswer: "" });
-  });
-
-  it("builds array answers for multi-select questions", () => {
-    expect(
-      buildPendingUserInputAnswers([singleSelectQuestion, multiSelectQuestion], {
-        runtime: { selectedOptionLabels: ["Go"] },
-        scope: { selectedOptionLabels: ["Orders", "Listings"] },
-      }),
-    ).toEqual({
-      runtime: "Go",
-      scope: ["Orders", "Listings"],
-    });
-  });
-
-  it("clears selected options while a custom answer is active", () => {
-    expect(
-      setPendingUserInputCustomAnswer(
-        { selectedOptionLabels: ["Orders", "Listings"] },
-        "Orders first",
-      ),
-    ).toEqual({ customAnswer: "Orders first" });
-  });
-
-  it("matches selected chips against normalized option labels", () => {
-    expect(
-      isPendingUserInputOptionSelected({ selectedOptionLabels: ["Orders"] }, "  Orders  "),
-    ).toBe(true);
-    expect(
-      isPendingUserInputOptionSelected(
-        { selectedOptionLabels: ["Orders"], customAnswer: "Orders first" },
-        "  Orders  ",
-      ),
-    ).toBe(false);
-  });
-});
-
-describe("pending approvals", () => {
-  it("keeps app access approvals and persistence choices from remote environments", () => {
-    const options = [
-      { decision: "decline", label: "Decline" },
-      { decision: "acceptAlways", label: "Always allow Safari" },
-      { decision: "accept", label: "Approve" },
-    ];
-    const activity = makeActivity({
-      id: EventId.make("approval-safari"),
-      kind: "approval.requested",
-      summary: "App access approval requested",
-      createdAt: "2026-08-24T00:00:00.000Z",
-      payload: {
-        requestId: "req-safari",
-        requestType: "mcp_elicitation_approval",
-        detail: "Allow ChatGPT to use Safari?",
-        appName: "Safari",
-        options,
-      },
-    });
-
-    expect(derivePendingApprovals([activity])).toEqual([
-      {
-        requestId: "req-safari",
-        requestKind: "mcp-elicitation",
-        createdAt: "2026-08-24T00:00:00.000Z",
-        detail: "Allow ChatGPT to use Safari?",
-        appName: "Safari",
-        options,
-      },
-    ]);
-  });
-
-  it("removes an app access approval after a remote client rejects it", () => {
-    const requested = makeActivity({
-      id: EventId.make("approval-safari-open"),
-      kind: "approval.requested",
-      summary: "App access approval requested",
-      createdAt: "2026-08-24T00:00:00.000Z",
-      payload: { requestId: "req-safari", requestKind: "mcp-elicitation" },
-    });
-    const resolved = makeActivity({
-      id: EventId.make("approval-safari-resolved"),
-      kind: "approval.resolved",
-      summary: "Approval resolved",
-      createdAt: "2026-08-24T00:00:01.000Z",
-      payload: { requestId: "req-safari", decision: "decline" },
-    });
-
-    expect(derivePendingApprovals([requested, resolved])).toEqual([]);
-  });
-});
-
-function makeActivity(
-  input: Partial<OrchestrationThreadActivity> &
-    Pick<OrchestrationThreadActivity, "id" | "kind" | "summary" | "createdAt">,
-): OrchestrationThreadActivity {
+function message(role: "user" | "assistant", text: string, createdAt: string, id: string) {
   return {
-    tone: "info",
-    payload: {},
-    turnId: null,
-    ...input,
-  };
+    id: MessageId.make(id),
+    role,
+    text,
+    attachments: [],
+    runId: role === "assistant" ? runId : null,
+    streaming: false,
+    createdAt,
+    updatedAt: createdAt,
+  } as const;
 }
 
-function makeThread(
-  input: Partial<OrchestrationThread> & Pick<OrchestrationThread, "id" | "projectId" | "title">,
-): OrchestrationThread {
+function commandEntry(overrides: Partial<ThreadWorkEntry> = {}): ThreadWorkEntry {
+  const structuredPayload = {
+    type: "command_execution",
+    input: "vp check",
+    output: "ok",
+  } as ThreadWorkEntry["structuredPayload"];
   return {
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    branch: null,
-    worktreePath: null,
-    latestTurn: null,
-    createdAt: "2026-04-01T00:00:00.000Z",
-    updatedAt: "2026-04-01T00:00:00.000Z",
-    archivedAt: null,
-    deletedAt: null,
-    messages: [],
-    proposedPlans: [],
-    activities: [],
-    checkpoints: [],
-    session: null,
-    ...input,
-    settledOverride: input.settledOverride ?? null,
-    settledAt: input.settledAt ?? null,
+    id: "item-1",
+    createdAt: "2026-06-20T00:00:02.000Z",
+    runId,
+    label: "Ran command",
+    command: "vp check",
+    detail: "ok",
+    tone: "tool",
+    itemType: "command_execution",
+    toolLifecycleStatus: "completed",
+    structuredPayload,
+    ...overrides,
   };
 }
 
 describe("buildThreadFeed", () => {
-  it("keeps older local feedback before newer messages returned by the server", () => {
-    const submission = {
-      id: MessageId.make("feedback-command-ordering"),
-      command: "/feedback The agent stopped early.",
-      createdAt: "2026-08-23T00:00:01.000Z",
-      status: "sent" as const,
-      feedbackId: "codex-thread-1",
-    };
-    const laterMessage = {
-      id: MessageId.make("later-server-message"),
-      role: "assistant" as const,
-      text: "Newer server response",
-      turnId: null,
-      createdAt: "2026-08-23T00:00:02.000Z",
-      updatedAt: "2026-08-23T00:00:02.000Z",
-      streaming: false,
-    };
-    const thread = makeThread({
-      id: ThreadId.make("thread-feedback-ordering"),
-      projectId: ProjectId.make("project-1"),
-      title: "Feedback ordering",
-      messages: [laterMessage],
-    });
-
-    const feed = buildThreadFeed(thread, {
-      localMessages: [
-        codexFeedbackMessage(submission),
-        codexFeedbackMessage(submission, "assistant"),
+  it("orders V2 messages and work entries while retaining structured tool data", () => {
+    const thread = makeThreadFixture({
+      messages: [
+        message("user", "Run checks", "2026-06-20T00:00:01.000Z", "message-user"),
+        message("assistant", "Done", "2026-06-20T00:00:03.000Z", "message-assistant"),
       ],
-    });
-
-    expect(feed.map((entry) => entry.id)).toEqual([
-      "feedback-command-ordering",
-      "feedback-command-ordering:feedback",
-      "later-server-message",
-    ]);
-  });
-
-  it("keeps historic work entries attributed to their turns", () => {
-    const thread = makeThread({
-      id: ThreadId.make("thread-1"),
-      projectId: ProjectId.make("project-1"),
-      title: "Runtime warning thread",
-      latestTurn: {
-        turnId: TurnId.make("turn-latest"),
-        state: "running",
-        requestedAt: "2026-04-01T00:00:00.000Z",
-        startedAt: "2026-04-01T00:00:01.000Z",
-        completedAt: null,
-        assistantMessageId: null,
-      },
-      activities: [
-        makeActivity({
-          id: EventId.make("activity-old"),
-          kind: "runtime.warning",
-          summary: "Runtime warning",
-          createdAt: "2026-04-01T00:00:02.000Z",
-          turnId: TurnId.make("turn-old"),
-          payload: {
-            message: "Old warning",
-          },
-        }),
-        makeActivity({
-          id: EventId.make("activity-latest"),
-          kind: "runtime.warning",
-          summary: "Runtime warning",
-          createdAt: "2026-04-01T00:00:03.000Z",
-          turnId: TurnId.make("turn-latest"),
-          payload: {
-            message: "Latest warning",
-          },
-        }),
-      ],
+      workEntries: [commandEntry()],
     });
 
     const feed = buildThreadFeed(thread);
-    expect(feed).toMatchObject([
+    expect(feed.map((entry) => entry.type)).toEqual(["message", "activity-group", "message"]);
+    const activity = feed.find((entry) => entry.type === "activity-group")?.activities[0];
+    expect(activity?.runId).toBe(runId);
+    expect(activity?.fullDetail).toContain('"input": "vp check"');
+  });
+
+  it("folds settled V2 run work while keeping the terminal assistant message visible", () => {
+    const thread = makeThreadFixture({
+      messages: [
+        message("user", "Run checks", "2026-06-20T00:00:01.000Z", "message-user"),
+        message("assistant", "Done", "2026-06-20T00:00:03.000Z", "message-assistant"),
+      ],
+      workEntries: [commandEntry()],
+    });
+    const feed = buildThreadFeed(thread);
+    const latestRun = {
+      runId,
+      status: "completed" as const,
+      startedAt: "2026-06-20T00:00:01.000Z",
+      completedAt: "2026-06-20T00:00:03.000Z",
+    };
+
+    const collapsed = deriveThreadFeedPresentation(feed, latestRun, new Set());
+    expect(collapsed.map((entry) => entry.type)).toEqual(["message", "run-fold", "message"]);
+
+    const expanded = deriveThreadFeedPresentation(feed, latestRun, new Set([runId]));
+    expect(expanded.map((entry) => entry.type)).toEqual([
+      "message",
+      "run-fold",
+      "activity-group",
+      "message",
+    ]);
+  });
+
+  it("keeps an active run expanded and marks failed tools as failures", () => {
+    const thread = makeThreadFixture({
+      messages: [message("user", "Run checks", "2026-06-20T00:00:01.000Z", "message-user")],
+      workEntries: [commandEntry({ tone: "error", toolLifecycleStatus: "failed" })],
+    });
+    const feed = buildThreadFeed(thread);
+    const presented = deriveThreadFeedPresentation(
+      feed,
       {
+<<<<<<< HEAD
         type: "activity-group",
         turnId: "turn-old",
         activities: [{ id: "activity-old", turnId: "turn-old" }],
@@ -664,110 +448,20 @@ describe("buildThreadFeed", () => {
         state: "running",
         requestedAt: "2026-04-01T00:00:14.000Z",
         startedAt: "2026-04-01T00:00:14.000Z",
+=======
+        runId,
+        status: "running",
+        startedAt: "2026-06-20T00:00:01.000Z",
+>>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
         completedAt: null,
-        assistantMessageId: MessageId.make("assistant-next"),
       },
-      messages: [
-        {
-          id: MessageId.make("user-1"),
-          role: "user",
-          text: "Do it once more.",
-          turnId: null,
-          streaming: false,
-          createdAt: "2026-04-01T00:00:00.000Z",
-          updatedAt: "2026-04-01T00:00:00.000Z",
-        },
-        {
-          id: MessageId.make("assistant-commentary"),
-          role: "assistant",
-          text: "Kicking off call 1.",
-          turnId: firstTurnId,
-          streaming: false,
-          createdAt: "2026-04-01T00:00:09.000Z",
-          updatedAt: "2026-04-01T00:00:09.000Z",
-        },
-        {
-          id: MessageId.make("user-2"),
-          role: "user",
-          text: "Actually do 15.",
-          turnId: null,
-          streaming: false,
-          createdAt: "2026-04-01T00:00:14.000Z",
-          updatedAt: "2026-04-01T00:00:14.000Z",
-        },
-        {
-          id: MessageId.make("assistant-next"),
-          role: "assistant",
-          text: "One down - adjusting.",
-          turnId: secondTurnId,
-          streaming: true,
-          createdAt: "2026-04-01T00:00:17.000Z",
-          updatedAt: "2026-04-01T00:00:17.000Z",
-        },
-      ],
-      activities: [
-        makeActivity({
-          id: EventId.make("work-1"),
-          kind: "tool.completed",
-          tone: "tool",
-          summary: "Ran command",
-          createdAt: "2026-04-01T00:00:12.000Z",
-          turnId: firstTurnId,
-          payload: {
-            title: "Ran command",
-            itemType: "command_execution",
-            status: "completed",
-          },
-        }),
-      ],
-    });
+      new Set(),
+    );
 
-    const feed = buildThreadFeed(thread);
-    const collapsed = deriveThreadFeedPresentation(feed, thread.latestTurn, new Set());
-    expect(collapsed.find((entry) => entry.type === "turn-fold")).toMatchObject({
-      turnId: firstTurnId,
-      label: "Worked for 12s",
-    });
-  });
-
-  it("keeps an active turn expanded and classifies error-shaped tool output", () => {
-    const turnId = TurnId.make("turn-running");
-    const thread = makeThread({
-      id: ThreadId.make("thread-4"),
-      projectId: ProjectId.make("project-1"),
-      title: "Running work",
-      latestTurn: {
-        turnId,
-        state: "running",
-        requestedAt: "2026-04-01T00:00:00.000Z",
-        startedAt: "2026-04-01T00:00:01.000Z",
-        completedAt: null,
-        assistantMessageId: null,
-      },
-      activities: [
-        makeActivity({
-          id: EventId.make("tool-failed"),
-          kind: "tool.completed",
-          tone: "tool",
-          summary: "Run command",
-          createdAt: "2026-04-01T00:00:05.000Z",
-          turnId,
-          payload: {
-            title: "Run command",
-            itemType: "command_execution",
-            detail: "zsh: command not found: nope",
-            status: "completed",
-          },
-        }),
-      ],
-    });
-
-    const feed = buildThreadFeed(thread);
-    expect(deriveThreadFeedPresentation(feed, thread.latestTurn, new Set())).toEqual(feed);
-    expect(feed[0]).toMatchObject({
-      type: "activity-group",
-      activities: [{ status: "failure" }],
-    });
+    expect(presented.some((entry) => entry.type === "run-fold")).toBe(false);
+    expect(presented.find((entry) => entry.type === "activity-group")?.activities[0]?.status).toBe(
+      "failure",
+    );
   });
 
   it("appends active work as a normal timeline row", () => {
