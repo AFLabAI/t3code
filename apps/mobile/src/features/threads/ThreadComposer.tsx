@@ -19,9 +19,6 @@ import {
 } from "@t3tools/shared/composerTrigger";
 import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-<<<<<<< HEAD
-import { ActivityIndicator, Image, Platform, Pressable, View, type ViewStyle } from "react-native";
-=======
 import {
   ActivityIndicator,
   Image,
@@ -32,7 +29,6 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 import ImageViewing from "react-native-image-viewing";
 import Animated, {
   FadeIn,
@@ -41,11 +37,7 @@ import Animated, {
   FadeOutDown,
   LinearTransition,
 } from "react-native-reanimated";
-<<<<<<< HEAD
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
-=======
 import { useThemeColor } from "../../lib/useThemeColor";
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 
@@ -136,23 +128,14 @@ const COMPOSER_LAYOUT_TRANSITION =
 export function ComposerSurface(props: {
   readonly children: ReactNode;
   readonly style: ViewStyle;
-<<<<<<< HEAD
-  /** Existing thread composers morph between pill and card layouts. */
-  readonly animateLayout?: boolean;
-=======
   readonly isDarkMode: boolean;
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 }) {
   // Drop shadow lives on a wrapper: `overflow: "hidden"` on the surface itself
   // (needed to clip content to the pill shape) would clip the shadow on iOS.
   const shadowStyle: ViewStyle = {
     borderRadius: props.style.borderRadius,
-<<<<<<< HEAD
-    shadowOpacity: 1,
-=======
     shadowColor: "#000000",
     shadowOpacity: props.isDarkMode ? 0.35 : 0.12,
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 10,
@@ -174,21 +157,6 @@ export function ComposerSurface(props: {
   }
 
   return (
-<<<<<<< HEAD
-    <Animated.View
-      className="shadow-adaptive-black-a15-a35"
-      layout={props.animateLayout === false ? undefined : COMPOSER_LAYOUT_TRANSITION}
-      style={shadowStyle}
-    >
-      <GlassSurface
-        chrome="none"
-        fallbackClassName="border border-border bg-card-translucent"
-        glassEffectStyle="regular"
-        // The composer is a passive material containing interactive controls.
-        // Expo GlassView defaults to non-interactive and both layouts share it.
-        tintColor="transparent"
-        style={props.style}
-=======
     <Animated.View layout={COMPOSER_LAYOUT_TRANSITION} style={shadowStyle}>
       <View
         style={[
@@ -199,7 +167,6 @@ export function ComposerSurface(props: {
             borderColor: props.isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
           },
         ]}
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
       >
         {props.children}
       </View>
@@ -263,10 +230,7 @@ const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(
   readonly status: ComposerStatusPillState;
 }) {
   const isReconnecting = props.status.kind !== "unavailable";
-<<<<<<< HEAD
-=======
 
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
   return (
     <Animated.View
       className="absolute inset-x-0 bottom-full items-center pb-2"
@@ -280,11 +244,7 @@ const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(
         className="max-w-full flex-row items-center gap-2 rounded-full bg-white/90 px-3 py-2 shadow-sm active:opacity-70 dark:bg-neutral-900/90"
       >
         {isReconnecting ? (
-<<<<<<< HEAD
-          <ActivityIndicator size="small" colorClassName={"accent-icon-muted"} />
-=======
           <ActivityIndicator size="small" color="#8e8e93" />
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
         ) : (
           <View className="h-2 w-2 rounded-full bg-red-500" />
         )}
@@ -300,13 +260,8 @@ const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(
 });
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
-<<<<<<< HEAD
-  const navigation = useNavigation();
-  const foregroundColor = useUniwindTheme()["--color-foreground"];
-=======
   const isDarkMode = useColorScheme() === "dark";
   const foregroundColor = useThemeColor("--color-foreground");
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
   const bodyText = useScaledTextRole("body");
   const fallbackInputRef = useRef<ComposerEditorHandle>(null);
   const inputRef = props.editorRef ?? fallbackInputRef;
@@ -376,11 +331,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     environmentLabel: props.environmentLabel,
     threadSyncPhase: props.threadSyncPhase,
   });
-<<<<<<< HEAD
-=======
   const toolbarFadeOpaque = isDarkMode ? "rgba(0,0,0,0.95)" : "rgba(255,255,255,0.95)";
   const toolbarFadeTransparent = isDarkMode ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)";
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
   const selectedProviderStatus = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
@@ -664,81 +616,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       }),
     [currentModelOption?.capabilities, currentModelSelection.options],
   );
-<<<<<<< HEAD
-  const settingsOwnerId = scopedThreadKey(props.environmentId, props.selectedThread.id);
-  const settingsRouteSession = useMemo<ExistingThreadSettingsRouteSession>(
-    () => ({
-      ownerId: settingsOwnerId,
-      environmentId: props.environmentId,
-      providerGroups: threadProviderGroups,
-      selectedModel: currentModelSelection,
-      onSelectModel: (option) => props.onUpdateModelSelection(option.selection),
-      optionDescriptors: providerOptionDescriptors,
-      onUpdateOptionSelections: (options) =>
-        props.onUpdateModelSelection({ ...currentModelSelection, options }),
-      runtimeMode: currentRuntimeMode,
-      onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-    }),
-    [
-      currentModelSelection,
-      currentRuntimeMode,
-      props.onUpdateModelSelection,
-      props.onUpdateRuntimeMode,
-      providerOptionDescriptors,
-      settingsOwnerId,
-      threadProviderGroups,
-    ],
-  );
-  const openSettings = useCallback(() => {
-    settingsRoutePresentation.present(settingsRouteSession);
-    settingsSheetPresentation.open();
-  }, [settingsRoutePresentation.present, settingsRouteSession, settingsSheetPresentation.open]);
-
-  useEffect(() => {
-    if (settingsSheetPresentation.isActive) {
-      settingsRoutePresentation.present(settingsRouteSession);
-    }
-  }, [settingsRoutePresentation.present, settingsRouteSession, settingsSheetPresentation.isActive]);
-
-  useEffect(() => {
-    if (!settingsSheetPresentation.isVisible || settingsRoutePresentedRef.current) {
-      return;
-    }
-
-    settingsRoutePresentedRef.current = true;
-    navigation.dispatch(StackActions.push("ThreadSettingsSheet"));
-  }, [navigation, settingsSheetPresentation.isVisible]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!settingsRoutePresentedRef.current) {
-        return;
-      }
-
-      settingsRoutePresentedRef.current = false;
-      settingsSheetPresentation.onDismissed();
-      settingsRoutePresentation.clear(settingsOwnerId);
-    }, [settingsOwnerId, settingsRoutePresentation.clear, settingsSheetPresentation.onDismissed]),
-  );
-
-  useEffect(
-    () =>
-      // UIKit's completion callback for the sheet dismissal, surfaced by the
-      // native-stack patch. This is when the queued keyboard restore runs.
-      (navigation as unknown as NavigationWithFinishTransitioning).addListener(
-        "finishTransitioning",
-        settingsSheetPresentation.onStackTransitionsFinished,
-      ),
-    [navigation, settingsSheetPresentation.onStackTransitionsFinished],
-  );
-=======
   const settingsSummaryLabel = threadSettingsSummaryLabel({
     modelLabel: currentModelOption?.label ?? currentModelSelection.model,
     optionDescriptors: providerOptionDescriptors,
     runtimeMode: currentRuntimeMode,
     interactionMode: currentInteractionMode,
   });
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 
   return (
     <Animated.View
@@ -753,10 +636,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           silently drops experimental_backgroundImage on Android, which left this
           strip fully transparent and the feed text legible through the composer. */}
       <View
-        className="absolute inset-0 bg-linear-to-b from-screen/0 via-screen/60 to-screen/90"
         pointerEvents="none"
-<<<<<<< HEAD
-=======
         style={[
           StyleSheet.absoluteFill,
           {
@@ -765,7 +645,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               : "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 55%, rgba(255,255,255,0.9) 100%)",
           },
         ]}
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
       />
       <Animated.View
         className="relative w-full self-center"
@@ -791,6 +670,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ) : null}
 
         <ComposerSurface
+          isDarkMode={isDarkMode}
           style={
             isExpanded
               ? {
@@ -896,11 +776,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               )}
             </Animated.View>
           ) : null}
-<<<<<<< HEAD
-          {isExpanded ? (
-            <ComposerToolbarRow paddingBottom={0} paddingHorizontal={0} paddingTop={4}>
-              <ComposerToolbarScroller contentPaddingRight={8}>
-=======
         </ComposerSurface>
 
         {isExpanded ? (
@@ -911,7 +786,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 fadeOpaque={toolbarFadeOpaque}
                 fadeTransparent={toolbarFadeTransparent}
               >
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
                 <ComposerToolbarButton
                   accessibilityLabel="Add attachment"
                   icon="plus"
