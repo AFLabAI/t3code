@@ -11,19 +11,9 @@ import {
   type ThreadId,
   type RunId,
 } from "@t3tools/contracts";
-<<<<<<< HEAD
-import {
-  type ChatMessage,
-  isImageAttachment,
-  type SessionPhase,
-  type Thread,
-  type ThreadShell,
-} from "../types";
-=======
 import * as DateTime from "effect/DateTime";
 import { presentThread } from "@t3tools/client-runtime/state/shell";
 import { type ChatMessage, type SessionPhase, type Thread } from "../types";
->>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -238,7 +228,7 @@ export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
     return;
   }
   for (const attachment of message.attachments) {
-    if (!isImageAttachment(attachment)) {
+    if (attachment.type !== "image") {
       continue;
     }
     revokeBlobPreviewUrl(attachment.previewUrl);
@@ -251,7 +241,7 @@ export function collectUserMessageBlobPreviewUrls(message: ChatMessage): string[
   }
   const previewUrls: string[] = [];
   for (const attachment of message.attachments) {
-    if (!isImageAttachment(attachment)) continue;
+    if (attachment.type !== "image") continue;
     if (!attachment.previewUrl || !attachment.previewUrl.startsWith("blob:")) continue;
     previewUrls.push(attachment.previewUrl);
   }
