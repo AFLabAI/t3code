@@ -1,594 +1,65 @@
 import {
-  classifyTaskAgentKind,
-  EventId,
   MessageId,
+  PlanId,
+  RunId,
   ThreadId,
-  TurnId,
-  type OrchestrationThreadActivity,
+  TurnItemId,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  deriveActiveWorkStartedAt,
-  deriveActivePlanState,
-  deriveTurnPlans,
-  derivePendingApprovals,
-  derivePendingUserInputs,
   deriveTimelineEntries,
-  deriveWorkLogEntries,
+  deriveTimelineEntriesFromVisibleTurnItems,
   findLatestProposedPlan,
-  hasActionableProposedPlan,
-  isLatestTurnSettled,
-  workEntryIndicatesToolFailure,
-  workEntryIndicatesToolNeutralStatus,
-  workEntryIndicatesToolSuccess,
+  isLatestRunSettled,
 } from "./session-logic";
 
-let nextActivityId = 0;
-
-function makeActivity(overrides: {
-  id?: string;
-  createdAt?: string;
-  kind?: string;
-  summary?: string;
-  tone?: OrchestrationThreadActivity["tone"];
-  payload?: Record<string, unknown>;
-  turnId?: string;
-  sequence?: number;
-}): OrchestrationThreadActivity {
-  // Fixtures model post-ingestion rows: ingestion stamps agentKind on every
-  // task.* payload. Pass an explicit agentKind to model legacy rows.
-  const rawPayload = overrides.payload ?? {};
-  const payload =
-    overrides.kind?.startsWith("task.") && !("agentKind" in rawPayload)
-      ? {
-          ...rawPayload,
-          agentKind: classifyTaskAgentKind({
-            taskType: typeof rawPayload.taskType === "string" ? rawPayload.taskType : undefined,
-            agentId: typeof rawPayload.agentId === "string" ? rawPayload.agentId : undefined,
-          }),
-        }
-      : rawPayload;
-  return {
-    id: EventId.make(overrides.id ?? `activity-${nextActivityId++}`),
-    createdAt: overrides.createdAt ?? "2026-02-23T00:00:00.000Z",
-    kind: overrides.kind ?? "tool.started",
-    summary: overrides.summary ?? "Tool call",
-    tone: overrides.tone ?? "tool",
-    payload,
-    turnId: overrides.turnId ? TurnId.make(overrides.turnId) : null,
-    ...(overrides.sequence !== undefined ? { sequence: overrides.sequence } : {}),
-  };
-}
-
-describe("derivePendingApprovals", () => {
-  it("tracks open approvals and removes resolved ones", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "approval-open",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "approval.requested",
-        summary: "Command approval requested",
-        tone: "approval",
-        payload: {
-          requestId: "req-1",
-          requestKind: "command",
-          detail: "bun run lint",
-        },
-      }),
-      makeActivity({
-        id: "approval-close",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "approval.resolved",
-        summary: "Approval resolved",
-        tone: "info",
-        payload: { requestId: "req-2" },
-      }),
-      makeActivity({
-        id: "approval-closed-request",
-        createdAt: "2026-02-23T00:00:01.500Z",
-        kind: "approval.requested",
-        summary: "File-change approval requested",
-        tone: "approval",
-        payload: { requestId: "req-2", requestKind: "file-change" },
-      }),
-    ];
-
-    expect(derivePendingApprovals(activities)).toEqual([
-      {
-        requestId: "req-1",
-        requestKind: "command",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        detail: "bun run lint",
-      },
-    ]);
-  });
-
-  it("maps canonical requestType payloads into pending approvals", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "approval-open-request-type",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "approval.requested",
-        summary: "Command approval requested",
-        tone: "approval",
-        payload: {
-          requestId: "req-request-type",
-          requestType: "command_execution_approval",
-          detail: "pwd",
-        },
-      }),
-    ];
-
-    expect(derivePendingApprovals(activities)).toEqual([
-      {
-        requestId: "req-request-type",
-        requestKind: "command",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        detail: "pwd",
-      },
-    ]);
-  });
-
-  it("derives dynamic tool requests as actionable generic approvals", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "approval-open-dynamic-tool",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "approval.requested",
-        summary: "Approval requested",
-        tone: "approval",
-        payload: {
-          requestId: "req-dynamic-tool",
-          requestType: "dynamic_tool_call",
-          detail: "Search the web",
-        },
-      }),
-    ];
-
-    expect(derivePendingApprovals(activities)).toEqual([
-      {
-        requestId: "req-dynamic-tool",
-        requestKind: "command",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        detail: "Search the web",
-      },
-    ]);
-  });
-
-  it("clears stale pending approvals when provider reports unknown pending request", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "approval-open-stale",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "approval.requested",
-        summary: "Command approval requested",
-        tone: "approval",
-        payload: {
-          requestId: "req-stale-1",
-          requestKind: "command",
-        },
-      }),
-      makeActivity({
-        id: "approval-failed-stale",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "provider.approval.respond.failed",
-        summary: "Provider approval response failed",
-        tone: "error",
-        payload: {
-          requestId: "req-stale-1",
-          detail: "Unknown pending permission request: req-stale-1",
-        },
-      }),
-    ];
-
-    expect(derivePendingApprovals(activities)).toEqual([]);
-  });
-
-  it("clears stale pending approvals when the backend marks them stale after restart", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "approval-open-stale-restart",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "approval.requested",
-        summary: "Command approval requested",
-        tone: "approval",
-        payload: {
-          requestId: "req-stale-restart-1",
-          requestKind: "command",
-        },
-      }),
-      makeActivity({
-        id: "approval-failed-stale-restart",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "provider.approval.respond.failed",
-        summary: "Provider approval response failed",
-        tone: "error",
-        payload: {
-          requestId: "req-stale-restart-1",
-          detail:
-            "Stale pending approval request: req-stale-restart-1. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.",
-        },
-      }),
-    ];
-
-    expect(derivePendingApprovals(activities)).toEqual([]);
-  });
-});
-
-describe("derivePendingUserInputs", () => {
-  it("tracks open structured prompts and removes resolved ones", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "user-input-open",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "user-input.requested",
-        summary: "User input requested",
-        tone: "info",
-        payload: {
-          requestId: "req-user-input-1",
-          questions: [
-            {
-              id: "sandbox_mode",
-              header: "Sandbox",
-              question: "Which mode should be used?",
-              options: [
-                {
-                  label: "workspace-write",
-                  description: "Allow workspace writes only",
-                },
-              ],
-              multiSelect: true,
-            },
-          ],
-        },
-      }),
-      makeActivity({
-        id: "user-input-resolved",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "user-input.resolved",
-        summary: "User input submitted",
-        tone: "info",
-        payload: {
-          requestId: "req-user-input-2",
-          answers: {
-            sandbox_mode: "workspace-write",
-          },
-        },
-      }),
-      makeActivity({
-        id: "user-input-open-2",
-        createdAt: "2026-02-23T00:00:01.500Z",
-        kind: "user-input.requested",
-        summary: "User input requested",
-        tone: "info",
-        payload: {
-          requestId: "req-user-input-2",
-          questions: [
-            {
-              id: "approval",
-              header: "Approval",
-              question: "Continue?",
-              options: [
-                {
-                  label: "yes",
-                  description: "Continue execution",
-                },
-              ],
-              multiSelect: false,
-            },
-          ],
-        },
-      }),
-    ];
-
-    expect(derivePendingUserInputs(activities)).toEqual([
-      {
-        requestId: "req-user-input-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        questions: [
-          {
-            id: "sandbox_mode",
-            header: "Sandbox",
-            question: "Which mode should be used?",
-            options: [
-              {
-                label: "workspace-write",
-                description: "Allow workspace writes only",
-              },
-            ],
-            multiSelect: true,
-          },
-        ],
-      },
-    ]);
-  });
-
-  it("clears stale pending user-input prompts when the provider reports an orphaned request", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "user-input-open-stale",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "user-input.requested",
-        summary: "User input requested",
-        tone: "info",
-        payload: {
-          requestId: "req-user-input-stale-1",
-          questions: [
-            {
-              id: "sandbox_mode",
-              header: "Sandbox",
-              question: "Which mode should be used?",
-              options: [
-                {
-                  label: "workspace-write",
-                  description: "Allow workspace writes only",
-                },
-              ],
-              multiSelect: false,
-            },
-          ],
-        },
-      }),
-      makeActivity({
-        id: "user-input-failed-stale",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "provider.user-input.respond.failed",
-        summary: "Provider user input response failed",
-        tone: "error",
-        payload: {
-          requestId: "req-user-input-stale-1",
-          detail:
-            "Provider adapter request failed (codex) for item/tool/requestUserInput: Unknown pending Codex user input request: req-user-input-stale-1",
-        },
-      }),
-    ];
-
-    expect(derivePendingUserInputs(activities)).toEqual([]);
-  });
-});
-
-describe("deriveActivePlanState", () => {
-  it("returns the latest plan update for the active turn", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "plan-old",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: {
-          explanation: "Initial plan",
-          plan: [{ step: "Inspect code", status: "pending" }],
-        },
-      }),
-      makeActivity({
-        id: "plan-latest",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: {
-          explanation: "Refined plan",
-          plan: [{ step: "Implement Codex user input", status: "inProgress" }],
-        },
-      }),
-    ];
-
-    expect(deriveActivePlanState(activities, TurnId.make("turn-1"))).toEqual({
-      createdAt: "2026-02-23T00:00:02.000Z",
-      turnId: "turn-1",
-      explanation: "Refined plan",
-      steps: [{ step: "Implement Codex user input", status: "inProgress" }],
-    });
-  });
-
-  it("falls back to the most recent plan from a previous turn", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "plan-from-turn-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: {
-          plan: [{ step: "Write tests", status: "completed" }],
-        },
-      }),
-    ];
-
-    // Current turn is turn-2, which has no plan activity — should fall back to turn-1's plan
-    const result = deriveActivePlanState(activities, TurnId.make("turn-2"));
-    expect(result).toEqual({
-      createdAt: "2026-02-23T00:00:01.000Z",
-      turnId: "turn-1",
-      steps: [{ step: "Write tests", status: "completed" }],
-    });
-  });
-});
-
-describe("deriveTurnPlans", () => {
-  it("keeps one entry per turn, anchored at the first snapshot with the latest steps", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "plan-1a",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: {
-          plan: [{ step: "Inspect code", status: "inProgress" }],
-        },
-      }),
-      makeActivity({
-        id: "plan-1b",
-        createdAt: "2026-02-23T00:00:05.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: {
-          plan: [{ step: "Inspect code", status: "completed" }],
-        },
-      }),
-      makeActivity({
-        id: "plan-2a",
-        createdAt: "2026-02-23T00:01:00.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-2",
-        payload: {
-          plan: [{ step: "Ship it", status: "pending" }],
-        },
-      }),
-    ];
-
-    const turnPlans = deriveTurnPlans(activities);
-    expect(turnPlans).toHaveLength(2);
-    expect(turnPlans[0]).toMatchObject({
-      id: "turn-plan:turn-1",
-      createdAt: "2026-02-23T00:00:01.000Z",
-      turnId: "turn-1",
-    });
-    expect(turnPlans[0]?.plan.steps).toEqual([{ step: "Inspect code", status: "completed" }]);
-    expect(turnPlans[1]?.plan.steps).toEqual([{ step: "Ship it", status: "pending" }]);
-  });
-
-  it("skips activities without parseable steps", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "plan-bad",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: { plan: [] },
-      }),
-    ];
-    expect(deriveTurnPlans(activities)).toEqual([]);
-  });
-
-  it("drops a turn's chip when a later snapshot clears the plan", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "plan-set",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: { plan: [{ step: "Inspect code", status: "inProgress" }] },
-      }),
-      makeActivity({
-        id: "plan-clear",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-        turnId: "turn-1",
-        payload: { plan: [] },
-      }),
-    ];
-    expect(deriveTurnPlans(activities)).toEqual([]);
-  });
-});
-
-describe("findLatestProposedPlan", () => {
-  it("prefers the latest proposed plan for the active turn", () => {
+describe("V2 session presentation", () => {
+  it("uses run status as the settlement boundary", () => {
+    const runId = RunId.make("run-1");
     expect(
-      findLatestProposedPlan(
-        [
-          {
-            id: "plan:thread-1:turn:turn-1",
-            turnId: TurnId.make("turn-1"),
-            planMarkdown: "# Older",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-23T00:00:01.000Z",
-            updatedAt: "2026-02-23T00:00:01.000Z",
-          },
-          {
-            id: "plan:thread-1:turn:turn-1",
-            turnId: TurnId.make("turn-1"),
-            planMarkdown: "# Latest",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-23T00:00:01.000Z",
-            updatedAt: "2026-02-23T00:00:02.000Z",
-          },
-          {
-            id: "plan:thread-1:turn:turn-2",
-            turnId: TurnId.make("turn-2"),
-            planMarkdown: "# Different turn",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-23T00:00:03.000Z",
-            updatedAt: "2026-02-23T00:00:03.000Z",
-          },
-        ],
-        TurnId.make("turn-1"),
+      isLatestRunSettled(
+        {
+          runId,
+          status: "completed",
+          startedAt: "2026-06-20T00:00:00.000Z",
+          completedAt: "2026-06-20T00:01:00.000Z",
+        },
+        null,
       ),
-    ).toEqual({
-      id: "plan:thread-1:turn:turn-1",
-      turnId: "turn-1",
-      planMarkdown: "# Latest",
-      implementedAt: null,
-      implementationThreadId: null,
-      createdAt: "2026-02-23T00:00:01.000Z",
-      updatedAt: "2026-02-23T00:00:02.000Z",
-    });
+    ).toBe(true);
+    expect(
+      isLatestRunSettled(
+        { runId, status: "running", startedAt: null, completedAt: null },
+        { status: "running", activeRunId: runId },
+      ),
+    ).toBe(false);
   });
 
-  it("falls back to the most recently updated proposed plan", () => {
-    const latestPlan = findLatestProposedPlan(
+  it("selects the latest proposed plan for a run", () => {
+    const runId = RunId.make("run-1");
+    const plan = findLatestProposedPlan(
       [
         {
-          id: "plan:thread-1:turn:turn-1",
-          turnId: TurnId.make("turn-1"),
-          planMarkdown: "# First",
+          id: PlanId.make("plan-1"),
+          runId,
+          planMarkdown: "Plan",
+          status: "active",
           implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:01.000Z",
-          updatedAt: "2026-02-23T00:00:01.000Z",
-        },
-        {
-          id: "plan:thread-1:turn:turn-2",
-          turnId: TurnId.make("turn-2"),
-          planMarkdown: "# Latest",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:02.000Z",
-          updatedAt: "2026-02-23T00:00:03.000Z",
+          implementationThreadId: ThreadId.make("thread-implementation"),
+          createdAt: "2026-06-20T00:00:00.000Z",
+          updatedAt: "2026-06-20T00:00:01.000Z",
         },
       ],
-      null,
+      runId,
     );
-
-    expect(latestPlan?.planMarkdown).toBe("# Latest");
-  });
-});
-
-describe("hasActionableProposedPlan", () => {
-  it("returns true for an unimplemented proposed plan", () => {
-    expect(
-      hasActionableProposedPlan({
-        id: "plan-1",
-        turnId: TurnId.make("turn-1"),
-        planMarkdown: "# Plan",
-        implementedAt: null,
-        implementationThreadId: null,
-        createdAt: "2026-02-23T00:00:00.000Z",
-        updatedAt: "2026-02-23T00:00:01.000Z",
-      }),
-    ).toBe(true);
+    expect(plan?.planMarkdown).toBe("Plan");
   });
 
+<<<<<<< HEAD
   it("returns false for a proposed plan already implemented elsewhere", () => {
     expect(
       hasActionableProposedPlan({
@@ -1575,196 +1046,104 @@ describe("deriveWorkLogEntries", () => {
 
 describe("deriveTimelineEntries", () => {
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
+=======
+  it("orders conversation and generic V2 work entries", () => {
+>>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
     const entries = deriveTimelineEntries(
       [
         {
-          id: MessageId.make("message-1"),
-          role: "assistant",
-          text: "hello",
-          createdAt: "2026-02-23T00:00:01.000Z",
-          turnId: null,
-          updatedAt: "2026-02-23T00:00:01.000Z",
+          id: "message-1" as never,
+          role: "user",
+          text: "Hello",
+          runId: null,
           streaming: false,
+          createdAt: "2026-06-20T00:00:00.000Z",
+          updatedAt: "2026-06-20T00:00:00.000Z",
         },
       ],
-      [
-        {
-          id: "plan:thread-1:turn:turn-1",
-          turnId: TurnId.make("turn-1"),
-          planMarkdown: "# Ship it",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:02.000Z",
-          updatedAt: "2026-02-23T00:00:02.000Z",
-        },
-      ],
-      [
-        {
-          id: "work-1",
-          createdAt: "2026-02-23T00:00:03.000Z",
-          label: "Ran tests",
-          tone: "tool",
-        },
-      ],
+      [],
+      [],
     );
+    expect(entries.map((entry) => entry.kind)).toEqual(["message"]);
+  });
 
-    expect(entries.map((entry) => entry.kind)).toEqual(["message", "proposed-plan", "work"]);
-    expect(entries[1]).toMatchObject({
-      kind: "proposed-plan",
-      proposedPlan: {
-        planMarkdown: "# Ship it",
-        implementedAt: null,
-        implementationThreadId: null,
-      },
+  it("uses visible turn item order and keeps interruption lifecycle entries standalone", () => {
+    const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
+    const threadId = ThreadId.make("thread-visible");
+    const runId = RunId.make("run-visible");
+    const base = (id: string, ordinal: number) => ({
+      id: TurnItemId.make(id),
+      threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal,
+      status: "completed" as const,
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
     });
-  });
-});
+    const userItem = {
+      ...base("item-user", 0),
+      type: "user_message" as const,
+      messageId: MessageId.make("message-user"),
+      inputIntent: "turn_start" as const,
+      text: "Start",
+      attachments: [],
+      createdBy: "user" as const,
+      creationSource: "web" as const,
+    } satisfies OrchestrationV2TurnItem;
+    const requestItem = {
+      ...base("item-interrupt-request", 1),
+      type: "run_interrupt_request" as const,
+      message: "Stopping",
+    } satisfies OrchestrationV2TurnItem;
+    const commandItem = {
+      ...base("item-command", 2),
+      type: "command_execution" as const,
+      input: "sleep 1",
+      output: "done",
+      exitCode: 0,
+    } satisfies OrchestrationV2TurnItem;
+    const resultItem = {
+      ...base("item-interrupt-result", 3),
+      type: "run_interrupt_result" as const,
+      message: "Stopped",
+    } satisfies OrchestrationV2TurnItem;
+    const visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem> = [
+      userItem,
+      requestItem,
+      commandItem,
+      resultItem,
+    ].map((item, position) => ({
+      position,
+      visibility: "local" as const,
+      sourceThreadId: threadId,
+      sourceItemId: item.id,
+      item,
+    }));
 
-describe("deriveWorkLogEntries context window handling", () => {
-  it("excludes context window updates from the work log", () => {
-    const entries = deriveWorkLogEntries([
-      makeActivity({
-        id: "context-1",
-        turnId: "turn-1",
-        kind: "context-window.updated",
-        summary: "Context window updated",
-        tone: "info",
-      }),
-      makeActivity({
-        id: "tool-1",
-        turnId: "turn-1",
-        kind: "tool.completed",
-        summary: "Ran command",
-        tone: "tool",
-      }),
+    const entries = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems,
+      optimisticMessages: [],
+    });
+
+    expect(entries.map((entry) => [entry.kind, entry.id])).toEqual([
+      ["message", userItem.messageId],
+      ["event", requestItem.id],
+      ["work", commandItem.id],
+      ["event", resultItem.id],
     ]);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.label).toBe("Ran command");
-  });
-
-  it("keeps context compaction activities as normal work log entries", () => {
-    const entries = deriveWorkLogEntries([
-      makeActivity({
-        id: "compaction-1",
-        turnId: "turn-1",
-        kind: "context-compaction",
-        summary: "Context compacted",
-        tone: "info",
-      }),
-    ]);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.label).toBe("Context compacted");
-  });
-});
-
-describe("isLatestTurnSettled", () => {
-  const latestTurn = {
-    turnId: TurnId.make("turn-1"),
-    startedAt: "2026-02-27T21:10:00.000Z",
-    completedAt: "2026-02-27T21:10:06.000Z",
-  } as const;
-
-  it("returns false while the same turn is still active in a running session", () => {
-    expect(
-      isLatestTurnSettled(latestTurn, {
-        status: "running",
-        activeTurnId: TurnId.make("turn-1"),
-      }),
-    ).toBe(false);
-  });
-
-  it("returns false while any turn is running to avoid stale latest-turn banners", () => {
-    expect(
-      isLatestTurnSettled(latestTurn, {
-        status: "running",
-        activeTurnId: TurnId.make("turn-2"),
-      }),
-    ).toBe(false);
-  });
-
-  it("returns true once the session is no longer running that turn", () => {
-    expect(
-      isLatestTurnSettled(latestTurn, {
-        status: "ready",
-        activeTurnId: null,
-      }),
-    ).toBe(true);
-  });
-
-  it("returns false when turn timestamps are incomplete", () => {
-    expect(
-      isLatestTurnSettled(
-        {
-          turnId: TurnId.make("turn-1"),
-          startedAt: null,
-          completedAt: "2026-02-27T21:10:06.000Z",
-        },
-        null,
-      ),
-    ).toBe(false);
-  });
-});
-
-describe("deriveActiveWorkStartedAt", () => {
-  const latestTurn = {
-    turnId: TurnId.make("turn-1"),
-    startedAt: "2026-02-27T21:10:00.000Z",
-    completedAt: "2026-02-27T21:10:06.000Z",
-  } as const;
-
-  it("prefers the in-flight turn start when the latest turn is not settled", () => {
-    expect(
-      deriveActiveWorkStartedAt(
-        latestTurn,
-        {
-          status: "running",
-          activeTurnId: TurnId.make("turn-1"),
-        },
-        "2026-02-27T21:11:00.000Z",
-      ),
-    ).toBe("2026-02-27T21:10:00.000Z");
-  });
-
-  it("uses the new send start while the session is running a different turn", () => {
-    expect(
-      deriveActiveWorkStartedAt(
-        latestTurn,
-        {
-          status: "running",
-          activeTurnId: TurnId.make("turn-2"),
-        },
-        "2026-02-27T21:11:00.000Z",
-      ),
-    ).toBe("2026-02-27T21:11:00.000Z");
-  });
-
-  it("falls back to sendStartedAt once the latest turn is settled", () => {
-    expect(
-      deriveActiveWorkStartedAt(
-        latestTurn,
-        {
-          status: "ready",
-          activeTurnId: null,
-        },
-        "2026-02-27T21:11:00.000Z",
-      ),
-    ).toBe("2026-02-27T21:11:00.000Z");
-  });
-
-  it("uses sendStartedAt for a fresh send after the prior turn completed", () => {
-    expect(
-      deriveActiveWorkStartedAt(
-        {
-          turnId: TurnId.make("turn-1"),
-          startedAt: "2026-02-27T21:10:00.000Z",
-          completedAt: "2026-02-27T21:10:06.000Z",
-        },
-        null,
-        "2026-02-27T21:11:00.000Z",
-      ),
-    ).toBe("2026-02-27T21:11:00.000Z");
+    const commandEntry = entries[2];
+    expect(commandEntry?.kind).toBe("work");
+    if (commandEntry?.kind === "work") {
+      expect(commandEntry.entry.projectedItem).toBe(visibleTurnItems[2]);
+      expect(commandEntry.entry.structuredPayload).toBe(commandItem);
+    }
   });
 });
 

@@ -1,30 +1,24 @@
-import * as Option from "effect/Option";
-import * as Arr from "effect/Array";
-import * as Schema from "effect/Schema";
-import { isBackgroundTaskActivity } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
-  ApprovalRequestId,
-  isToolLifecycleItemType,
-  type OrchestrationLatestTurn,
-  type OrchestrationThreadActivity,
-  type OrchestrationProposedPlanId,
   ProviderDriverKind,
-  ProviderApprovalOption,
-  ProviderRequestKind,
-  type ToolLifecycleItemType,
-  type UserInputQuestion,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2TurnItem,
+  type PlanId,
+  type RunId,
   type ThreadId,
-  type TurnId,
 } from "@t3tools/contracts";
-
 import type {
-  ChatMessage,
-  ProposedPlan,
-  SessionPhase,
-  Thread,
-  ThreadSession,
-  TurnDiffSummary,
-} from "./types";
+  ThreadCheckpointSummary,
+  ThreadPendingApproval,
+  ThreadPendingUserInput,
+  ThreadProposedPlan,
+  ThreadRunSummary,
+  ThreadRuntimeSummary,
+  ThreadTodoPlan,
+  ThreadWorkEntry,
+} from "@t3tools/client-runtime/state/shell";
+
+import type { ChatMessage, ProposedPlan, SessionPhase, TurnDiffSummary } from "./types";
+import * as DateTime from "effect/DateTime";
 
 export type ProviderPickerKind = ProviderDriverKind;
 
@@ -32,7 +26,6 @@ export const PROVIDER_OPTIONS: Array<{
   value: ProviderPickerKind;
   label: string;
   available: boolean;
-  /** Shown on the model picker sidebar when relevant */
   pickerSidebarBadge?: "new" | "soon";
 }> = [
   { value: ProviderDriverKind.make("codex"), label: "Codex", available: true },
@@ -49,231 +42,92 @@ export const PROVIDER_OPTIONS: Array<{
     available: true,
     pickerSidebarBadge: "new",
   },
-  {
-    value: ProviderDriverKind.make("grok"),
-    label: "Grok",
-    available: true,
-    pickerSidebarBadge: "new",
-  },
+  { value: ProviderDriverKind.make("grok"), label: "Grok", available: true },
 ];
 
-export type WorkLogToolLifecycleStatus =
-  | "inProgress"
-  | "completed"
-  | "failed"
-  | "declined"
-  | "stopped";
+export type WorkLogToolLifecycleStatus = ThreadWorkEntry["toolLifecycleStatus"];
 
-export interface WorkLogEntry {
-  id: string;
-  createdAt: string;
-  turnId?: TurnId | null;
-  /** Stable provider identity across in-progress and completed lifecycle updates. */
-  toolCallId?: string;
-  label: string;
-  detail?: string;
-  command?: string;
-  rawCommand?: string;
-  changedFiles?: ReadonlyArray<string>;
-  tone: "thinking" | "tool" | "info" | "error";
-  toolTitle?: string;
-  toolData?: unknown;
-  itemType?: ToolLifecycleItemType;
-  requestKind?: PendingApproval["requestKind"];
-  /** From runtime item / task payload `status` when present (e.g. tool.updated). */
-  toolLifecycleStatus?: WorkLogToolLifecycleStatus;
-  /** Originating orchestration activity kind (e.g. `user-input.requested`) for row chrome. */
-  sourceActivityKind?: OrchestrationThreadActivity["kind"];
-  /** Grouping key for subagent lifecycle rows (one row per agent). */
-  taskId?: string;
-  /** Agent role (subagent_type) for labeled timeline rows. */
-  agentRole?: string;
-  /**
-   * Present on agent-spawn CTA rows: one per workflow run or per-turn batch
-   * of direct spawns. The row renders as a call-to-action ("Kicked off N
-   * subagents") whose live status is derived from the agent panel model at
-   * render time; clicking opens the Agents panel.
-   */
-  agentSpawn?: {
-    /** Workflow coordinator taskId, or null for a direct-spawn batch. */
-    workflowId: string | null;
-    agentTaskIds: ReadonlyArray<string>;
-  };
+export interface WorkLogEntry extends Omit<
+  ThreadWorkEntry,
+  "structuredPayload" | "runId" | "itemType" | "toolLifecycleStatus"
+> {
+  readonly runId?: RunId | null;
+  readonly itemType?: ThreadWorkEntry["itemType"];
+  readonly toolLifecycleStatus?: ThreadWorkEntry["toolLifecycleStatus"];
+  readonly structuredPayload?: ThreadWorkEntry["structuredPayload"];
+  readonly sourceItemType?: ThreadWorkEntry["itemType"];
+  readonly projectedItem?: OrchestrationV2ProjectedTurnItem;
 }
 
-const workLogCollapseKey = Symbol();
-
-interface DerivedWorkLogEntry extends WorkLogEntry {
-  sourceActivityKind: OrchestrationThreadActivity["kind"];
-  [workLogCollapseKey]?: string;
-  toolCallId?: string;
-  isWorkflowCoordinator?: boolean;
-  /** Shell/monitor/plan tasks: ordinary work-log rows, never spawn CTAs. */
-  isBackgroundTask?: boolean;
-}
-
-const derivedWorkLogEntryByActivity = new WeakMap<
-  OrchestrationThreadActivity,
-  DerivedWorkLogEntry
->();
-
-export interface PendingApproval {
-  requestId: ApprovalRequestId;
-  requestKind: ProviderRequestKind;
-  createdAt: string;
-  detail?: string;
-  appName?: string;
-  options?: ReadonlyArray<ProviderApprovalOption>;
-}
-
-const isProviderRequestKind = Schema.is(ProviderRequestKind);
-const isProviderApprovalOption = Schema.is(ProviderApprovalOption);
-
-export interface PendingUserInput {
-  requestId: ApprovalRequestId;
-  createdAt: string;
-  questions: ReadonlyArray<UserInputQuestion>;
-}
+export type PendingApproval = ThreadPendingApproval;
+export type PendingUserInput = ThreadPendingUserInput;
 
 export interface ActivePlanState {
-  createdAt: string;
-  turnId: TurnId | null;
-  explanation?: string | null;
-  steps: Array<{
-    durationMs?: number;
-    step: string;
-    status: "pending" | "inProgress" | "completed";
+  readonly createdAt: string;
+  readonly runId: RunId | null;
+  readonly explanation?: string | null;
+  readonly steps: Array<{
+    readonly step: string;
+    readonly status: "pending" | "inProgress" | "completed";
   }>;
 }
 
 export interface LatestProposedPlanState {
-  id: OrchestrationProposedPlanId;
-  createdAt: string;
-  updatedAt: string;
-  turnId: TurnId | null;
-  planMarkdown: string;
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
+  readonly id: PlanId;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly runId: RunId | null;
+  readonly planMarkdown: string;
+  readonly implementedAt: string | null;
+  readonly implementationThreadId: ThreadId | null;
+  readonly status: ThreadProposedPlan["status"];
 }
 
 export type TimelineEntry =
   | {
-      id: string;
-      kind: "message";
-      createdAt: string;
-      message: ChatMessage;
+      readonly id: string;
+      readonly kind: "message";
+      readonly createdAt: string;
+      readonly message: ChatMessage;
     }
   | {
-      id: string;
-      kind: "proposed-plan";
-      createdAt: string;
-      proposedPlan: ProposedPlan;
+      readonly id: string;
+      readonly kind: "proposed-plan";
+      readonly createdAt: string;
+      readonly proposedPlan: ProposedPlan;
     }
   | {
-      id: string;
-      kind: "turn-plan";
-      createdAt: string;
-      turnPlan: TurnPlanEntry;
+      readonly id: string;
+      readonly kind: "work";
+      readonly createdAt: string;
+      readonly entry: WorkLogEntry;
     }
   | {
-      id: string;
-      kind: "work";
-      createdAt: string;
-      entry: WorkLogEntry;
+      readonly id: string;
+      readonly kind: "event";
+      readonly createdAt: string;
+      readonly projectedItem: OrchestrationV2ProjectedTurnItem;
     };
 
 export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
-  if (entry.tone === "tool" || entry.tone === "thinking" || entry.tone === "error") {
-    return true;
-  }
-  if (entry.command !== undefined && entry.command.trim().length > 0) {
-    return true;
-  }
-  if (entry.requestKind !== undefined) {
-    return true;
-  }
-  return entry.itemType !== undefined && isToolLifecycleItemType(entry.itemType);
+  return (
+    entry.tone === "tool" ||
+    entry.tone === "thinking" ||
+    entry.tone === "error" ||
+    entry.command !== undefined ||
+    entry.requestKind !== undefined
+  );
 }
 
-/** Heuristic: providers often emit successful lifecycle status while error text lives in `detail` / `command`. */
-function toolDetailTextLooksLikeFailure(text: string): boolean {
-  const t = text.toLowerCase();
-  if (t.includes("file not found")) {
-    return true;
-  }
-  if (t.includes("no files found")) {
-    return true;
-  }
-  if (
-    t.includes("enoent") ||
-    t.includes("no such file or directory") ||
-    t.includes("no such file")
-  ) {
-    return true;
-  }
-  if (t.includes("cannot find path") && t.includes("because it does not exist")) {
-    return true;
-  }
-  if (t.includes("commandnotfoundexception")) {
-    return true;
-  }
-  if (t.includes("is not recognized as the name of a cmdlet")) {
-    return true;
-  }
-  if (t.includes("is not recognized") && t.includes("the term '")) {
-    return true;
-  }
-  if (t.includes("a parameter cannot be found that matches parameter name")) {
-    return true;
-  }
-  if (t.includes("command not found")) {
-    return true;
-  }
-  if (/<exited with exit code\s+[1-9]\d*\s*>/i.test(text)) {
-    return true;
-  }
-  if (/exit(?:ed)? with exit code\s+[1-9]\d*/i.test(text)) {
-    return true;
-  }
-  if (/exit code\s*[:\s]\s*[1-9]\d*\b/i.test(text)) {
-    return true;
-  }
-  return false;
-}
-
-function workEntryIndicatesToolFailureFromOutput(
-  entry: WorkLogEntry,
-  includeCommand: boolean,
-): boolean {
-  if (entry.tone === "error") {
-    return true;
-  }
-  const ls = entry.toolLifecycleStatus;
-  if (ls === "failed" || ls === "declined") {
-    return true;
-  }
-  if (!workLogEntryIsToolLike(entry)) {
-    return false;
-  }
-  const parts: string[] = [];
-  if (entry.detail) {
-    parts.push(entry.detail);
-  }
-  if (includeCommand && entry.command) {
-    parts.push(entry.command);
-  }
-  const blob = parts.join("\n");
-  if (blob.length === 0) {
-    return false;
-  }
-  return toolDetailTextLooksLikeFailure(blob);
-}
-
-/** True when a tool failed, including providers that put error output in `command`. */
 export function workEntryIndicatesToolFailure(entry: WorkLogEntry): boolean {
-  return workEntryIndicatesToolFailureFromOutput(entry, true);
+  return (
+    entry.tone === "error" ||
+    entry.toolLifecycleStatus === "failed" ||
+    entry.toolLifecycleStatus === "declined"
+  );
 }
 
+<<<<<<< HEAD
 /** True when the rendered result indicates failure. The command itself is user intent, not output. */
 export function workEntryDisplayIndicatesToolFailure(entry: WorkLogEntry): boolean {
   return workEntryIndicatesToolFailureFromOutput(entry, false);
@@ -291,47 +145,18 @@ export function workEntrySignalsSevereFailure(entry: WorkLogEntry): boolean {
 }
 
 /** Tool/command row completed without failure (blue check affordance). */
+=======
+>>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 export function workEntryIndicatesToolSuccess(entry: WorkLogEntry): boolean {
-  if (!workLogEntryIsToolLike(entry)) {
-    return false;
-  }
-  if (workEntryIndicatesToolFailure(entry)) {
-    return false;
-  }
-  if (entry.tone === "thinking") {
-    return false;
-  }
-  const ls = entry.toolLifecycleStatus;
-  if (ls === "failed" || ls === "declined") {
-    return false;
-  }
-  if (ls === "inProgress") {
-    return false;
-  }
-  if (ls === "stopped") {
-    return false;
-  }
-  return true;
+  return workLogEntryIsToolLike(entry) && entry.toolLifecycleStatus === "completed";
 }
 
-/** Tool-like row with neither clear success nor failure (empty, incomplete, in progress, etc.). */
 export function workEntryIndicatesToolNeutralStatus(entry: WorkLogEntry): boolean {
-  // Spawn CTA rows are never neutral-hidden: mid-run they derive from
-  // task.progress (tone "thinking") and the neutral filter was swallowing
-  // them exactly while the fleet ran — the one moment they matter most.
-  if (entry.agentSpawn !== undefined) {
-    return false;
-  }
-  if (!workLogEntryIsToolLike(entry)) {
-    return false;
-  }
-  if (workEntryIndicatesToolFailure(entry)) {
-    return false;
-  }
-  if (workEntryIndicatesToolSuccess(entry)) {
-    return false;
-  }
-  return true;
+  return (
+    workLogEntryIsToolLike(entry) &&
+    !workEntryIndicatesToolFailure(entry) &&
+    !workEntryIndicatesToolSuccess(entry)
+  );
 }
 
 export function formatDuration(durationMs: number): string {
@@ -339,7 +164,6 @@ export function formatDuration(durationMs: number): string {
   if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`;
   if (durationMs < 10_000) {
     const tenths = Math.round(durationMs / 100) / 10;
-    // 9.95s+ rounds up to the next bucket — render "10s", not "10.0s".
     return tenths >= 10 ? "10s" : `${tenths.toFixed(1)}s`;
   }
   if (durationMs < 60_000) return `${Math.round(durationMs / 1_000)}s`;
@@ -354,333 +178,78 @@ export function formatElapsed(startIso: string, endIso: string | undefined): str
   if (!endIso) return null;
   const startedAt = Date.parse(startIso);
   const endedAt = Date.parse(endIso);
-  if (Number.isNaN(startedAt) || Number.isNaN(endedAt) || endedAt < startedAt) {
-    return null;
-  }
+  if (Number.isNaN(startedAt) || Number.isNaN(endedAt) || endedAt < startedAt) return null;
   return formatDuration(endedAt - startedAt);
 }
 
-type LatestTurnTiming = Pick<OrchestrationLatestTurn, "turnId" | "startedAt" | "completedAt">;
-type SessionActivityState = Pick<NonNullable<Thread["session"]>, "status" | "activeTurnId">;
-
-export function isLatestTurnSettled(
-  latestTurn: LatestTurnTiming | null,
-  session: SessionActivityState | null,
+export function isLatestRunSettled(
+  latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
+  runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
 ): boolean {
-  if (!latestTurn?.startedAt) return false;
-  if (!latestTurn.completedAt) return false;
-  if (!session) return true;
-  if (session.status === "running") return false;
-  return true;
+  if (latestRun === null) return false;
+  if (
+    latestRun.status === "starting" ||
+    latestRun.status === "running" ||
+    latestRun.status === "waiting"
+  )
+    return false;
+  return runtime?.activeRunId !== latestRun.runId;
 }
 
 export function deriveActiveWorkStartedAt(
-  latestTurn: LatestTurnTiming | null,
-  session: SessionActivityState | null,
+  latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
+  runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
   sendStartedAt: string | null,
-  latestUserMessageAt: string | null = null,
 ): string | null {
-  const runningTurnId = session?.status === "running" ? session.activeTurnId : null;
-  if (runningTurnId !== null) {
-    if (latestTurn?.turnId === runningTurnId) {
-      return latestTurn.startedAt ?? sendStartedAt ?? latestUserMessageAt;
-    }
-    return sendStartedAt ?? latestUserMessageAt;
+  if (runtime?.activeRunId !== null && runtime?.activeRunId !== undefined) {
+    return latestRun?.runId === runtime.activeRunId
+      ? (latestRun.startedAt ?? sendStartedAt)
+      : sendStartedAt;
   }
-  if (!isLatestTurnSettled(latestTurn, session)) {
-    return latestTurn?.startedAt ?? sendStartedAt;
-  }
-  return sendStartedAt;
-}
-
-function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
-  switch (requestType) {
-    case "command_execution_approval":
-    case "exec_command_approval":
-    case "dynamic_tool_call":
-      return "command";
-    case "file_read_approval":
-      return "file-read";
-    case "file_change_approval":
-    case "apply_patch_approval":
-      return "file-change";
-    case "mcp_elicitation_approval":
-      return "mcp-elicitation";
-    default:
-      return null;
-  }
-}
-
-function isStalePendingRequestFailureDetail(detail: string | undefined): boolean {
-  const normalized = detail?.toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return (
-    normalized.includes("stale pending approval request") ||
-    normalized.includes("stale pending user-input request") ||
-    normalized.includes("unknown pending approval request") ||
-    normalized.includes("unknown pending permission request") ||
-    normalized.includes("unknown pending user-input request") ||
-    normalized.includes("unknown pending user input request") ||
-    normalized.includes("unknown pending codex user input request")
-  );
+  return isLatestRunSettled(latestRun, runtime)
+    ? sendStartedAt
+    : (latestRun?.startedAt ?? sendStartedAt);
 }
 
 export function derivePendingApprovals(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): PendingApproval[] {
-  const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-
-  for (const activity of ordered) {
-    const payload =
-      activity.payload && typeof activity.payload === "object"
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const requestId =
-      payload && typeof payload.requestId === "string"
-        ? ApprovalRequestId.make(payload.requestId)
-        : null;
-    const requestKind =
-      payload && isProviderRequestKind(payload.requestKind)
-        ? payload.requestKind
-        : payload
-          ? requestKindFromRequestType(payload.requestType)
-          : null;
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
-    const appName = payload && typeof payload.appName === "string" ? payload.appName : undefined;
-    const options = Array.isArray(payload?.options)
-      ? payload.options.filter(isProviderApprovalOption)
-      : undefined;
-
-    if (activity.kind === "approval.requested" && requestId && requestKind) {
-      openByRequestId.set(requestId, {
-        requestId,
-        requestKind,
-        createdAt: activity.createdAt,
-        ...(detail ? { detail } : {}),
-        ...(appName ? { appName } : {}),
-        ...(options && options.length > 0 ? { options } : {}),
-      });
-      continue;
-    }
-
-    if (activity.kind === "approval.resolved" && requestId) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.approval.respond.failed" &&
-      requestId &&
-      isStalePendingRequestFailureDetail(detail)
-    ) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-  }
-
-  return [...openByRequestId.values()].toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
-}
-
-function parseUserInputQuestions(
-  payload: Record<string, unknown> | null,
-): ReadonlyArray<UserInputQuestion> | null {
-  const questions = payload?.questions;
-  if (!Array.isArray(questions)) {
-    return null;
-  }
-  const parsed = questions
-    .map<UserInputQuestion | null>((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const question = entry as Record<string, unknown>;
-      if (
-        typeof question.id !== "string" ||
-        typeof question.header !== "string" ||
-        typeof question.question !== "string" ||
-        !Array.isArray(question.options)
-      ) {
-        return null;
-      }
-      const options = question.options
-        .map<UserInputQuestion["options"][number] | null>((option) => {
-          if (!option || typeof option !== "object") return null;
-          const optionRecord = option as Record<string, unknown>;
-          if (
-            typeof optionRecord.label !== "string" ||
-            typeof optionRecord.description !== "string"
-          ) {
-            return null;
-          }
-          return {
-            label: optionRecord.label,
-            description: optionRecord.description,
-          };
-        })
-        .filter((option): option is UserInputQuestion["options"][number] => option !== null);
-      if (options.length === 0) {
-        return null;
-      }
-      return {
-        id: question.id,
-        header: question.header,
-        question: question.question,
-        options,
-        multiSelect: question.multiSelect === true,
-      };
-    })
-    .filter((question): question is UserInputQuestion => question !== null);
-  return parsed.length > 0 ? parsed : null;
+  approvals: ReadonlyArray<ThreadPendingApproval>,
+): ThreadPendingApproval[] {
+  return [...approvals].toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 export function derivePendingUserInputs(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): PendingUserInput[] {
-  const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-
-  for (const activity of ordered) {
-    const payload =
-      activity.payload && typeof activity.payload === "object"
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const requestId =
-      payload && typeof payload.requestId === "string"
-        ? ApprovalRequestId.make(payload.requestId)
-        : null;
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
-
-    if (activity.kind === "user-input.requested" && requestId) {
-      const questions = parseUserInputQuestions(payload);
-      if (!questions) {
-        continue;
-      }
-      openByRequestId.set(requestId, {
-        requestId,
-        createdAt: activity.createdAt,
-        questions,
-      });
-      continue;
-    }
-
-    if (activity.kind === "user-input.resolved" && requestId) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.user-input.respond.failed" &&
-      requestId &&
-      isStalePendingRequestFailureDetail(detail)
-    ) {
-      openByRequestId.delete(requestId);
-    }
-  }
-
-  return [...openByRequestId.values()].toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
+  inputs: ReadonlyArray<ThreadPendingUserInput>,
+): ThreadPendingUserInput[] {
+  return [...inputs].toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
-function planStateFromActivity(activity: OrchestrationThreadActivity): ActivePlanState | null {
-  const payload =
-    activity.payload && typeof activity.payload === "object"
-      ? (activity.payload as Record<string, unknown>)
-      : null;
-  const rawPlan = payload?.plan;
-  if (!Array.isArray(rawPlan)) {
-    return null;
-  }
-  const steps: Array<{
-    step: string;
-    status: "pending" | "inProgress" | "completed";
-  }> = [];
-  for (const entry of rawPlan) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    const record = entry as Record<string, unknown>;
-    if (typeof record.step !== "string") {
-      continue;
-    }
-    const status =
-      record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
-    steps.push({
-      step: record.step,
-      status,
-    });
-  }
-  if (steps.length === 0) {
-    return null;
-  }
+export function deriveActivePlanState(
+  plans: ReadonlyArray<ThreadTodoPlan>,
+  latestRunId: RunId | undefined,
+): ActivePlanState | null {
+  const plan =
+    [...plans].toReversed().find((candidate) => candidate.runId === latestRunId) ??
+    plans.at(-1) ??
+    null;
+  if (plan === null || plan.steps.length === 0) return null;
   return {
-    createdAt: activity.createdAt,
-    turnId: activity.turnId,
-    ...(payload && "explanation" in payload
-      ? { explanation: payload.explanation as string | null }
-      : {}),
-    steps,
+    createdAt: plan.updatedAt,
+    runId: plan.runId,
+    explanation: plan.explanation,
+    steps: plan.steps.map(({ step, status }) => ({ step, status })),
   };
 }
 
-function addPlanStepDurations(
-  plan: ActivePlanState,
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): ActivePlanState {
-  const timings = new Map<string, { completedAt?: number; startedAt?: number }>();
-  let planStartedAt: number | undefined;
-
-  const keyedSteps = (steps: ActivePlanState["steps"]) => {
-    const occurrences = new Map<string, number>();
-    return steps.map((step) => {
-      const occurrence = occurrences.get(step.step) ?? 0;
-      occurrences.set(step.step, occurrence + 1);
-      return { key: `${step.step}:${occurrence}`, step };
-    });
-  };
-
-  for (const activity of activities) {
-    const snapshot = planStateFromActivity(activity);
-    const activityAt = Date.parse(activity.createdAt);
-    if (!snapshot || Number.isNaN(activityAt)) continue;
-    planStartedAt ??= activityAt;
-
-    for (const { key, step } of keyedSteps(snapshot.steps)) {
-      const timing = timings.get(key) ?? {};
-      if (step.status === "inProgress" && timing.startedAt === undefined) {
-        timing.startedAt = activityAt;
-      }
-      if (step.status === "completed" && timing.completedAt === undefined) {
-        timing.completedAt = activityAt;
-      }
-      timings.set(key, timing);
-    }
-  }
-
-  const durationByKey = new Map<string, number>();
-  let previousCompletedAt = planStartedAt;
-  for (const [key, timing] of [...timings.entries()].toSorted(
-    (left, right) => (left[1].completedAt ?? Infinity) - (right[1].completedAt ?? Infinity),
-  )) {
-    const completedAt = timing.completedAt;
-    const startedAt = timing.startedAt ?? previousCompletedAt;
-    if (completedAt === undefined) continue;
-    if (startedAt !== undefined && completedAt > startedAt) {
-      durationByKey.set(key, completedAt - startedAt);
-    }
-    previousCompletedAt = completedAt;
-  }
-
+function toLatestProposedPlanState(plan: ThreadProposedPlan): LatestProposedPlanState {
   return {
-    ...plan,
-    steps: keyedSteps(plan.steps).map(({ key, step }) => {
-      if (step.status !== "completed") return step;
-      const durationMs = durationByKey.get(key);
-      return durationMs === undefined ? step : { ...step, durationMs };
-    }),
+    id: plan.id,
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+    runId: plan.runId,
+    planMarkdown: plan.planMarkdown,
+    implementedAt: plan.implementedAt,
+    implementationThreadId: plan.implementationThreadId,
+    status: plan.status,
   };
 }
 
@@ -701,15 +270,7 @@ export function deriveActivePlanState(
   if (!latest) {
     return null;
   }
-  const plan = planStateFromActivity(latest);
-  if (!plan) return null;
-  const matchingActivities = allPlanActivities.filter(
-    (activity) => activity.turnId === latest.turnId,
-  );
-  const latestClearIndex = matchingActivities.findLastIndex(
-    (activity) => planStateFromActivity(activity) === null,
-  );
-  return addPlanStepDurations(plan, matchingActivities.slice(latestClearIndex + 1));
+  return planStateFromActivity(latest);
 }
 
 export interface TurnPlanEntry {
@@ -730,10 +291,7 @@ export function deriveTurnPlans(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): TurnPlanEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  const byTurn = new Map<
-    string,
-    { activities: OrchestrationThreadActivity[]; entry: TurnPlanEntry }
-  >();
+  const byTurn = new Map<string, TurnPlanEntry>();
   for (const activity of ordered) {
     if (activity.kind !== "turn.plan.updated") {
       continue;
@@ -748,62 +306,63 @@ export function deriveTurnPlans(
     }
     const existing = byTurn.get(key);
     if (existing) {
-      existing.entry.plan = plan;
-      existing.activities.push(activity);
+      existing.plan = plan;
     } else {
       byTurn.set(key, {
-        activities: [activity],
-        entry: {
-          id: `turn-plan:${key}`,
-          createdAt: activity.createdAt,
-          turnId: activity.turnId,
-          plan,
-        },
+        id: `turn-plan:${key}`,
+        createdAt: activity.createdAt,
+        turnId: activity.turnId,
+        plan,
       });
     }
   }
-  return [...byTurn.values()].map(({ activities: planActivities, entry }) => ({
-    ...entry,
-    plan: addPlanStepDurations(entry.plan, planActivities),
-  }));
+  return [...byTurn.values()];
 }
 
 export function findLatestProposedPlan(
-  proposedPlans: ReadonlyArray<ProposedPlan>,
-  latestTurnId: TurnId | string | null | undefined,
+  plans: ReadonlyArray<ThreadProposedPlan>,
+  latestRunId: RunId | string | null | undefined,
 ): LatestProposedPlanState | null {
-  if (latestTurnId) {
-    const matchingTurnPlan = [...proposedPlans]
-      .filter((proposedPlan) => proposedPlan.turnId === latestTurnId)
-      .toSorted(
-        (left, right) =>
-          left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
-      )
-      .at(-1);
-    if (matchingTurnPlan) {
-      return toLatestProposedPlanState(matchingTurnPlan);
-    }
-  }
-
-  const latestPlan = [...proposedPlans]
+  const candidates = latestRunId ? plans.filter((plan) => plan.runId === latestRunId) : plans;
+  const plan = [...(candidates.length > 0 ? candidates : plans)]
     .toSorted(
       (left, right) =>
         left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
     )
     .at(-1);
-  if (!latestPlan) {
-    return null;
-  }
+  return plan === undefined ? null : toLatestProposedPlanState(plan);
+}
 
-  return toLatestProposedPlanState(latestPlan);
+export function findSidebarProposedPlan(input: {
+  readonly threads: ReadonlyArray<
+    Pick<
+      { readonly id: ThreadId; readonly proposedPlans: ReadonlyArray<ThreadProposedPlan> },
+      "id" | "proposedPlans"
+    >
+  >;
+  readonly latestRun: Pick<ThreadRunSummary, "runId" | "sourcePlanRef"> | null;
+  readonly latestRunSettled: boolean;
+  readonly threadId: ThreadId | string | null | undefined;
+}): LatestProposedPlanState | null {
+  if (!input.latestRunSettled && input.latestRun?.sourcePlanRef !== undefined) {
+    const source = input.latestRun.sourcePlanRef;
+    const plan = input.threads
+      .find((thread) => thread.id === source.threadId)
+      ?.proposedPlans.find((candidate) => candidate.id === source.planId);
+    if (plan !== undefined) return toLatestProposedPlanState(plan);
+  }
+  const activePlans =
+    input.threads.find((thread) => thread.id === input.threadId)?.proposedPlans ?? [];
+  return findLatestProposedPlan(activePlans, input.latestRun?.runId);
 }
 
 export function hasActionableProposedPlan(
-  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "implementedAt"> | null,
+  plan: LatestProposedPlanState | Pick<ThreadProposedPlan, "implementedAt"> | null,
 ): boolean {
-  return proposedPlan !== null && proposedPlan.implementedAt === null;
+  return plan !== null && plan.implementedAt === null;
 }
 
+<<<<<<< HEAD
 /**
  * Quiet-timeline guarantee: the work log carries the parent's narrative plus
  * at most one row per agent. Everything an agent does internally lives in the
@@ -1842,66 +1401,269 @@ function compareActivityLifecycleRank(kind: string): number {
     return 2;
   }
   return 1;
+=======
+export function deriveWorkLogEntries(entries: ReadonlyArray<ThreadWorkEntry>): WorkLogEntry[] {
+  return entries.map((entry) => ({ ...entry, sourceItemType: entry.itemType }));
+>>>>>>> aedd7c58a2 (Complete orchestration V2 frontend cutover)
 }
 
 export function deriveTimelineEntries(
   messages: ReadonlyArray<ChatMessage>,
-  proposedPlans: ReadonlyArray<ProposedPlan>,
+  proposedPlans: ReadonlyArray<ThreadProposedPlan>,
   workEntries: ReadonlyArray<WorkLogEntry>,
   turnPlans: ReadonlyArray<TurnPlanEntry> = [],
 ): TimelineEntry[] {
-  const messageRows: TimelineEntry[] = messages.map((message) => ({
-    id: message.id,
-    kind: "message",
-    createdAt: message.createdAt,
-    message,
-  }));
-  const proposedPlanRows: TimelineEntry[] = proposedPlans.map((proposedPlan) => ({
-    id: proposedPlan.id,
-    kind: "proposed-plan",
-    createdAt: proposedPlan.createdAt,
-    proposedPlan,
-  }));
-  const turnPlanRows: TimelineEntry[] = turnPlans.map((turnPlan) => ({
-    id: turnPlan.id,
-    kind: "turn-plan",
-    createdAt: turnPlan.createdAt,
-    turnPlan,
-  }));
-  const workRows: TimelineEntry[] = workEntries.map((entry) => ({
-    id: entry.id,
-    kind: "work",
-    createdAt: entry.createdAt,
-    entry,
-  }));
-  return [...messageRows, ...proposedPlanRows, ...turnPlanRows, ...workRows].toSorted((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
+  return [
+    ...messages.map(
+      (message): TimelineEntry => ({
+        id: message.id,
+        kind: "message",
+        createdAt: message.createdAt,
+        message,
+      }),
+    ),
+    ...proposedPlans.map(
+      (proposedPlan): TimelineEntry => ({
+        id: proposedPlan.id,
+        kind: "proposed-plan",
+        createdAt: proposedPlan.createdAt,
+        proposedPlan,
+      }),
+    ),
+    ...workEntries.map(
+      (entry): TimelineEntry => ({
+        id: entry.id,
+        kind: "work",
+        createdAt: entry.createdAt,
+        entry,
+      }),
+    ),
+  ].toSorted(
+    (left, right) =>
+      left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
   );
 }
 
-export function inferCheckpointTurnCountByTurnId(
-  summaries: ReadonlyArray<TurnDiffSummary>,
-): Record<TurnId, number> {
-  const sorted = [...summaries].toSorted((a, b) => a.completedAt.localeCompare(b.completedAt));
-  const result: Record<TurnId, number> = {};
-  for (let index = 0; index < sorted.length; index += 1) {
-    const summary = sorted[index];
-    if (!summary) continue;
-    result[summary.turnId] = index + 1;
-  }
-  return result;
+const STANDALONE_V2_ITEM_TYPES = new Set<OrchestrationV2ProjectedTurnItem["item"]["type"]>([
+  "approval_request",
+  "compaction",
+  "fork",
+  "handoff",
+  "run_interrupt_request",
+  "run_interrupt_result",
+  "subagent",
+  "todo_list",
+  "user_input_request",
+]);
+
+function projectedItemCreatedAt(row: OrchestrationV2ProjectedTurnItem): string {
+  return DateTime.formatIso(row.item.startedAt ?? row.item.updatedAt);
 }
 
-export function derivePhase(session: ThreadSession | null): SessionPhase {
-  if (
-    !session ||
-    session.status === "stopped" ||
-    session.status === "interrupted" ||
-    session.status === "error"
-  ) {
-    return "disconnected";
+function projectedWorkEntryStatus(
+  item: OrchestrationV2TurnItem,
+): NonNullable<WorkLogEntry["toolLifecycleStatus"]> {
+  switch (item.status) {
+    case "pending":
+    case "running":
+    case "waiting":
+      return "inProgress";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
   }
-  if (session.status === "starting") return "connecting";
-  if (session.status === "running") return "running";
+}
+
+function projectedWorkEntryTone(item: OrchestrationV2TurnItem): WorkLogEntry["tone"] {
+  if (item.status === "failed") return "error";
+  if (item.type === "reasoning") return "thinking";
+  switch (item.type) {
+    case "command_execution":
+    case "file_change":
+    case "file_search":
+    case "web_search":
+    case "dynamic_tool":
+    case "subagent":
+      return "tool";
+    default:
+      return "info";
+  }
+}
+
+function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry {
+  const { item } = row;
+  const title = item.title?.trim() || null;
+  const common = {
+    id: item.id,
+    createdAt: projectedItemCreatedAt(row),
+    runId: item.runId,
+    tone: projectedWorkEntryTone(item),
+    itemType: item.type,
+    toolLifecycleStatus: projectedWorkEntryStatus(item),
+    structuredPayload: item,
+    projectedItem: row,
+  } as const;
+
+  switch (item.type) {
+    case "reasoning":
+      return {
+        ...common,
+        label: title ?? "Thinking",
+        ...(item.text ? { detail: item.text } : {}),
+      };
+    case "command_execution":
+      return {
+        ...common,
+        label: title ?? "Ran command",
+        command: item.input,
+        rawCommand: item.input,
+        ...(item.output ? { detail: item.output } : {}),
+        toolTitle: title ?? "Command",
+        toolData: item,
+      };
+    case "file_change":
+      return {
+        ...common,
+        label: title ?? `Changed ${item.fileName}`,
+        changedFiles: [item.fileName],
+        ...(item.diffStr ? { detail: item.diffStr } : {}),
+        toolTitle: title ?? "File change",
+        toolData: item,
+      };
+    case "file_search":
+      return {
+        ...common,
+        label: title ?? "Searched files",
+        ...(item.pattern ? { detail: item.pattern } : {}),
+        toolTitle: title ?? "File search",
+        toolData: item,
+      };
+    case "web_search":
+      return {
+        ...common,
+        label: title ?? "Searched the web",
+        ...(item.patterns?.length ? { detail: item.patterns.join(", ") } : {}),
+        toolTitle: title ?? "Web search",
+        toolData: item,
+      };
+    case "checkpoint":
+      return {
+        ...common,
+        label: title ?? "Checkpoint captured",
+        changedFiles: item.files.map((file) => file.path),
+        toolData: item,
+      };
+    case "dynamic_tool":
+      return {
+        ...common,
+        label: title ?? item.toolName ?? "Tool call",
+        toolTitle: title ?? item.toolName ?? "Tool",
+        toolData: { input: item.input, output: item.output },
+      };
+    default:
+      return {
+        ...common,
+        label: title ?? item.type.replaceAll("_", " "),
+        toolData: item,
+      };
+  }
+}
+
+/**
+ * Builds the web timeline in the exact order committed by `visibleTurnItems`.
+ * Committed rows are presented directly from their projected item. Optimistic
+ * messages are the only client-owned entries appended to that sequence.
+ */
+export function deriveTimelineEntriesFromVisibleTurnItems(input: {
+  readonly visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  readonly optimisticMessages: ReadonlyArray<ChatMessage>;
+  readonly attachmentUrlById?: ReadonlyMap<string, string>;
+}): TimelineEntry[] {
+  const committedMessageIds = new Set<string>();
+  const entries: TimelineEntry[] = [];
+
+  for (const row of input.visibleTurnItems) {
+    const { item } = row;
+    const createdAt = projectedItemCreatedAt(row);
+    if (item.type === "user_message" || item.type === "assistant_message") {
+      const message: ChatMessage = {
+        id: item.messageId,
+        role: item.type === "user_message" ? "user" : "assistant",
+        text: item.text,
+        ...(item.type === "user_message" && item.attachments.length > 0
+          ? {
+              attachments: item.attachments.map((attachment) => {
+                const previewUrl = input.attachmentUrlById?.get(attachment.id);
+                return previewUrl ? { ...attachment, previewUrl } : attachment;
+              }),
+            }
+          : {}),
+        runId: item.runId,
+        streaming: item.type === "assistant_message" && item.streaming,
+        createdAt,
+        updatedAt: DateTime.formatIso(item.updatedAt),
+      };
+      committedMessageIds.add(message.id);
+      entries.push({ id: message.id, kind: "message", createdAt, message });
+      continue;
+    }
+
+    if (item.type === "proposed_plan") {
+      const proposedPlan = {
+        id: item.planId,
+        runId: item.runId,
+        planMarkdown: item.markdown,
+        status: "active" as const,
+        implementedAt: null,
+        implementationThreadId: null,
+        createdAt,
+        updatedAt: DateTime.formatIso(item.updatedAt),
+      };
+      entries.push({ id: item.id, kind: "proposed-plan", createdAt, proposedPlan });
+      continue;
+    }
+
+    if (STANDALONE_V2_ITEM_TYPES.has(item.type)) {
+      entries.push({ id: item.id, kind: "event", createdAt, projectedItem: row });
+      continue;
+    }
+
+    entries.push({ id: item.id, kind: "work", createdAt, entry: projectedWorkEntry(row) });
+  }
+
+  for (const message of input.optimisticMessages) {
+    if (!committedMessageIds.has(message.id)) {
+      entries.push({
+        id: message.id,
+        kind: "message",
+        createdAt: message.createdAt,
+        message,
+      });
+    }
+  }
+
+  return entries;
+}
+
+export function inferCheckpointTurnCountByRunId(
+  summaries: ReadonlyArray<ThreadCheckpointSummary>,
+): Record<string, number> {
+  return Object.fromEntries(
+    summaries.flatMap((summary) =>
+      summary.runId === null ? [] : [[summary.runId, summary.checkpointTurnCount] as const],
+    ),
+  );
+}
+
+export function derivePhase(runtime: ThreadRuntimeSummary | null): SessionPhase {
+  if (runtime === null) return "disconnected";
+  if (runtime.status === "starting" || runtime.status === "queued") return "connecting";
+  if (runtime.status === "running" || runtime.status === "waiting") return "running";
   return "ready";
 }
+
+export type { TurnDiffSummary };
