@@ -1,6 +1,7 @@
 import type {
   EnvironmentId,
   ModelSelection,
+  OrchestrationV2ProjectedTurnItem,
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
   ProviderInteractionMode,
@@ -9,8 +10,11 @@ import type {
   ScopedThreadRef,
   ServerProvider,
   ThreadId,
+<<<<<<< HEAD
+=======
   RunId,
   RuntimeRequestId,
+>>>>>>> 79c36e6204 (Complete orchestration V2 frontend cutover)
 } from "@t3tools/contracts";
 import {
   ProviderDriverKind,
@@ -71,7 +75,7 @@ import { ComposerStashMenu } from "./ComposerStashMenu";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
+import { resolveShortcutCommand } from "../../keybindings";
 import {
   type TerminalContextDraft,
   type TerminalContextSelection,
@@ -224,7 +228,11 @@ import { type AppModelOption, getAppModelOptionsForInstance } from "../../modelS
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
-import type { PendingApproval, PendingUserInput } from "../../session-logic";
+import type {
+  LatestProposedPlanState,
+  PendingApproval,
+  PendingUserInput,
+} from "../../session-logic";
 import { resolveComposerDispatchMode, type ComposerDispatchMode } from "./composerDispatch";
 import {
   deriveLatestContextWindowSnapshot,
@@ -551,11 +559,18 @@ export interface ChatComposerProps {
 
   // Plan
   showPlanFollowUpPrompt: boolean;
+<<<<<<< HEAD
   activeProposedPlan: Thread["proposedPlans"][number] | null;
+<<<<<<< HEAD
+=======
+=======
+  activeProposedPlan: LatestProposedPlanState | null;
+>>>>>>> d454b3880e (Retire V1 client orchestration parity)
   activePlan: { runId?: RunId | null } | null;
   sidebarProposedPlan: { runId?: RunId | null } | null;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
+>>>>>>> 79c36e6204 (Complete orchestration V2 frontend cutover)
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -568,7 +583,7 @@ export interface ChatComposerProps {
   activeThreadModelSelection: ModelSelection | null | undefined;
 
   // Context window
-  activeThreadWorkEntries: Thread["workEntries"] | undefined;
+  activeThreadVisibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem> | undefined;
 
   // Misc
   resolvedTheme: "light" | "dark";
@@ -661,7 +676,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     providerStatuses,
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
-    activeThreadWorkEntries,
+    activeThreadVisibleTurnItems,
     resolvedTheme,
     settings,
     keybindings,
@@ -958,8 +973,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Context window
   // ------------------------------------------------------------------
   const activeContextWindow = useMemo(
-    () => deriveLatestContextWindowSnapshot(activeThreadWorkEntries ?? []),
-    [activeThreadWorkEntries],
+    () => deriveLatestContextWindowSnapshot(activeThreadVisibleTurnItems ?? []),
+    [activeThreadVisibleTurnItems],
   );
   const activeThreadProviderDisplayName = useMemo(() => {
     if (!activeThreadModelSelection) return null;
