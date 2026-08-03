@@ -449,7 +449,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   showPlanFollowUpPrompt: boolean;
   promptHasText: boolean;
   isSendBusy: boolean;
-  sendDisabledReason: string | null;
   isConnecting: boolean;
   isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
@@ -482,7 +481,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         showPlanFollowUpPrompt={props.showPlanFollowUpPrompt}
         promptHasText={props.promptHasText}
         isSendBusy={props.isSendBusy}
-        sendDisabledReason={props.sendDisabledReason}
         isConnecting={props.isConnecting}
         isEnvironmentUnavailable={props.isEnvironmentUnavailable}
         isPreparingWorktree={props.isPreparingWorktree}
@@ -563,7 +561,6 @@ export interface ChatComposerProps {
   phase: SessionPhase;
   isConnecting: boolean;
   isSendBusy: boolean;
-  sendDisabledReason: string | null;
   isPreparingWorktree: boolean;
   environmentUnavailable: {
     readonly label: string;
@@ -680,7 +677,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     phase,
     isConnecting,
     isSendBusy,
-    sendDisabledReason,
     isPreparingWorktree,
     environmentUnavailable,
     activePendingApproval,
@@ -737,7 +733,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setThreadError,
     onExpandImage,
   } = props;
-  const isSendDisabled = sendDisabledReason !== null;
 
   // ------------------------------------------------------------------
   // Store subscriptions (prompt / images / terminal contexts)
@@ -1323,7 +1318,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const collapsedComposerPrimaryActionDisabled =
     phase === "running" ||
     isSendBusy ||
-    isSendDisabled ||
     isConnecting ||
     noProviderAvailable ||
     projectSelectionRequired ||
@@ -1883,7 +1877,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!isMobileViewport) return false;
     if (
       isSendBusy ||
-      isSendDisabled ||
       isConnecting ||
       noProviderAvailable ||
       environmentUnavailable !== null ||
@@ -1903,7 +1896,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isConnecting,
     isMobileViewport,
     isSendBusy,
-    isSendDisabled,
     noProviderAvailable,
     phase,
     showPlanFollowUpPrompt,
@@ -1911,12 +1903,36 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const submitComposer = useCallback(
     (event?: { preventDefault: () => void }, dispatchMode?: ComposerDispatchMode) => {
+      if (noProviderAvailable) {
+        event?.preventDefault();
+        return;
+      }
+      // A send while a pasted image is still compressing would strand that
+      // image: the turn snapshot wouldn't include it, and it would surface
+      // in the *next* draft instead. Only oversized images hit this — small
+      // files clear the pending counter within a microtask.
+      if (activeThreadId && (pendingImageCompressionsRef.current.get(activeThreadId) ?? 0) > 0) {
+        event?.preventDefault();
+        toastManager.add({
+          type: "info",
+          title: "Still compressing a pasted image.",
+          description: "Send again once its thumbnail appears.",
+        });
+        return;
+      }
       onSend(event, dispatchMode ?? resolveComposerDispatchMode({ phase, queueModifier: false }));
       if (shouldBlurMobileComposerOnSubmit()) {
         blurMobileComposerAfterSend();
       }
     },
-    [blurMobileComposerAfterSend, onSend, phase, shouldBlurMobileComposerOnSubmit],
+    [
+      activeThreadId,
+      blurMobileComposerAfterSend,
+      noProviderAvailable,
+      onSend,
+      phase,
+      shouldBlurMobileComposerOnSubmit,
+    ],
   );
   const expandMobileComposer = useCallback(() => {
     if (composerBlurFrameRef.current !== null) {
@@ -1970,7 +1986,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return true;
       }
     }
-    if (key === "Enter" && !event.shiftKey) {
+    if (
+      key === "Enter" &&
+      shouldSubmitComposerOnEnter({ isMobileViewport, shiftKey: event.shiftKey })
+    ) {
       submitComposer(
         undefined,
         resolveComposerDispatchMode({
@@ -2869,7 +2888,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       showPlanFollowUpPrompt={false}
                       promptHasText={false}
                       isSendBusy={isSendBusy}
-                      sendDisabledReason={sendDisabledReason}
                       isConnecting={isConnecting}
                       isEnvironmentUnavailable={
                         environmentUnavailable !== null ||
@@ -3154,7 +3172,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     showPlanFollowUpPrompt={false}
                     promptHasText={false}
                     isSendBusy={isSendBusy}
-                    sendDisabledReason={sendDisabledReason}
                     isConnecting={isConnecting}
                     isEnvironmentUnavailable={
                       environmentUnavailable !== null ||
@@ -3292,7 +3309,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   showPlanFollowUpPrompt={pendingUserInputs.length === 0 && showPlanFollowUpPrompt}
                   promptHasText={prompt.trim().length > 0}
                   isSendBusy={isSendBusy}
-                  sendDisabledReason={sendDisabledReason}
                   isConnecting={isConnecting}
                   isEnvironmentUnavailable={
                     environmentUnavailable !== null ||
