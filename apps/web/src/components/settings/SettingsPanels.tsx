@@ -571,7 +571,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.glassOpacity,
       settings.enableLegacyTokenStreaming,
       settings.persistComposerContextStrip,
-      settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
