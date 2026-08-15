@@ -119,7 +119,7 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { useUiStateStore } from "../uiStateStore";
+import { resolveThreadViewedAt, useUiStateStore } from "../uiStateStore";
 import { useThreadViewState } from "../hooks/useThreadViewState";
 import {
   latestWorkspaceMutationId,
@@ -4653,7 +4653,14 @@ function ChatViewContent(props: ChatViewProps) {
   const activeThreadLocalLastVisitedAt = useUiStateStore((store) =>
     activeThreadKey === null ? undefined : store.threadLastVisitedAtById[activeThreadKey],
   );
-  const activeThreadLastVisitedAt = activeThreadShell?.viewedAt ?? activeThreadLocalLastVisitedAt;
+  const activeThreadPendingViewState = useUiStateStore((store) =>
+    activeThreadKey === null ? undefined : store.threadViewStatePendingById[activeThreadKey],
+  );
+  const activeThreadLastVisitedAt = resolveThreadViewedAt({
+    serverViewedAt: activeThreadShell?.viewedAt,
+    localViewedAt: activeThreadLocalLastVisitedAt,
+    pending: activeThreadPendingViewState,
+  });
   const activeThreadWokeVisible = useMemo(() => {
     if (activeThreadWokeAt === null) return false;
     if (
