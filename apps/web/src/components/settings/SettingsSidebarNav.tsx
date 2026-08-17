@@ -12,6 +12,7 @@ import { desktopWslStateAtom } from "~/state/desktopWslState";
 import {
   ArchiveIcon,
   ArrowLeftIcon,
+  BlocksIcon,
   BotIcon,
   CalendarClockIcon,
   FlaskConicalIcon,
@@ -56,6 +57,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
+  "/settings/integrations": BlocksIcon,
   "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/connections": Link2Icon,
