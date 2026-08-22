@@ -30,7 +30,13 @@ export interface OrchestrationProjectionPipelineShape {
    */
   readonly projectEvent: (
     event: OrchestrationEvent,
+    options?: { readonly deferSideEffects?: boolean },
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  /**
+   * Apply attachment cleanup after the transaction that projected an event commits.
+   */
+  readonly runPostCommitSideEffects: (event: OrchestrationEvent) => Effect.Effect<void>;
 }
 
 /**

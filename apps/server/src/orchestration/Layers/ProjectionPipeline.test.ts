@@ -241,6 +241,64 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 });
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-replay-pages-")))(
+  "OrchestrationProjectionPipeline",
+  (it) => {
+    it.effect("replays every event when recovery exceeds the default read limit", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const occurredAt = "2026-01-01T00:00:00.000Z";
+        const eventCount = 1_001;
+
+        for (let index = 0; index < eventCount; index += 1) {
+          const projectId = ProjectId.make(`project-replay-${index}`);
+          const commandId = CommandId.make(`cmd-replay-${index}`);
+          yield* eventStore.append({
+            type: "project.created",
+            eventId: EventId.make(`evt-replay-${index}`),
+            aggregateKind: "project",
+            aggregateId: projectId,
+            occurredAt,
+            commandId,
+            causationEventId: null,
+            correlationId: commandId,
+            metadata: {},
+            payload: {
+              projectId,
+              title: `Project ${index}`,
+              workspaceRoot: `/tmp/project-replay-${index}`,
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: occurredAt,
+              updatedAt: occurredAt,
+            },
+          });
+        }
+
+        yield* projectionPipeline.bootstrap;
+
+        const projectRows = yield* sql<{ readonly count: number }>`
+          SELECT COUNT(*) AS count FROM projection_projects
+        `;
+        assert.equal(projectRows[0]?.count, eventCount);
+
+        const stateRows = yield* sql<{
+          readonly minimumSequence: number;
+          readonly maximumSequence: number;
+        }>`
+          SELECT
+            MIN(last_applied_sequence) AS "minimumSequence",
+            MAX(last_applied_sequence) AS "maximumSequence"
+          FROM projection_state
+        `;
+        assert.deepEqual(stateRows, [{ minimumSequence: eventCount, maximumSequence: eventCount }]);
+      }),
+    );
+  },
+);
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
@@ -785,6 +843,131 @@ it.layer(
   );
 });
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-outer-rollback-")))(
+  "OrchestrationProjectionPipeline",
+  (it) => {
+    it.effect("keeps attachment files until the outer transaction commits", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const { attachmentsDir } = yield* ServerConfig;
+        const occurredAt = "2026-01-01T00:00:00.000Z";
+        const projectId = ProjectId.make("project-outer-rollback");
+        const threadId = ThreadId.make("thread-outer-rollback");
+        const attachmentId = "thread-outer-rollback-00000000-0000-4000-8000-000000000001";
+        const attachmentPath = path.join(attachmentsDir, `${attachmentId}.png`);
+
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.make("evt-outer-rollback-project"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt,
+          commandId: CommandId.make("cmd-outer-rollback-project"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-outer-rollback-project"),
+          metadata: {},
+          payload: {
+            projectId,
+            title: "Outer Rollback Project",
+            workspaceRoot: "/tmp/project-outer-rollback",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.make("evt-outer-rollback-thread"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt,
+          commandId: CommandId.make("cmd-outer-rollback-thread"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-outer-rollback-thread"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId,
+            title: "Outer Rollback Thread",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        });
+
+        yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
+        yield* fileSystem.writeFileString(attachmentPath, "keep this attachment");
+
+        const createDeletedEvent = (suffix: string) =>
+          eventStore.append({
+            type: "thread.deleted",
+            eventId: EventId.make(`evt-outer-rollback-delete-${suffix}`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt,
+            commandId: CommandId.make(`cmd-outer-rollback-delete-${suffix}`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`cmd-outer-rollback-delete-${suffix}`),
+            metadata: {},
+            payload: {
+              threadId,
+              deletedAt: occurredAt,
+            },
+          });
+
+        const rollbackResult = yield* Effect.result(
+          sql.withTransaction(
+            Effect.gen(function* () {
+              const event = yield* createDeletedEvent("rollback");
+              yield* projectionPipeline.projectEvent(event, { deferSideEffects: true });
+              return yield* Effect.fail("forced outer rollback");
+            }),
+          ),
+        );
+        assert.equal(rollbackResult._tag, "Failure");
+        assert.isTrue(yield* exists(attachmentPath));
+
+        const threadRows = yield* sql<{ readonly deletedAt: string | null }>`
+        SELECT deleted_at AS "deletedAt"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+        assert.deepEqual(threadRows, [{ deletedAt: null }]);
+
+        const committedEvent = yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const event = yield* createDeletedEvent("commit");
+            yield* projectionPipeline.projectEvent(event, { deferSideEffects: true });
+            assert.isTrue(yield* exists(attachmentPath));
+            return event;
+          }),
+        );
+
+        assert.isTrue(yield* exists(attachmentPath));
+        yield* projectionPipeline.runPostCommitSideEffects(committedEvent);
+        assert.isFalse(yield* exists(attachmentPath));
+      }),
+    );
+  },
+);
+
 it.layer(
   Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-overwrite-")),
 )("OrchestrationProjectionPipeline", (it) => {
@@ -990,6 +1173,81 @@ it.layer(
       assert.isTrue(yield* exists(keepPath));
       assert.isFalse(yield* exists(removePath));
       assert.isTrue(yield* exists(otherThreadPath));
+    }),
+  );
+
+  it.effect("keeps attachments added after a revert in the same replay batch", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const { attachmentsDir } = yield* ServerConfig;
+      const threadId = ThreadId.make("thread-replay-attachments");
+      const occurredAt = "2026-01-01T00:00:00.000Z";
+      const previousAttachmentId = "thread-replay-attachments-00000000-0000-4000-8000-000000000001";
+      const nextAttachmentId = "thread-replay-attachments-00000000-0000-4000-8000-000000000002";
+
+      const appendMessage = (suffix: string, attachmentId: string) =>
+        eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.make(`evt-replay-attachment-${suffix}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt,
+          commandId: CommandId.make(`cmd-replay-attachment-${suffix}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-replay-attachment-${suffix}`),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: MessageId.make(`message-replay-attachment-${suffix}`),
+            role: "user",
+            text: suffix,
+            attachments: [
+              {
+                type: "image",
+                id: attachmentId,
+                name: `${suffix}.png`,
+                mimeType: "image/png",
+                sizeBytes: 4,
+              },
+            ],
+            turnId: null,
+            streaming: false,
+            createdAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        });
+
+      yield* appendMessage("previous", previousAttachmentId).pipe(
+        Effect.flatMap((event) => projectionPipeline.projectEvent(event)),
+      );
+
+      const previousAttachmentPath = path.join(attachmentsDir, `${previousAttachmentId}.png`);
+      const nextAttachmentPath = path.join(attachmentsDir, `${nextAttachmentId}.png`);
+      yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
+      yield* fileSystem.writeFileString(previousAttachmentPath, "previous");
+      yield* fileSystem.writeFileString(nextAttachmentPath, "next");
+
+      yield* eventStore.append({
+        type: "thread.reverted",
+        eventId: EventId.make("evt-replay-attachment-reverted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt,
+        commandId: CommandId.make("cmd-replay-attachment-reverted"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-replay-attachment-reverted"),
+        metadata: {},
+        payload: { threadId, turnCount: 0 },
+      });
+      yield* appendMessage("next", nextAttachmentId);
+
+      yield* projectionPipeline.bootstrap;
+
+      assert.isFalse(yield* exists(previousAttachmentPath));
+      assert.isTrue(yield* exists(nextAttachmentPath));
     }),
   );
 });

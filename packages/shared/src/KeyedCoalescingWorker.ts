@@ -8,6 +8,7 @@
  * @module KeyedCoalescingWorker
  */
 import * as Scope from "effect/Scope";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as TxQueue from "effect/TxQueue";
 import * as TxRef from "effect/TxRef";
@@ -101,7 +102,13 @@ export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
         item === null
           ? Effect.void
           : processKey(item.key, item.value).pipe(
-              Effect.catchCause(() => cleanupFailedKey(item.key)),
+              Effect.catchCause((cause) =>
+                cleanupFailedKey(item.key).pipe(
+                  Effect.andThen(
+                    Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.void,
+                  ),
+                ),
+              ),
             ),
       ),
       Effect.forever,

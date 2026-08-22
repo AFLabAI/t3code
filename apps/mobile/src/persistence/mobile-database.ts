@@ -236,7 +236,13 @@ const makeAvailable = Effect.gen(function* () {
       },
       catch: databaseError("open"),
     }),
-    (openDatabase) => Effect.promise(() => openDatabase.closeAsync()).pipe(Effect.ignore),
+    (openDatabase) =>
+      Effect.tryPromise(() => openDatabase.closeAsync()).pipe(
+        Effect.tapError((cause) =>
+          Effect.logWarning("Could not close the mobile database.", { cause }),
+        ),
+        Effect.ignore,
+      ),
   );
 
   yield* Effect.tryPromise({

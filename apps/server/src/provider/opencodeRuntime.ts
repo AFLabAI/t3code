@@ -95,7 +95,7 @@ export function openCodeRuntimeErrorDetail(cause: unknown): string {
 
 export const runOpenCodeSdk = <A>(
   operation: string,
-  fn: () => Promise<A>,
+  fn: (signal: AbortSignal) => Promise<A>,
 ): Effect.Effect<A, OpenCodeRuntimeError> =>
   Effect.tryPromise({
     try: fn,
@@ -564,13 +564,23 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
 
       const stdoutFiber = yield* child.stdout.pipe(
         Stream.decodeText(),
-        Stream.runForEach(setReadyFromStdoutChunk),
+        Stream.runForEach((chunk) =>
+          Deferred.isDone(readyDeferred).pipe(
+            Effect.flatMap((ready) => (ready ? Effect.void : setReadyFromStdoutChunk(chunk))),
+          ),
+        ),
         Effect.ignore,
         Effect.forkIn(runtimeScope),
       );
       const stderrFiber = yield* child.stderr.pipe(
         Stream.decodeText(),
-        Stream.runForEach((chunk) => Ref.update(stderrRef, (stderr) => `${stderr}${chunk}`)),
+        Stream.runForEach((chunk) =>
+          Deferred.isDone(readyDeferred).pipe(
+            Effect.flatMap((ready) =>
+              ready ? Effect.void : Ref.update(stderrRef, (stderr) => `${stderr}${chunk}`),
+            ),
+          ),
+        ),
         Effect.ignore,
         Effect.forkIn(runtimeScope),
       );
@@ -605,13 +615,9 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
         Deferred.await(readyDeferred).pipe(Effect.timeoutOption(timeoutMs)),
       );
 
-      // Startup-time fibers are no longer needed once ready has resolved (either
-      // way). The exit fiber is only interrupted on failure; on success it keeps
-      // the caller's `exitCode` effect observable until the scope closes.
-      yield* Fiber.interrupt(stdoutFiber).pipe(Effect.ignore);
-      yield* Fiber.interrupt(stderrFiber).pipe(Effect.ignore);
-
       if (Exit.isFailure(readyExit)) {
+        yield* Fiber.interrupt(stdoutFiber).pipe(Effect.ignore);
+        yield* Fiber.interrupt(stderrFiber).pipe(Effect.ignore);
         yield* Fiber.interrupt(exitFiber).pipe(Effect.ignore);
         const squashed = Cause.squash(readyExit.cause);
         return yield* ensureRuntimeError(
@@ -623,6 +629,8 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
 
       const readyOption = readyExit.value;
       if (Option.isNone(readyOption)) {
+        yield* Fiber.interrupt(stdoutFiber).pipe(Effect.ignore);
+        yield* Fiber.interrupt(stderrFiber).pipe(Effect.ignore);
         yield* Fiber.interrupt(exitFiber).pipe(Effect.ignore);
         return yield* new OpenCodeRuntimeError({
           operation: "startOpenCodeServerProcess",

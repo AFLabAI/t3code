@@ -111,6 +111,7 @@ export type CodexAppServerProtocolParseOperation = typeof CodexAppServerProtocol
 export const CodexAppServerTransportOperation = Schema.Literals([
   "read-input-stream",
   "read-process-exit-status",
+  "write-output-stream",
 ]);
 export type CodexAppServerTransportOperation = typeof CodexAppServerTransportOperation.Type;
 

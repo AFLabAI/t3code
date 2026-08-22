@@ -1,3 +1,4 @@
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -286,6 +287,21 @@ export const make = Effect.gen(function* () {
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
   const runPromise = Effect.runPromiseWith(context);
+  const runWindowEffect = <A, E>(
+    action: string,
+    effect: Effect.Effect<A, E, DesktopWindowRuntimeServices>,
+  ): void => {
+    void runPromise(
+      effect.pipe(
+        Effect.asVoid,
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.void
+            : logWindowWarning("desktop window action failed", { action, cause }),
+        ),
+      ),
+    );
+  };
   let flushMainWindowBounds: Effect.Effect<void> = Effect.void;
 
   const dismissConnectingSplash = Effect.gen(function* () {
@@ -500,7 +516,7 @@ export const make = Effect.gen(function* () {
           {
             label: "Copy Link",
             click: () => {
-              void runPromise(electronShell.copyText(params.linkURL));
+              runWindowEffect("copy-link", electronShell.copyText(params.linkURL));
             },
           },
           { type: "separator" },
@@ -522,12 +538,15 @@ export const make = Effect.gen(function* () {
         { role: "selectAll", enabled: params.editFlags.canSelectAll },
       );
 
-      void runPromise(electronMenu.popupTemplate({ window, template: menuTemplate }));
+      runWindowEffect(
+        "open-context-menu",
+        electronMenu.popupTemplate({ window, template: menuTemplate }),
+      );
     });
 
     window.webContents.setWindowOpenHandler(({ url }) => {
       if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
-        void runPromise(electronShell.openExternal(url));
+        runWindowEffect("open-external-window", electronShell.openExternal(url));
       }
       return { action: "deny" };
     });
@@ -543,7 +562,7 @@ export const make = Effect.gen(function* () {
 
       event.preventDefault();
       if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
-        void runPromise(electronShell.openExternal(url));
+        runWindowEffect("open-external-navigation", electronShell.openExternal(url));
       }
     });
 
@@ -572,7 +591,7 @@ export const make = Effect.gen(function* () {
         }
       },
       quit: () => {
-        void runPromise(electronApp.quit);
+        runWindowEffect("quit", electronApp.quit);
       },
     });
     window.webContents.on("before-input-event", (event, input) => {
@@ -678,7 +697,8 @@ export const make = Effect.gen(function* () {
           })
             ? scheduleDevelopmentLoadRetry()
             : undefined;
-        void runPromise(
+        runWindowEffect(
+          "report-renderer-load-failure",
           logWindowWarning("main window failed to load", {
             errorCode,
             errorDescription,
@@ -741,7 +761,10 @@ export const make = Effect.gen(function* () {
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
-      void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      runWindowEffect(
+        "reveal-main-window",
+        Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash),
+      );
     });
 
     loadApplication();
@@ -752,7 +775,7 @@ export const make = Effect.gen(function* () {
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
-      void runPromise(electronWindow.clearMain(Option.some(window)));
+      runWindowEffect("clear-main-window", electronWindow.clearMain(Option.some(window)));
     });
 
     return window;
@@ -816,7 +839,7 @@ export const make = Effect.gen(function* () {
     });
     yield* Ref.set(splashWindowRef, Option.some(splash));
     splash.once("closed", () => {
-      void runPromise(Ref.set(splashWindowRef, Option.none()));
+      runWindowEffect("clear-splash-window", Ref.set(splashWindowRef, Option.none()));
     });
     splash.once("ready-to-show", () => {
       if (!splash.isDestroyed()) {
@@ -882,7 +905,7 @@ export const make = Effect.gen(function* () {
       const send = () => {
         if (targetWindow.isDestroyed()) return;
         targetWindow.webContents.send(MENU_ACTION_CHANNEL, action);
-        void runPromise(electronWindow.reveal(targetWindow));
+        runWindowEffect("reveal-menu-target", electronWindow.reveal(targetWindow));
       };
 
       if (targetWindow.webContents.isLoadingMainFrame()) {

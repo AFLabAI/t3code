@@ -157,6 +157,23 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
   }),
 );
 
+it.effect("rejects invalid timestamps on newly submitted project commands", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      decodeProjectCreateCommand({
+        type: "project.create",
+        commandId: "command-1",
+        projectId: "project-1",
+        title: "Project",
+        workspaceRoot: "/repo",
+        createdAt: "not a date",
+      }),
+    );
+
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
 it.effect("decodes project.create with createWorkspaceRootIfMissing enabled", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeProjectCreateCommand({
@@ -188,6 +205,25 @@ it.effect("decodes historical project.created payloads with a default provider",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.defaultModelSelection?.instanceId, "codex");
+  }),
+);
+
+it.effect("keeps historical project timestamps readable when their format is invalid", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProjectCreatedPayload({
+      projectId: "project-1",
+      title: "Project Title",
+      workspaceRoot: "/tmp/workspace",
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      scripts: [],
+      createdAt: "invalid legacy timestamp",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.strictEqual(parsed.createdAt, "invalid legacy timestamp");
   }),
 );
 

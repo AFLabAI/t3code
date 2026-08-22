@@ -21,17 +21,29 @@ const program = Effect.gen(function* () {
   const agent = yield* AcpAgent.AcpAgent;
 
   yield* agent.handleInitialize(() =>
-    Effect.succeed({
-      protocolVersion: 1,
-      agentCapabilities: {
-        sessionCapabilities: {
-          list: {},
+    Effect.gen(function* () {
+      const stderrBytes = Number(process.env.ACP_MOCK_STDERR_BYTES ?? 0);
+      if (Number.isFinite(stderrBytes) && stderrBytes > 0) {
+        yield* Effect.promise(
+          () =>
+            new Promise<void>((resolve) => {
+              process.stderr.write("x".repeat(stderrBytes), () => resolve());
+            }),
+        );
+      }
+
+      return {
+        protocolVersion: 1,
+        agentCapabilities: {
+          sessionCapabilities: {
+            list: {},
+          },
         },
-      },
-      agentInfo: {
-        name: "mock-agent",
-        version: "0.0.0",
-      },
+        agentInfo: {
+          name: "mock-agent",
+          version: "0.0.0",
+        },
+      };
     }),
   );
 

@@ -76,6 +76,7 @@ const decodeElicitationComplete = Schema.decodeUnknownEffect(
   AcpSchema.ElicitationCompleteNotification,
 );
 const parserFactory = RpcSerialization.ndJsonRpc();
+const maximumBufferedNotifications = 64;
 
 export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(function* (
   options: AcpPatchedProtocolOptions,
@@ -83,11 +84,15 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
   const parser = parserFactory.makeUnsafe();
   const serverQueue = yield* Queue.unbounded<RpcMessage.FromClientEncoded>();
   const clientQueue = yield* Queue.unbounded<RpcMessage.FromServerEncoded>();
-  const notificationQueue = yield* Queue.unbounded<AcpIncomingNotification>();
+  const notificationQueue = yield* Queue.sliding<AcpIncomingNotification, Cause.Done<void>>(
+    maximumBufferedNotifications,
+  );
   const disconnects = yield* Queue.unbounded<number>();
   const outgoing = yield* Queue.unbounded<string | Uint8Array, Cause.Done<void>>();
   const nextRequestId = yield* Ref.make(1);
   const terminationHandled = yield* Ref.make(false);
+  const terminationError = yield* Ref.make<AcpError.AcpError | undefined>(undefined);
+  const terminated = yield* Deferred.make<AcpError.AcpError>();
   const extPending = yield* Ref.make(new Map<string, AcpPendingRequest>());
 
   const logProtocol = (event: AcpProtocolLogEvent) => {
@@ -106,6 +111,11 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
   const offerOutgoing = Effect.fn("offerOutgoing")(function* (
     message: RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded,
   ) {
+    const error = yield* Ref.get(terminationError);
+    if (error !== undefined) {
+      return yield* error;
+    }
+
     yield* logProtocol({
       direction: "outgoing",
       stage: "decoded",
@@ -132,7 +142,17 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
         payload: typeof encoded === "string" ? encoded : new TextDecoder().decode(encoded),
       });
 
-      yield* Queue.offer(outgoing, encoded).pipe(Effect.asVoid);
+      const accepted = yield* Queue.offer(outgoing, encoded);
+      if (!accepted) {
+        const error = yield* Ref.get(terminationError);
+        return yield* (
+          error ??
+            new AcpError.AcpTransportError({
+              operation: "write-output-stream",
+              cause: new Error("ACP output stream ended."),
+            })
+        );
+      }
     }
   });
 
@@ -210,7 +230,11 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
           if (!error) {
             return;
           }
+          yield* Ref.set(terminationError, error);
+          yield* Deferred.succeed(terminated, error);
           yield* failAllExtPending(error);
+          yield* Queue.end(outgoing);
+          yield* Queue.end(notificationQueue);
           yield* emitClientProtocolError(error);
           if (options.onTermination) {
             yield* options.onTermination(error);
@@ -475,7 +499,20 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     Effect.forkScoped,
   );
 
-  yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
+  yield* Stream.fromQueue(outgoing).pipe(
+    Stream.run(options.stdio.stdout()),
+    Effect.catch((cause) =>
+      handleTermination(() =>
+        Effect.succeed(
+          new AcpError.AcpTransportError({
+            operation: "write-output-stream",
+            cause,
+          }),
+        ),
+      ),
+    ),
+    Effect.forkScoped,
+  );
 
   const clientProtocol = RpcClient.Protocol.of({
     run: (_clientId, f) =>
@@ -544,9 +581,10 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       payload,
       headers: [],
     }).pipe(Effect.tapError(() => removeExtPending(requestId)));
-    return yield* Deferred.await(deferred).pipe(
-      Effect.onInterrupt(() => removeExtPending(requestId)),
-    );
+    return yield* Effect.raceFirst(
+      Deferred.await(deferred),
+      Deferred.await(terminated).pipe(Effect.flatMap(Effect.fail)),
+    ).pipe(Effect.ensuring(removeExtPending(requestId)));
   });
 
   return {

@@ -1,5 +1,6 @@
 import { createClerkBridge } from "@clerk/electron";
 import { storage } from "@clerk/electron/storage";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -142,7 +143,13 @@ export const make = Effect.gen(function* () {
             if (Option.isSome(mainWindow)) {
               yield* electronWindow.reveal(mainWindow.value);
             }
-          }),
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.void
+                : Effect.logWarning("desktop second-instance handler failed", { cause }),
+            ),
+          ),
         );
       });
     }).pipe(Effect.withSpan("desktop.clerk.configure")),

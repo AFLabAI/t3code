@@ -214,6 +214,7 @@ describe("OrchestrationEngine", () => {
         Layer.succeed(OrchestrationProjectionPipeline, {
           bootstrap: Effect.void,
           projectEvent: () => Effect.void,
+          runPostCommitSideEffects: () => Effect.void,
         } satisfies OrchestrationProjectionPipelineShape),
       ),
       Layer.provide(Layer.succeed(OrchestrationEventStore, eventStore)),
@@ -907,6 +908,7 @@ describe("OrchestrationEngine", () => {
     let shouldFailRequestedProjection = true;
     const flakyProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
+      runPostCommitSideEffects: () => Effect.void,
       projectEvent: (event) => {
         if (
           shouldFailRequestedProjection &&
@@ -1053,6 +1055,7 @@ describe("OrchestrationEngine", () => {
     let shouldFailProjection = true;
     const flakyProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
+      runPostCommitSideEffects: () => Effect.void,
       projectEvent: (event) => {
         if (
           shouldFailProjection &&

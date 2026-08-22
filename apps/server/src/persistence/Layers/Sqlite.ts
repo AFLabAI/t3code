@@ -33,8 +33,12 @@ const makeRuntimeSqliteLayer = Effect.fn("makeRuntimeSqliteLayer")(function* (
 const setup = Layer.effectDiscard(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    // CLI and server write from separate processes; wait rather than fail with SQLITE_BUSY.
-    yield* sql`PRAGMA busy_timeout = 5000;`;
+    // Node retries locks in Effect so synchronous SQLite never blocks the event loop.
+    if (process.versions.bun === undefined) {
+      yield* sql`PRAGMA busy_timeout = 0;`;
+    } else {
+      yield* sql`PRAGMA busy_timeout = 5000;`;
+    }
     yield* sql`PRAGMA foreign_keys = ON;`;
     yield* sql`PRAGMA journal_mode = WAL;`;
     yield* runMigrations();

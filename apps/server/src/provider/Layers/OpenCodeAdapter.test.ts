@@ -2,6 +2,7 @@ import * as NodeAssert from "node:assert/strict";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -61,6 +62,8 @@ const runtimeMock = {
     sessionCreateInputs: [] as Array<Record<string, unknown>>,
     authHeaders: [] as Array<string | null>,
     abortCalls: [] as string[],
+    abortStarted: null as Deferred.Deferred<void> | null,
+    hangAbort: false,
     closeCalls: [] as string[],
     revertCalls: [] as Array<{ sessionID: string; messageID?: string }>,
     promptCalls: [] as Array<unknown>,
@@ -81,6 +84,8 @@ const runtimeMock = {
     this.state.sessionCreateInputs.length = 0;
     this.state.authHeaders.length = 0;
     this.state.abortCalls.length = 0;
+    this.state.abortStarted = null;
+    this.state.hangAbort = false;
     this.state.closeCalls.length = 0;
     this.state.revertCalls.length = 0;
     this.state.promptCalls.length = 0;
@@ -174,8 +179,20 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
           }
           return { data: { id: forkedId, ...(directory ? { directory } : {}) } };
         },
-        abort: async ({ sessionID }: { sessionID: string }) => {
+        abort: async ({ sessionID }: { sessionID: string }, options?: { signal?: AbortSignal }) => {
           runtimeMock.state.abortCalls.push(sessionID);
+          if (runtimeMock.state.hangAbort) {
+            if (runtimeMock.state.abortStarted) {
+              Deferred.doneUnsafe(runtimeMock.state.abortStarted, Effect.void);
+            }
+            await new Promise<void>((_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => reject(new Error("OpenCode abort request cancelled")),
+                { once: true },
+              );
+            });
+          }
         },
         promptAsync: async (input: unknown) => {
           runtimeMock.state.promptCalls.push(input);
@@ -625,6 +642,28 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         events.map((event) => event.type),
         ["session.started", "thread.started", "session.exited"],
       );
+    }),
+  );
+
+  it.effect("closes session resources when the remote abort does not respond", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-opencode-hung-abort");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      runtimeMock.state.hangAbort = true;
+      runtimeMock.state.abortStarted = yield* Deferred.make<void>();
+      const stopFiber = yield* adapter.stopSession(threadId).pipe(Effect.forkChild);
+      yield* Deferred.await(runtimeMock.state.abortStarted);
+      yield* TestClock.adjust("5 seconds");
+      yield* Fiber.join(stopFiber);
+
+      NodeAssert.deepEqual(runtimeMock.state.closeCalls, ["http://127.0.0.1:9999"]);
+      NodeAssert.equal(yield* adapter.hasSession(threadId), false);
     }),
   );
 

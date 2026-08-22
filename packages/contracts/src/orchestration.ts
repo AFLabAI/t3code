@@ -21,6 +21,7 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
   TurnId,
+  ValidIsoDateTime,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
@@ -642,7 +643,7 @@ export const ProjectCreateCommand = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ProjectMetaUpdateCommand = Schema.Struct({
@@ -678,7 +679,7 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -722,7 +723,7 @@ const ThreadSnoozeCommand = Schema.Struct({
   // The wake time. Event-based wake conditions (PR merged, review posted)
   // will arrive as an optional condition field alongside this; time-based
   // snooze is just the first kind of condition.
-  snoozedUntil: IsoDateTime,
+  snoozedUntil: ValidIsoDateTime,
 });
 
 const ThreadUnsnoozeCommand = Schema.Struct({
@@ -786,7 +787,7 @@ const ThreadRuntimeModeSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   runtimeMode: RuntimeMode,
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadInteractionModeSetCommand = Schema.Struct({
@@ -794,7 +795,7 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   interactionMode: ProviderInteractionMode,
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
@@ -805,7 +806,7 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
@@ -841,7 +842,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   ),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ClientThreadTurnStartCommand = Schema.Struct({
@@ -860,7 +861,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadTurnInterruptCommand = Schema.Struct({
@@ -868,7 +869,7 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadApprovalRespondCommand = Schema.Struct({
@@ -877,7 +878,7 @@ const ThreadApprovalRespondCommand = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   decision: ProviderApprovalDecision,
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadUserInputRespondCommand = Schema.Struct({
@@ -886,7 +887,7 @@ const ThreadUserInputRespondCommand = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   answers: ProviderUserInputAnswers,
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadCheckpointRevertCommand = Schema.Struct({
@@ -894,14 +895,14 @@ const ThreadCheckpointRevertCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   turnCount: NonNegativeInt,
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
 });
 
 const ThreadSessionStopCommand = Schema.Struct({
   type: Schema.Literal("thread.session.stop"),
   commandId: CommandId,
   threadId: ThreadId,
-  createdAt: IsoDateTime,
+  createdAt: ValidIsoDateTime,
   // Settle-cleanup stops are conditional: the decider drops the stop if the
   // thread was re-engaged (unsettled, session starting/running, or a queued
   // turn start) between the settle and this command. Guarding in the decider

@@ -3,7 +3,6 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
@@ -12,7 +11,7 @@ import {
   ThreadDeletionReactor,
   type ThreadDeletionReactorShape,
 } from "../Services/ThreadDeletionReactor.ts";
-import { forkParked } from "../../serverActivation.ts";
+import { forkParkedStream } from "../../serverActivation.ts";
 
 type ThreadDeletedEvent = Extract<OrchestrationEvent, { type: "thread.deleted" }>;
 
@@ -81,14 +80,12 @@ const make = Effect.gen(function* () {
   const worker = yield* makeDrainableWorker(processThreadDeletedSafely);
 
   const start: ThreadDeletionReactorShape["start"] = Effect.fn("start")(function* () {
-    yield* forkParked(
-      Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-        if (event.type !== "thread.deleted") {
-          return Effect.void;
-        }
-        return worker.enqueue(event);
-      }),
-    );
+    yield* forkParkedStream(orchestrationEngine.streamDomainEvents, (event) => {
+      if (event.type !== "thread.deleted") {
+        return Effect.void;
+      }
+      return worker.enqueue(event);
+    });
   });
 
   return {

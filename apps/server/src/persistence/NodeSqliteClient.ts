@@ -13,6 +13,8 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -25,6 +27,32 @@ import { SqlError, classifySqliteError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
+const SQLITE_BUSY_RETRY_INTERVAL = "10 millis";
+const SQLITE_BUSY_RETRY_TIMEOUT = "5 seconds";
+
+const classifyNodeSqliteError = (
+  cause: unknown,
+  options: Parameters<typeof classifySqliteError>[1],
+) => {
+  if (
+    Predicate.hasProperty(cause, "errcode") &&
+    !Predicate.hasProperty(cause, "errno") &&
+    Predicate.isNumber(cause.errcode)
+  ) {
+    return classifySqliteError(Object.assign(cause, { errno: cause.errcode }), options);
+  }
+  return classifySqliteError(cause, options);
+};
+
+const retrySqliteLock = <A>(effect: Effect.Effect<A, SqlError>) =>
+  effect.pipe(
+    Effect.retry({
+      while: (error) => error.reason._tag === "LockTimeoutError",
+      schedule: Schedule.spaced(SQLITE_BUSY_RETRY_INTERVAL).pipe(
+        Schedule.upTo({ duration: SQLITE_BUSY_RETRY_TIMEOUT }),
+      ),
+    }),
+  );
 
 export const TypeId: TypeId = "~local/sqlite-node/SqliteClient";
 
@@ -108,7 +136,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
       try: openDatabase,
       catch: (cause) =>
         new SqlError({
-          reason: classifySqliteError(cause, {
+          reason: classifyNodeSqliteError(cause, {
             message: "Failed to open database",
             operation: "open",
           }),
@@ -120,7 +148,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         try: () => db.close(),
         catch: (cause) =>
           new SqlError({
-            reason: classifySqliteError(cause, {
+            reason: classifyNodeSqliteError(cause, {
               message: "Failed to close database",
               operation: "close",
             }),
@@ -144,7 +172,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         try: () => db.prepare(sql),
         catch: (cause) =>
           new SqlError({
-            reason: classifySqliteError(cause, {
+            reason: classifyNodeSqliteError(cause, {
               message: "Failed to prepare statement",
               operation: "prepare",
             }),
@@ -156,6 +184,15 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
       timeToLive: options.prepareCacheTTL ?? Duration.minutes(10),
       lookup: prepare,
     });
+
+    const getPreparedStatement = (sql: string) =>
+      Cache.get(prepareCache, sql).pipe(
+        Effect.tapError((error) =>
+          error.reason._tag === "LockTimeoutError"
+            ? Cache.invalidate(prepareCache, sql)
+            : Effect.void,
+        ),
+      );
 
     const runStatement = (
       statement: NodeSqlite.StatementSync,
@@ -173,7 +210,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         } catch (cause) {
           return Effect.fail(
             new SqlError({
-              reason: classifySqliteError(cause, {
+              reason: classifyNodeSqliteError(cause, {
                 message: "Failed to execute statement",
                 operation: "execute",
               }),
@@ -183,7 +220,11 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
       });
 
     const run = (sql: string, params: ReadonlyArray<unknown>, raw = false) =>
-      Effect.flatMap(Cache.get(prepareCache, sql), (s) => runStatement(s, params, raw));
+      retrySqliteLock(
+        Effect.flatMap(getPreparedStatement(sql), (statement) =>
+          runStatement(statement, params, raw),
+        ),
+      );
 
     const runStatementValues = (
       statement: NodeSqlite.StatementSync,
@@ -206,7 +247,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
             },
             catch: (cause) =>
               new SqlError({
-                reason: classifySqliteError(cause, {
+                reason: classifyNodeSqliteError(cause, {
                   message: "Failed to execute statement",
                   operation: "execute",
                 }),
@@ -221,7 +262,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
             },
             catch: (cause) =>
               new SqlError({
-                reason: classifySqliteError(cause, {
+                reason: classifyNodeSqliteError(cause, {
                   message: "Failed to reset statement result mode",
                   operation: "resetResultMode",
                 }),
@@ -230,8 +271,10 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
       );
 
     const runValues = (sql: string, params: ReadonlyArray<unknown>) =>
-      Effect.flatMap(Cache.get(prepareCache, sql), (statement) =>
-        runStatementValues(statement, params),
+      retrySqliteLock(
+        Effect.flatMap(getPreparedStatement(sql), (statement) =>
+          runStatementValues(statement, params),
+        ),
       );
 
     return identity<Connection>({
@@ -245,13 +288,15 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         return runValues(sql, params);
       },
       executeValuesUnprepared(sql, params) {
-        return Effect.flatMap(prepare(sql), (statement) =>
-          runStatementValues(statement, params ?? []),
+        return retrySqliteLock(
+          Effect.flatMap(prepare(sql), (statement) => runStatementValues(statement, params ?? [])),
         );
       },
       executeUnprepared(sql, params, rowTransform) {
-        const effect = prepare(sql).pipe(
-          Effect.flatMap((statement) => runStatement(statement, params ?? [], false)),
+        const effect = retrySqliteLock(
+          prepare(sql).pipe(
+            Effect.flatMap((statement) => runStatement(statement, params ?? [], false)),
+          ),
         );
         return rowTransform ? Effect.map(effect, rowTransform) : effect;
       },

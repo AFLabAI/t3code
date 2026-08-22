@@ -590,6 +590,98 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
+  effectIt.effect("processes another thread's approval while provider startup is blocked", () =>
+    Effect.gen(function* () {
+      const firstStarted = yield* Deferred.make<void>();
+      const releaseFirst = yield* Deferred.make<void>();
+      const approvalProcessed = yield* Deferred.make<void>();
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          startSessionEffect: (session) =>
+            session.threadId === ThreadId.make("thread-1")
+              ? Deferred.succeed(firstStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseFirst)),
+                  Effect.as(session),
+                )
+              : Effect.succeed(session),
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+      const secondThreadId = ThreadId.make("thread-2");
+
+      harness.respondToRequest.mockImplementation(() =>
+        Deferred.succeed(approvalProcessed, undefined).pipe(Effect.asVoid),
+      );
+
+      yield* harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-concurrent-create"),
+        threadId: secondThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Thread 2",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-thread-concurrent-session"),
+        threadId: secondThreadId,
+        session: {
+          threadId: secondThreadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-blocked"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-blocked"),
+          role: "user",
+          text: "wait for startup",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+      yield* Deferred.await(firstStarted);
+
+      yield* harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.make("cmd-concurrent-approval"),
+        threadId: secondThreadId,
+        requestId: asApprovalRequestId("approval-concurrent"),
+        decision: "accept",
+        createdAt: now,
+      });
+      yield* Deferred.await(approvalProcessed);
+
+      expect(harness.respondToRequest).toHaveBeenCalledWith({
+        threadId: secondThreadId,
+        requestId: asApprovalRequestId("approval-concurrent"),
+        decision: "accept",
+      });
+      expect(yield* Deferred.isDone(releaseFirst)).toBe(false);
+
+      yield* Deferred.succeed(releaseFirst, undefined);
+      yield* Effect.promise(() => harness.drain());
+    }),
+  );
+
   effectIt.effect("settles a failed provider startup and allows a clean retry", () =>
     Effect.gen(function* () {
       let failStartup = true;

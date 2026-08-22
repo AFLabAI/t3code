@@ -42,6 +42,20 @@ layer("NodeSqliteClient", (it) => {
       assert.equal(error.reason.operation, "prepare");
     }),
   );
+
+  it.effect("classifies native Node SQLite constraint errors", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TABLE unique_entries(value TEXT UNIQUE)`;
+      yield* sql`INSERT INTO unique_entries(value) VALUES (${"duplicate"})`;
+
+      const error = yield* Effect.flip(
+        sql`INSERT INTO unique_entries(value) VALUES (${"duplicate"})`,
+      );
+
+      assert.equal(error.reason._tag, "UniqueViolation");
+    }),
+  );
 });
 
 it.effect("returns a typed failure when the database cannot be opened", () =>

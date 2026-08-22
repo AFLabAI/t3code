@@ -62,4 +62,40 @@ describe.sequential("primary environment HTTP layer", () => {
       expect(request.headers.get("authorization")).toBe("Bearer desktop-bearer-token");
     }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
   });
+
+  it.effect("keeps desktop bearer-token failures in the HTTP client error channel", () => {
+    const fetchMock = vi.fn();
+    const authFailure = new Error("Desktop credentials unavailable");
+    vi.stubGlobal("fetch", fetchMock);
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        location: { origin: "t3code://app" },
+        desktopBridge: {
+          getLocalEnvironmentBootstrap: () => ({
+            label: "Local environment",
+            httpBaseUrl: "http://127.0.0.1:3773",
+            wsBaseUrl: "ws://127.0.0.1:3773",
+            bootstrapToken: "desktop-bootstrap-token",
+          }),
+          getLocalEnvironmentBearerToken: vi.fn().mockRejectedValue(authFailure),
+        } as unknown as DesktopBridge,
+      },
+    });
+
+    return Effect.gen(function* () {
+      const result = yield* Effect.result(
+        HttpClient.get("http://127.0.0.1:3773/api/connect/link-state"),
+      );
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "HttpClientError",
+          reason: { _tag: "TransportError", cause: authFailure },
+        },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
+  });
 });

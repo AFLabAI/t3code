@@ -944,7 +944,7 @@ export const makeCodexSessionRuntime = (
         ),
       );
 
-    const clientContext = yield* CodexClient.layerChildProcess(child).pipe(
+    const clientContext = yield* CodexClient.layerChildProcess(child, { drainStderr: false }).pipe(
       Layer.build,
       Effect.provideService(Scope.Scope, runtimeScope),
     );

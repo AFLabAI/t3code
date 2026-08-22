@@ -3,7 +3,7 @@ import { describe, expect } from "vite-plus/test";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 
-import { makeDrainableWorker } from "./DrainableWorker.ts";
+import { makeDrainableWorker, makeKeyedDrainableWorker } from "./DrainableWorker.ts";
 
 describe("makeDrainableWorker", () => {
   it.live("waits for work enqueued during active processing before draining", () =>
@@ -51,6 +51,94 @@ describe("makeDrainableWorker", () => {
         yield* Deferred.await(drained);
 
         expect(processed).toEqual(["first", "second"]);
+      }),
+    ),
+  );
+});
+
+describe("makeKeyedDrainableWorker", () => {
+  it.live("processes other keys while the first key is blocked", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstStarted = yield* Deferred.make<void>();
+        const releaseFirst = yield* Deferred.make<void>();
+        const secondProcessed = yield* Deferred.make<void>();
+        const processed: string[] = [];
+
+        const worker = yield* makeKeyedDrainableWorker({
+          concurrency: 2,
+          key: (item: { readonly threadId: string; readonly value: string }) => item.threadId,
+          process: (item) =>
+            Effect.gen(function* () {
+              if (item.threadId === "thread-1") {
+                yield* Deferred.succeed(firstStarted, undefined);
+                yield* Deferred.await(releaseFirst);
+              }
+              processed.push(item.value);
+              if (item.threadId === "thread-2") {
+                yield* Deferred.succeed(secondProcessed, undefined);
+              }
+            }),
+        });
+
+        yield* worker.enqueue({ threadId: "thread-1", value: "first" });
+        yield* Deferred.await(firstStarted);
+        yield* worker.enqueue({ threadId: "thread-2", value: "second" });
+        yield* Deferred.await(secondProcessed);
+
+        expect(processed).toEqual(["second"]);
+
+        yield* Deferred.succeed(releaseFirst, undefined);
+        yield* worker.drain;
+        expect(processed).toEqual(["second", "first"]);
+      }),
+    ),
+  );
+
+  it.live("preserves order within each key and drains work added during processing", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstStarted = yield* Deferred.make<void>();
+        const releaseFirst = yield* Deferred.make<void>();
+        const secondStarted = yield* Deferred.make<void>();
+        const releaseSecond = yield* Deferred.make<void>();
+        const drained = yield* Deferred.make<void>();
+        const processed: string[] = [];
+
+        const worker = yield* makeKeyedDrainableWorker({
+          concurrency: 4,
+          key: (item: string) => item.split(":")[0]!,
+          process: (item) =>
+            Effect.gen(function* () {
+              if (item === "thread:first") {
+                yield* Deferred.succeed(firstStarted, undefined);
+                yield* Deferred.await(releaseFirst);
+              }
+              if (item === "thread:second") {
+                yield* Deferred.succeed(secondStarted, undefined);
+                yield* Deferred.await(releaseSecond);
+              }
+              processed.push(item);
+            }),
+        });
+
+        yield* worker.enqueue("thread:first");
+        yield* Deferred.await(firstStarted);
+        yield* worker.enqueue("thread:second");
+        yield* worker.enqueue("thread:third");
+        yield* Effect.forkChild(
+          worker.drain.pipe(Effect.tap(() => Deferred.succeed(drained, undefined))),
+        );
+
+        expect(yield* Deferred.isDone(secondStarted)).toBe(false);
+
+        yield* Deferred.succeed(releaseFirst, undefined);
+        yield* Deferred.await(secondStarted);
+        expect(yield* Deferred.isDone(drained)).toBe(false);
+
+        yield* Deferred.succeed(releaseSecond, undefined);
+        yield* Deferred.await(drained);
+        expect(processed).toEqual(["thread:first", "thread:second", "thread:third"]);
       }),
     ),
   );

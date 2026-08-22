@@ -37,6 +37,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -225,6 +226,10 @@ describe("ProviderRuntimeIngestion", () => {
   async function createHarness(options?: {
     serverSettings?: Partial<ServerSettings>;
     threadTitle?: string;
+    dispatchFailure?: {
+      readonly commandType: OrchestrationCommand["type"];
+      readonly count: number;
+    };
   }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
@@ -241,8 +246,36 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
+    let remainingDispatchFailures = options?.dispatchFailure?.count ?? 0;
+    const ingestionOrchestrationLayer = Layer.effect(
+      OrchestrationEngineService,
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        return {
+          ...engine,
+          dispatch: (command, dispatchOptions) => {
+            if (
+              command.type === options?.dispatchFailure?.commandType &&
+              remainingDispatchFailures > 0
+            ) {
+              remainingDispatchFailures -= 1;
+              return Effect.fail(
+                new PersistenceSqlError({
+                  operation: "ProviderRuntimeIngestion.test",
+                  detail: "Injected temporary persistence failure",
+                }),
+              );
+            }
+            return engine.dispatch(command, dispatchOptions);
+          },
+          get streamDomainEvents() {
+            return engine.streamDomainEvents;
+          },
+        } satisfies OrchestrationEngineService["Service"];
+      }),
+    ).pipe(Layer.provide(orchestrationLayer));
     const layer = ProviderRuntimeIngestionLive.pipe(
-      Layer.provideMerge(orchestrationLayer),
+      Layer.provideMerge(ingestionOrchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
       // Single shared liveness instance across ingestion (writer), the
       // engine, and the snapshot query (reader).
@@ -323,6 +356,9 @@ describe("ProviderRuntimeIngestion", () => {
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      get remainingDispatchFailures() {
+        return remainingDispatchFailures;
+      },
     };
   }
 
@@ -1888,6 +1924,80 @@ describe("ProviderRuntimeIngestion", () => {
     expect(proposedPlan?.planMarkdown).toBe("## Buffered plan\n\n- first\n- second");
   });
 
+  it("retains buffered proposed plans after persistence retries are exhausted", async () => {
+    const harness = await createHarness({
+      dispatchFailure: {
+        commandType: "thread.proposed-plan.upsert",
+        count: 3,
+      },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-plan-retained");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-plan-retained"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "turn.proposed.delta",
+      eventId: asEventId("evt-plan-delta-retained"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        delta: "## Keep this plan",
+      },
+    });
+    harness.emit({
+      type: "turn.proposed.completed",
+      eventId: asEventId("evt-plan-completed-retained-failed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        planMarkdown: "",
+      },
+    });
+    await harness.drain();
+
+    const failedThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(failedThread?.proposedPlans).toEqual([]);
+    expect(harness.remainingDispatchFailures).toBe(0);
+
+    harness.emit({
+      type: "turn.proposed.completed",
+      eventId: asEventId("evt-plan-completed-retained-retry"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        planMarkdown: "",
+      },
+    });
+    await harness.drain();
+
+    const recoveredThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(recoveredThread?.proposedPlans).toContainEqual(
+      expect.objectContaining({
+        id: "plan:thread-1:turn:turn-plan-retained",
+        planMarkdown: "## Keep this plan",
+      }),
+    );
+  });
+
   it("buffers assistant deltas by default until completion", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -1954,6 +2064,147 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("buffer me");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("retries temporary persistence failures while finalizing buffered assistant text", async () => {
+    const harness = await createHarness({
+      dispatchFailure: {
+        commandType: "thread.message.assistant.delta",
+        count: 2,
+      },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-buffer-retry");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffer-retry"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffer-retry"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-buffer-retry"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "retry this text",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffer-retry"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-buffer-retry"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    await harness.drain();
+
+    const thread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(
+      thread?.messages.find((message) => message.id === "assistant:item-buffer-retry"),
+    ).toMatchObject({
+      text: "retry this text",
+      streaming: false,
+    });
+    expect(harness.remainingDispatchFailures).toBe(0);
+  });
+
+  it("retains buffered assistant text after persistence retries are exhausted", async () => {
+    const harness = await createHarness({
+      dispatchFailure: {
+        commandType: "thread.message.assistant.delta",
+        count: 3,
+      },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-buffer-retained");
+    const itemId = asItemId("item-buffer-retained");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffer-retained"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffer-retained"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: {
+        streamKind: "assistant_text",
+        delta: "keep this text",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffer-retained-failed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    await harness.drain();
+
+    const failedThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(failedThread?.messages).toEqual([]);
+    expect(harness.remainingDispatchFailures).toBe(0);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffer-retained-retry"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    await harness.drain();
+
+    const recoveredThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(
+      recoveredThread?.messages.find((message) => message.id === "assistant:item-buffer-retained"),
+    ).toMatchObject({
+      text: "keep this text",
+      streaming: false,
+    });
   });
 
   it("flushes and completes buffered assistant text when an approval request opens", async () => {

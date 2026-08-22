@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -20,6 +21,17 @@ export const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximu
 
 export const IsoDateTime = Schema.String;
 export type IsoDateTime = typeof IsoDateTime.Type;
+
+const ISO_DATE_TIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export const ValidIsoDateTime = IsoDateTime.check(
+  Schema.isPattern(ISO_DATE_TIME_PATTERN),
+  Schema.makeFilter((value) => Option.isSome(DateTime.make(value)), {
+    expected: "a valid ISO 8601 date and time",
+  }),
+);
+export type ValidIsoDateTime = typeof ValidIsoDateTime.Type;
 
 /**
  * Wire codec for server→client arrays whose element unions grow over time

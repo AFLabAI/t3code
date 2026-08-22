@@ -203,7 +203,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               for (const nextEvent of eventBases) {
                 const savedEvent = yield* eventStore.append(nextEvent);
                 nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
-                yield* projectionPipeline.projectEvent(savedEvent);
+                yield* projectionPipeline.projectEvent(savedEvent, { deferSideEffects: true });
                 committedEvents.push(savedEvent);
               }
 
@@ -242,6 +242,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
         commandReadModel = committedCommand.nextCommandReadModel;
         for (const [index, event] of committedCommand.committedEvents.entries()) {
+          yield* projectionPipeline.runPostCommitSideEffects(event);
           yield* PubSub.publish(eventPubSub, event);
           if (index === 0) {
             yield* Metric.update(

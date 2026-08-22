@@ -3,8 +3,11 @@ import * as AcpError from "./errors.ts";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
+import * as PlatformError from "effect/PlatformError";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Sink from "effect/Sink";
+import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 import * as Ref from "effect/Ref";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -593,6 +596,167 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       assert.instanceOf(error, AcpError.AcpInputStreamEndedError);
       assert.equal(error.message, "ACP input stream ended.");
       assert.equal("cause" in error, false);
+    }),
+  );
+
+  it.effect("rejects new requests and notifications after the input stream ends", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const termination = yield* Deferred.make<AcpError.AcpError>();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+      });
+
+      yield* Queue.end(input);
+      const error = yield* Deferred.await(termination);
+
+      const requestError = yield* transport.request("x/late", {}).pipe(
+        Effect.match({
+          onFailure: (failure) => failure,
+          onSuccess: () => assert.fail("Expected a terminated request to fail"),
+        }),
+      );
+      assert.strictEqual(requestError, error);
+      assert.strictEqual(yield* transport.notify("x/late", {}).pipe(Effect.flip), error);
+    }),
+  );
+
+  it.effect("fails a notification if the output queue closes while it is being encoded", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const encoded = yield* Deferred.make<void>();
+      const resume = yield* Deferred.make<void>();
+      const termination = yield* Deferred.make<AcpError.AcpError>();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+        logOutgoing: true,
+        logger: (event) =>
+          event.stage === "raw"
+            ? Deferred.succeed(encoded, undefined).pipe(Effect.andThen(Deferred.await(resume)))
+            : Effect.void,
+        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+      });
+
+      const notification = yield* transport.notify("x/racing", {}).pipe(Effect.forkScoped);
+      yield* Deferred.await(encoded);
+      yield* Queue.end(input);
+      const error = yield* Deferred.await(termination);
+      yield* Deferred.succeed(resume, undefined);
+
+      assert.strictEqual(yield* Fiber.join(notification).pipe(Effect.flip), error);
+    }),
+  );
+
+  it.effect("drains buffered raw notifications and completes when the input stream ends", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const handled = yield* Deferred.make<void>();
+      const observed = yield* Ref.make<Array<unknown>>([]);
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+        onNotification: () => Deferred.succeed(handled, undefined).pipe(Effect.asVoid),
+      });
+
+      yield* Queue.offer(
+        input,
+        encoder.encode(
+          `${encodeUnknownJsonString({ jsonrpc: "2.0", method: "x/buffered", params: 7 })}\n`,
+        ),
+      );
+      yield* Deferred.await(handled);
+
+      const drain = yield* transport.incoming.pipe(
+        Stream.tap((notification) =>
+          Ref.update(observed, (current) => [...current, notification.params]),
+        ),
+        Stream.runDrain,
+        Effect.forkScoped,
+      );
+      yield* Queue.end(input);
+      yield* Fiber.join(drain);
+
+      assert.deepEqual(yield* Ref.get(observed), [7]);
+    }),
+  );
+
+  it.effect("fails pending and future requests when the output writer fails", () =>
+    Effect.gen(function* () {
+      const { stdio } = yield* makeInMemoryStdio();
+      const cause = PlatformError.systemError({
+        _tag: "Unknown",
+        module: "Stdio",
+        method: "write",
+        cause: new Error("broken output pipe"),
+      });
+      const termination = yield* Deferred.make<AcpError.AcpError>();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio: Stdio.make({
+          args: stdio.args,
+          stdin: stdio.stdin,
+          stdout: () => Sink.forEach((_chunk: string | Uint8Array) => Effect.fail(cause)),
+          stderr: stdio.stderr,
+        }),
+        serverRequestMethods: new Set(),
+        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+      });
+
+      const pending = yield* transport.request("x/pending", {}).pipe(Effect.forkScoped);
+      const error = yield* Deferred.await(termination);
+
+      assert.instanceOf(error, AcpError.AcpTransportError);
+      assert.equal(error.operation, "write-output-stream");
+      assert.strictEqual(error.cause, cause);
+      const pendingError = yield* Fiber.join(pending).pipe(
+        Effect.match({
+          onFailure: (failure) => failure,
+          onSuccess: () => assert.fail("Expected the pending request to fail"),
+        }),
+      );
+      const futureError = yield* transport.request("x/future", {}).pipe(
+        Effect.match({
+          onFailure: (failure) => failure,
+          onSuccess: () => assert.fail("Expected the future request to fail"),
+        }),
+      );
+      assert.strictEqual(pendingError, error);
+      assert.strictEqual(futureError, error);
+    }),
+  );
+
+  it.effect("keeps only the latest handled notifications for the raw stream", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const handled = yield* Deferred.make<void>();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+        onNotification: (notification) =>
+          notification._tag === "ExtNotification" && notification.params === 95
+            ? Deferred.succeed(handled, undefined).pipe(Effect.asVoid)
+            : Effect.void,
+      });
+
+      yield* Effect.forEach(
+        Array.from({ length: 96 }, (_, index) => index),
+        (index) =>
+          Queue.offer(
+            input,
+            encoder.encode(
+              `${encodeUnknownJsonString({ jsonrpc: "2.0", method: "x/event", params: index })}\n`,
+            ),
+          ),
+        { discard: true },
+      );
+      yield* Deferred.await(handled);
+
+      const buffered = yield* transport.incoming.pipe(Stream.take(64), Stream.runCollect);
+      assert.equal(buffered.length, 64);
+      assert.equal(buffered[0]?.params, 32);
+      assert.equal(buffered[63]?.params, 95);
     }),
   );
 

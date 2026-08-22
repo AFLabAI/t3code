@@ -19,6 +19,8 @@ import {
 import { makeChildStdio, makeTerminationError } from "./_internal/stdio.ts";
 
 export interface CodexAppServerClientOptions {
+  /** Disable the default stderr drain when the caller owns that stream. */
+  readonly drainStderr?: boolean;
   readonly logIncoming?: boolean;
   readonly logOutgoing?: boolean;
   readonly logger?: (
@@ -264,6 +266,8 @@ export const layerChildProcess = (
 const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {
-  yield* Stream.runDrain(handle.stderr).pipe(Effect.ignore, Effect.forkScoped);
+  if (options.drainStderr !== false) {
+    yield* Stream.runDrain(handle.stderr).pipe(Effect.ignore, Effect.forkScoped);
+  }
   return yield* make(makeChildStdio(handle), options, makeTerminationError(handle));
 });

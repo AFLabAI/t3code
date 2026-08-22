@@ -187,6 +187,35 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
     }),
   );
 
+  it.effect("drains child stderr so large diagnostics cannot block initialization", () =>
+    Effect.gen(function* () {
+      const handle = yield* makeHandle({ ACP_MOCK_STDERR_BYTES: String(512 * 1024) });
+      const scope = yield* Scope.make();
+      const context = yield* Layer.buildWithScope(AcpClient.layerChildProcess(handle), scope);
+
+      const initialized = yield* Effect.gen(function* () {
+        const client = yield* AcpClient.AcpClient;
+        return yield* client.agent.initialize({
+          protocolVersion: 1,
+          clientCapabilities: {
+            fs: { readTextFile: false, writeTextFile: false },
+            terminal: false,
+          },
+          clientInfo: {
+            name: "effect-acp-test",
+            version: "0.0.0",
+          },
+        });
+      }).pipe(
+        Effect.timeout("5 seconds"),
+        Effect.provide(context),
+        Effect.ensuring(Scope.close(scope, Exit.void)),
+      );
+
+      assert.equal(initialized.protocolVersion, 1);
+    }),
+  );
+
   it.effect(
     "returns structured invalid params without exposing values from typed extension request payloads",
     () =>

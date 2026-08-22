@@ -17,7 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import type * as PlatformError from "effect/PlatformError";
-import * as Stream from "effect/Stream";
+import * as Schema from "effect/Schema";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 
@@ -27,9 +27,10 @@ import {
   resolveThreadWorkspaceCwd,
 } from "../../checkpointing/Utils.ts";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
+import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { CheckpointReactor, type CheckpointReactorShape } from "../Services/CheckpointReactor.ts";
-import { forkParked } from "../../serverActivation.ts";
+import { forkParkedStream } from "../../serverActivation.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
@@ -40,6 +41,8 @@ import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+const PERSISTENCE_RETRY_COUNT = 2;
+const isPersistenceSqlError = Schema.is(PersistenceSqlError);
 
 type ReactorInput =
   | {
@@ -88,6 +91,13 @@ const make = Effect.gen(function* () {
   const receiptBus = yield* RuntimeReceiptBus;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
+  const dispatchCheckpointCommand = (command: Parameters<typeof orchestrationEngine.dispatch>[0]) =>
+    Effect.suspend(() => orchestrationEngine.dispatch(command)).pipe(
+      Effect.retry({
+        times: PERSISTENCE_RETRY_COUNT,
+        while: isPersistenceSqlError,
+      }),
+    );
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -100,7 +110,7 @@ const make = Effect.gen(function* () {
       activityId: serverEventId,
     }).pipe(
       Effect.flatMap(({ commandId, activityId }) =>
-        orchestrationEngine.dispatch({
+        dispatchCheckpointCommand({
           type: "thread.activity.append",
           commandId,
           threadId: input.threadId,
@@ -132,7 +142,7 @@ const make = Effect.gen(function* () {
       activityId: serverEventId,
     }).pipe(
       Effect.flatMap(({ commandId, activityId }) =>
-        orchestrationEngine.dispatch({
+        dispatchCheckpointCommand({
           type: "thread.activity.append",
           commandId,
           threadId: input.threadId,
@@ -301,7 +311,7 @@ const make = Effect.gen(function* () {
         .find((entry) => entry.role === "assistant" && entry.turnId === input.turnId)?.id ??
       MessageId.make(`assistant:${input.turnId}`);
 
-    yield* orchestrationEngine.dispatch({
+    yield* dispatchCheckpointCommand({
       type: "thread.turn.diff.complete",
       commandId: yield* serverCommandId("checkpoint-turn-diff-complete"),
       threadId: input.threadId,
@@ -331,7 +341,7 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
 
-    yield* orchestrationEngine.dispatch({
+    yield* dispatchCheckpointCommand({
       type: "thread.activity.append",
       commandId: yield* serverCommandId("checkpoint-captured-activity"),
       threadId: input.threadId,
@@ -601,7 +611,7 @@ const make = Effect.gen(function* () {
       // expectedBranch makes this a compare-and-swap in the decider: if the
       // recorded branch moved between our read and the dispatch (rename,
       // concurrent drift-follow), the stale update is dropped.
-      yield* orchestrationEngine.dispatch({
+      yield* dispatchCheckpointCommand({
         type: "thread.meta.update",
         commandId: yield* serverCommandId("worktree-branch-drift"),
         threadId: thread.id,
@@ -913,28 +923,24 @@ const make = Effect.gen(function* () {
   const worker = yield* makeDrainableWorker(processInputSafely);
 
   const start: CheckpointReactorShape["start"] = Effect.fn("start")(function* () {
-    yield* forkParked(
-      Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-        if (
-          event.type !== "thread.turn-start-requested" &&
-          event.type !== "thread.message-sent" &&
-          event.type !== "thread.checkpoint-revert-requested" &&
-          event.type !== "thread.turn-diff-completed"
-        ) {
-          return Effect.void;
-        }
-        return worker.enqueue({ source: "domain", event });
-      }),
-    );
+    yield* forkParkedStream(orchestrationEngine.streamDomainEvents, (event) => {
+      if (
+        event.type !== "thread.turn-start-requested" &&
+        event.type !== "thread.message-sent" &&
+        event.type !== "thread.checkpoint-revert-requested" &&
+        event.type !== "thread.turn-diff-completed"
+      ) {
+        return Effect.void;
+      }
+      return worker.enqueue({ source: "domain", event });
+    });
 
-    yield* forkParked(
-      Stream.runForEach(providerService.streamEvents, (event) => {
-        if (event.type !== "turn.started" && event.type !== "turn.completed") {
-          return Effect.void;
-        }
-        return worker.enqueue({ source: "runtime", event });
-      }),
-    );
+    yield* forkParkedStream(providerService.streamEvents, (event) => {
+      if (event.type !== "turn.started" && event.type !== "turn.completed") {
+        return Effect.void;
+      }
+      return worker.enqueue({ source: "runtime", event });
+    });
   });
 
   return {

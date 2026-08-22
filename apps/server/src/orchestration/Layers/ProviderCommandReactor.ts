@@ -22,8 +22,7 @@ import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeDrainableWorker, makeKeyedDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
@@ -38,7 +37,7 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
-import { forkParked, ServerActivation } from "../../serverActivation.ts";
+import { forkParked, forkParkedStream, ServerActivation } from "../../serverActivation.ts";
 import { canReplaceThreadTitle, DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import {
   resolveSourceControlWriterModelSelection,
@@ -91,6 +90,7 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
+const PROVIDER_COMMAND_CONCURRENCY = 8;
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const MAX_REGENERATION_ATTACHMENTS = 4;
 const MAX_THREAD_TITLE_CONTEXT_CHARS = 8_000;
@@ -831,14 +831,20 @@ const make = Effect.gen(function* () {
       });
       yield* vcsStatusBroadcaster.refreshStatus(cwd).pipe(Effect.ignoreCause({ log: true }));
     }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("provider command reactor failed to generate or rename worktree branch", {
-          threadId: input.threadId,
-          cwd,
-          oldBranch,
-          cause: Cause.pretty(cause),
-        }),
-      ),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        return Effect.logWarning(
+          "provider command reactor failed to generate or rename worktree branch",
+          {
+            threadId: input.threadId,
+            cwd,
+            oldBranch,
+            cause: Cause.pretty(cause),
+          },
+        );
+      }),
     );
   });
 
@@ -876,13 +882,19 @@ const make = Effect.gen(function* () {
           title: generated.title,
         });
       }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("provider command reactor failed to generate or rename thread title", {
-            threadId: input.threadId,
-            cwd: input.cwd,
-            cause: Cause.pretty(cause),
-          }),
-        ),
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.failCause(cause);
+          }
+          return Effect.logWarning(
+            "provider command reactor failed to generate or rename thread title",
+            {
+              threadId: input.threadId,
+              cwd: input.cwd,
+              cause: Cause.pretty(cause),
+            },
+          );
+        }),
       );
     },
   );
@@ -1116,7 +1128,7 @@ const make = Effect.gen(function* () {
 
     const handleTurnStartFailure = (cause: Cause.Cause<unknown>) => {
       if (Cause.hasInterruptsOnly(cause)) {
-        return Effect.void;
+        return Effect.interrupt;
       }
       const detail = formatFailureDetail(cause);
       return setThreadSessionErrorOnTurnStartFailure({
@@ -1140,14 +1152,20 @@ const make = Effect.gen(function* () {
 
     const recoverTurnStartFailure = (cause: Cause.Cause<unknown>) =>
       handleTurnStartFailure(cause).pipe(
-        Effect.catchCause((recoveryCause) =>
-          Effect.logWarning("provider command reactor failed to recover turn start failure", {
-            eventType: event.type,
-            threadId: event.payload.threadId,
-            cause: Cause.pretty(recoveryCause),
-            originalCause: Cause.pretty(cause),
-          }),
-        ),
+        Effect.catchCause((recoveryCause) => {
+          if (Cause.hasInterruptsOnly(recoveryCause)) {
+            return Effect.interrupt;
+          }
+          return Effect.logWarning(
+            "provider command reactor failed to recover turn start failure",
+            {
+              eventType: event.type,
+              threadId: event.payload.threadId,
+              cause: Cause.pretty(recoveryCause),
+              originalCause: Cause.pretty(cause),
+            },
+          );
+        }),
       );
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
@@ -1223,8 +1241,11 @@ const make = Effect.gen(function* () {
         decision: event.payload.decision,
       })
       .pipe(
-        Effect.catchCause((cause) =>
-          appendProviderFailureActivity({
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.interrupt;
+          }
+          return appendProviderFailureActivity({
             threadId: event.payload.threadId,
             kind: "provider.approval.respond.failed",
             summary: "Provider approval response failed",
@@ -1234,8 +1255,8 @@ const make = Effect.gen(function* () {
             turnId: null,
             createdAt: event.payload.createdAt,
             requestId: event.payload.requestId,
-          }),
-        ),
+          });
+        }),
       );
   });
 
@@ -1267,8 +1288,11 @@ const make = Effect.gen(function* () {
           answers: event.payload.answers,
         })
         .pipe(
-          Effect.catchCause((cause) =>
-            appendProviderFailureActivity({
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) {
+              return Effect.interrupt;
+            }
+            return appendProviderFailureActivity({
               threadId: event.payload.threadId,
               kind: "provider.user-input.respond.failed",
               summary: "Provider user input response failed",
@@ -1278,8 +1302,8 @@ const make = Effect.gen(function* () {
               turnId: null,
               createdAt: event.payload.createdAt,
               requestId: event.payload.requestId,
-            }),
-          ),
+            });
+          }),
         );
     },
   );
@@ -1374,7 +1398,11 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const worker = yield* makeDrainableWorker(processDomainEventSafely);
+  const worker = yield* makeKeyedDrainableWorker({
+    concurrency: PROVIDER_COMMAND_CONCURRENCY,
+    key: (event: ProviderIntentEvent) => event.payload.threadId,
+    process: processDomainEventSafely,
+  });
 
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
     const interruptedTitleRegenerations = yield* findInterruptedThreadTitleRegenerations().pipe(
@@ -1402,7 +1430,7 @@ const make = Effect.gen(function* () {
       }
     });
 
-    yield* forkParked(Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent));
+    yield* forkParkedStream(orchestrationEngine.streamDomainEvents, processEvent);
 
     // The domain event stream is hot, so work pending before this reactor
     // starts cannot be resumed. Correlated completions only clear the request

@@ -25,6 +25,26 @@ describe("mobile database legacy cache migration", () => {
     ),
   );
 
+  it.effect("does not turn database close failures into scope defects", () =>
+    Effect.gen(function* () {
+      const closeAsync = vi.fn().mockRejectedValue(new Error("SQLite close failed"));
+      openDatabaseAsync.mockResolvedValueOnce({
+        closeAsync,
+        execAsync: vi.fn().mockResolvedValue(undefined),
+        getFirstAsync: vi.fn().mockResolvedValue({ user_version: 1 }),
+        withExclusiveTransactionAsync: vi.fn(
+          (run: (transaction: { execAsync: () => Promise<void> }) => Promise<void>) =>
+            run({ execAsync: () => Promise.resolve() }),
+        ),
+      });
+
+      const result = yield* Effect.exit(Effect.scoped(make.pipe(Effect.asVoid)));
+
+      expect(result._tag).toBe("Success");
+      expect(closeAsync).toHaveBeenCalledTimes(1);
+    }),
+  );
+
   it("maps legacy thread records to their SQLite identity", () => {
     const payload = JSON.stringify({
       schemaVersion: 2,

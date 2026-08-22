@@ -54,6 +54,7 @@ import {
 import * as Option from "effect/Option";
 
 const PROVIDER = ProviderDriverKind.make("opencode");
+const OPENCODE_ABORT_TIMEOUT = "5 seconds";
 
 /**
  * Version tag stamped into the OpenCode resume cursor. Bump if the cursor
@@ -555,6 +556,20 @@ function updateProviderSession(
   });
 }
 
+const abortOpenCodeSession = (client: OpencodeClient, sessionId: string) =>
+  runOpenCodeSdk("session.abort", (signal) =>
+    client.session.abort({ sessionID: sessionId }, { signal }),
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: OPENCODE_ABORT_TIMEOUT,
+      orElse: () => Effect.logWarning("OpenCode session abort timed out.", { sessionId }),
+    }),
+    Effect.catch((error) =>
+      Effect.logWarning("OpenCode session abort failed.", { sessionId, error }),
+    ),
+    Effect.asVoid,
+  );
+
 const stopOpenCodeContext = Effect.fn("stopOpenCodeContext")(function* (
   context: OpenCodeSessionContext,
 ) {
@@ -563,17 +578,9 @@ const stopOpenCodeContext = Effect.fn("stopOpenCodeContext")(function* (
     return false;
   }
 
-  // Best-effort remote abort. The scope close below tears down the local
-  // handles (event-pump fiber, server-exit fiber, event-subscribe fetch),
-  // but we still want to tell OpenCode that this session is done.
-  yield* runOpenCodeSdk("session.abort", () =>
-    context.client.session.abort({ sessionID: context.openCodeSessionId }),
-  ).pipe(Effect.ignore({ log: true }));
-
-  // Closing the session scope interrupts every fiber forked into it and
-  // runs each finalizer we registered — the `AbortController.abort()` call,
-  // the child-process termination, etc.
-  yield* Scope.close(context.sessionScope, Exit.void);
+  yield* abortOpenCodeSession(context.client, context.openCodeSessionId).pipe(
+    Effect.ensuring(Scope.close(context.sessionScope, Exit.void)),
+  );
   return true;
 });
 
@@ -726,10 +733,9 @@ export function makeOpenCodeAdapter(
       // Inline the teardown that `stopOpenCodeContext` would do; we can't
       // delegate to it because our `getAndSet` above already flipped the
       // one-shot guard, so the call would no-op.
-      yield* runOpenCodeSdk("session.abort", () =>
-        context.client.session.abort({ sessionID: context.openCodeSessionId }),
-      ).pipe(Effect.ignore({ log: true }));
-      yield* Scope.close(context.sessionScope, Exit.void);
+      yield* abortOpenCodeSession(context.client, context.openCodeSessionId).pipe(
+        Effect.ensuring(Scope.close(context.sessionScope, Exit.void)),
+      );
     });
 
     /** Emit content.delta and item.completed events for an assistant text part. */
@@ -1356,13 +1362,12 @@ export function makeOpenCodeAdapter(
           // session if we created it here; a resumed one is shared upstream
           // state the winner is now using.
           if (started.created) {
-            yield* runOpenCodeSdk("session.abort", () =>
-              started.client.session.abort({
-                sessionID: started.openCodeSession.id,
-              }),
-            ).pipe(Effect.ignore);
+            yield* abortOpenCodeSession(started.client, started.openCodeSession.id).pipe(
+              Effect.ensuring(Scope.close(started.sessionScope, Exit.void)),
+            );
+          } else {
+            yield* Scope.close(started.sessionScope, Exit.void).pipe(Effect.ignore);
           }
-          yield* Scope.close(started.sessionScope, Exit.void).pipe(Effect.ignore);
           return raceWinner.session;
         }
 
@@ -1558,8 +1563,8 @@ export function makeOpenCodeAdapter(
     const interruptTurn: OpenCodeAdapterShape["interruptTurn"] = Effect.fn("interruptTurn")(
       function* (threadId, turnId) {
         const context = yield* ensureSessionContext(sessions, threadId);
-        yield* runOpenCodeSdk("session.abort", () =>
-          context.client.session.abort({ sessionID: context.openCodeSessionId }),
+        yield* runOpenCodeSdk("session.abort", (signal) =>
+          context.client.session.abort({ sessionID: context.openCodeSessionId }, { signal }),
         ).pipe(Effect.mapError(toRequestError));
         if (turnId ?? context.activeTurnId) {
           yield* emit({
