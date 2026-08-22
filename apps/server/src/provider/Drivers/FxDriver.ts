@@ -142,7 +142,7 @@ export const FxDriver: ProviderDriver<FxSettings, FxDriverEnv> = {
             new ProviderDriverError({
               driver: DRIVER_KIND,
               instanceId,
-              detail: `Failed to build Fx snapshot: ${cause.message ?? String(cause)}`,
+              detail: "Failed to build the fx provider snapshot.",
               cause,
             }),
         ),

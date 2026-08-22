@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -9,6 +13,8 @@ import { FxSettings } from "@t3tools/contracts";
 import { buildInitialFxProviderSnapshot, checkFxProviderStatus } from "./FxProvider.ts";
 
 const decodeFxSettings = Schema.decodeSync(FxSettings);
+const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
+const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
 
 function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -99,7 +105,6 @@ it.layer(NodeServices.layer)("checkFxProviderStatus", (it) => {
           const path = yield* Path.Path;
           const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-fx-acp-success-" });
           const fxPath = path.join(dir, "fx");
-          const mockAgentPath = path.join(process.cwd(), "apps/server/scripts/acp-mock-agent.ts");
           yield* fs.writeFileString(
             fxPath,
             [

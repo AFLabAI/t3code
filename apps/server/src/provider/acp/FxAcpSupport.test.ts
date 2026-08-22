@@ -77,6 +77,20 @@ describe("applyFxAcpModelSelection", () => {
     }),
   );
 
+  it.effect("uses fx's active model for the default sentinel", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyFxAcpModelSelection({
+        runtime,
+        currentModelId: "provider-active-model",
+        requestedModelId: "default",
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([]);
+      expect(result).toBe("provider-active-model");
+    }),
+  );
+
   it.effect("skips the model update when no model is requested", () =>
     Effect.gen(function* () {
       const { runtime, modelCalls } = makeRecordingRuntime();

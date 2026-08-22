@@ -19,7 +19,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
-import * as Option from "effect/Option";
+
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -111,6 +111,11 @@ interface FxSessionContext {
   promptsInFlight: number;
   currentModelId: string | undefined;
   stopped: boolean;
+}
+
+interface ThreadLockEntry {
+  readonly semaphore: Semaphore.Semaphore;
+  readonly users: number;
 }
 
 function settlePendingApprovalsAsCancelled(
@@ -232,7 +237,7 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
     const makeAcpNativeLoggers = yield* makeAcpNativeLoggerFactory();
 
     const sessions = new Map<ThreadId, FxSessionContext>();
-    const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
+    const threadLocksRef = yield* SynchronizedRef.make(new Map<string, ThreadLockEntry>());
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -263,26 +268,42 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
 
-    const getThreadSemaphore = (threadId: string) =>
+    const acquireThreadSemaphore = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
-        const existing: Option.Option<Semaphore.Semaphore> = Option.fromNullishOr(
-          current.get(threadId),
+        const existing = current.get(threadId);
+        if (existing) {
+          const next = new Map(current);
+          next.set(threadId, { ...existing, users: existing.users + 1 });
+          return Effect.succeed([existing.semaphore, next] as const);
+        }
+        return Semaphore.make(1).pipe(
+          Effect.map((semaphore) => {
+            const next = new Map(current);
+            next.set(threadId, { semaphore, users: 1 });
+            return [semaphore, next] as const;
+          }),
         );
-        return Option.match(existing, {
-          onNone: () =>
-            Semaphore.make(1).pipe(
-              Effect.map((semaphore) => {
-                const next = new Map(current);
-                next.set(threadId, semaphore);
-                return [semaphore, next] as const;
-              }),
-            ),
-          onSome: (semaphore) => Effect.succeed([semaphore, current] as const),
-        });
+      });
+
+    const releaseThreadSemaphore = (threadId: string) =>
+      SynchronizedRef.update(threadLocksRef, (current) => {
+        const existing = current.get(threadId);
+        if (!existing) return current;
+        const next = new Map(current);
+        if (existing.users <= 1) {
+          next.delete(threadId);
+        } else {
+          next.set(threadId, { ...existing, users: existing.users - 1 });
+        }
+        return next;
       });
 
     const withThreadLock = <A, E, R>(threadId: string, effect: Effect.Effect<A, E, R>) =>
-      Effect.flatMap(getThreadSemaphore(threadId), (semaphore) => semaphore.withPermit(effect));
+      Effect.acquireUseRelease(
+        acquireThreadSemaphore(threadId),
+        (semaphore) => semaphore.withPermit(effect),
+        () => releaseThreadSemaphore(threadId),
+      );
 
     const settlePromptInFlight = (
       threadId: ThreadId,
@@ -563,7 +584,6 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
           const acp = yield* makeFxAcpRuntime({
             fxSettings,
             ...(options?.environment ? { environment: options.environment } : {}),
-            childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
@@ -586,6 +606,7 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
               : {}),
             ...acpNativeLoggers,
           }).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
             Effect.provideService(Crypto.Crypto, crypto),
             Effect.provideService(Scope.Scope, sessionScope),
             Effect.mapError(
@@ -593,7 +614,7 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
                 new ProviderAdapterProcessError({
                   provider: PROVIDER,
                   threadId: input.threadId,
-                  detail: cause.message,
+                  detail: "Failed to start the fx ACP runtime.",
                   cause,
                 }),
             ),
@@ -919,7 +940,7 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
                           new ProviderAdapterRequestError({
                             provider: PROVIDER,
                             method: "session/prompt",
-                            detail: cause.message,
+                            detail: "Failed to read an fx prompt attachment.",
                             cause,
                           }),
                       ),

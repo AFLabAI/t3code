@@ -124,6 +124,55 @@ it.layer(FxTextGenerationTestLayer)("FxTextGeneration", (it) => {
     );
   });
 
+  it.effect("sends image attachments as ACP content blocks", () => {
+    const requestLogDir = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "t3code-fx-image-log-"),
+    );
+    const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
+
+    return withFakeAcpFx(
+      {
+        T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+        T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({ branch: "fix/image-context" }),
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const { attachmentsDir } = yield* ServerConfig.ServerConfig;
+          const attachmentId = "fx-text-image";
+          NodeFS.mkdirSync(attachmentsDir, { recursive: true });
+          NodeFS.writeFileSync(NodePath.join(attachmentsDir, `${attachmentId}.png`), "hello");
+
+          const generated = yield* textGeneration.generateBranchName({
+            cwd: process.cwd(),
+            message: "fix the screenshot regression",
+            attachments: [
+              {
+                type: "image",
+                id: attachmentId,
+                name: "regression.png",
+                mimeType: "image/png",
+                sizeBytes: 5,
+              },
+            ],
+            modelSelection: createModelSelection(ProviderInstanceId.make("fx"), "composer-2"),
+          });
+
+          expect(generated.branch).toBe("fix/image-context");
+          const promptRequest = readJsonRpcRequests(requestLogPath).find(
+            (request) => request.method === "session/prompt",
+          );
+          const prompt = promptRequest?.params?.prompt as
+            | ReadonlyArray<Record<string, unknown>>
+            | undefined;
+          expect(prompt).toContainEqual({
+            type: "image",
+            data: Buffer.from("hello").toString("base64"),
+            mimeType: "image/png",
+          });
+        }),
+    );
+  });
+
   it.effect("extracts the JSON object when Fx wraps it in conversational text", () =>
     withFakeAcpFx(
       {

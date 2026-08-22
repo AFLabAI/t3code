@@ -1,16 +1,24 @@
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as EffectAcpErrors from "effect-acp/errors";
+import type * as EffectAcpSchema from "effect-acp/schema";
 
-import { type FxSettings, type ModelSelection } from "@t3tools/contracts";
+import {
+  type ChatAttachment,
+  type FxSettings,
+  type ModelSelection,
+  TextGenerationError,
+} from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
-import { TextGenerationError } from "@t3tools/contracts";
+import { resolveAttachmentPath } from "../attachmentStore.ts";
+import { ServerConfig } from "../config.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
@@ -40,6 +48,8 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
 ) {
   const crypto = yield* Crypto.Crypto;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const serverConfig = yield* ServerConfig;
 
   const runFxJson = <S extends Schema.Top>({
     operation,
@@ -47,6 +57,7 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
     prompt,
     outputSchemaJson,
     modelSelection,
+    attachments,
   }: {
     operation:
       | "generateCommitMessage"
@@ -57,6 +68,7 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
     prompt: string;
     outputSchemaJson: S;
     modelSelection: ModelSelection;
+    attachments?: ReadonlyArray<ChatAttachment> | undefined;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
       const resolvedModel = resolveFxAcpBaseModelId(modelSelection.model);
@@ -64,10 +76,12 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
       const runtime = yield* makeFxAcpRuntime({
         fxSettings,
         environment,
-        childProcessSpawner: commandSpawner,
         cwd,
         clientInfo: { name: "t3-code-git-text", version: "0.0.0" },
-      }).pipe(Effect.provideService(Crypto.Crypto, crypto));
+      }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, commandSpawner),
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
 
       yield* runtime.handleSessionUpdate((notification) => {
         const update = notification.update;
@@ -80,6 +94,36 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
         }
         return Ref.update(outputRef, (current) => current + content.text);
       });
+
+      const imagePromptParts = yield* Effect.forEach(attachments ?? [], (attachment) =>
+        Effect.gen(function* () {
+          const attachmentPath = resolveAttachmentPath({
+            attachmentsDir: serverConfig.attachmentsDir,
+            attachment,
+          });
+          if (!attachmentPath) {
+            return yield* new TextGenerationError({
+              operation,
+              detail: `Invalid fx text-generation attachment id '${attachment.id}'.`,
+            });
+          }
+          const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
+            Effect.mapError(
+              (cause) =>
+                new TextGenerationError({
+                  operation,
+                  detail: "Failed to read an fx text-generation attachment.",
+                  cause,
+                }),
+            ),
+          );
+          return {
+            type: "image",
+            data: Buffer.from(bytes).toString("base64"),
+            mimeType: attachment.mimeType,
+          } satisfies EffectAcpSchema.ContentBlock;
+        }),
+      );
 
       const promptResult = yield* Effect.gen(function* () {
         const started = yield* runtime.start();
@@ -96,7 +140,7 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
         });
 
         return yield* runtime.prompt({
-          prompt: [{ type: "text", text: prompt }],
+          prompt: [{ type: "text", text: prompt }, ...imagePromptParts],
         });
       }).pipe(
         Effect.timeoutOption(FX_TIMEOUT_MS),
@@ -223,6 +267,7 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
         prompt,
         outputSchemaJson: outputSchema,
         modelSelection: input.modelSelection,
+        attachments: input.attachments,
       });
 
       return {
@@ -244,6 +289,7 @@ export const makeFxTextGeneration = Effect.fn("makeFxTextGeneration")(function* 
         prompt,
         outputSchemaJson: outputSchema,
         modelSelection: input.modelSelection,
+        attachments: input.attachments,
       });
 
       return {

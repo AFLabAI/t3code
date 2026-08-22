@@ -14,7 +14,6 @@ interface FxAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
   "authMethodId" | "clientCapabilities" | "spawn"
 > {
-  readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly fxSettings: FxAcpRuntimeFxSettings | null | undefined;
   readonly environment?: NodeJS.ProcessEnv;
 }
@@ -37,17 +36,16 @@ export const makeFxAcpRuntime = (
 ): Effect.Effect<
   AcpSessionRuntime.AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
-  Crypto.Crypto | Scope.Scope
+  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
 > =>
   Effect.gen(function* () {
+    const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const acpContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,
         spawn: buildFxAcpSpawnInput(input.fxSettings, input.cwd, input.environment),
       }).pipe(
-        Layer.provide(
-          Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, input.childProcessSpawner),
-        ),
+        Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner)),
       ),
     );
     return yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(
@@ -80,6 +78,9 @@ export function applyFxAcpModelSelection<E>(input: {
   readonly requestedModelId: string | undefined;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<string | undefined, E> {
+  if (input.requestedModelId === "default") {
+    return Effect.succeed(input.currentModelId);
+  }
   const shouldSwitchModel =
     input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
   if (!shouldSwitchModel) {
