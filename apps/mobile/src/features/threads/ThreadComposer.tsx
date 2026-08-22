@@ -111,7 +111,7 @@ export interface ThreadComposerProps {
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
   readonly environmentId: EnvironmentId;
-  readonly projectCwd: string | null;
+  readonly threadCwd: string | null;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
@@ -359,10 +359,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
   const projectSkillsQuery = useEnvironmentQuery(
-    selectedProviderStatus && props.projectCwd
+    selectedProviderStatus && props.threadCwd
       ? projectEnvironment.listSkills({
           environmentId: props.environmentId,
-          input: { cwd: props.projectCwd, driver: selectedProviderStatus.driver },
+          input: { cwd: props.threadCwd, driver: selectedProviderStatus.driver },
         })
       : null,
   );
@@ -400,7 +400,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [composerSelection, props.draftMessage]);
   const pathSearch = useComposerPathSearch({
     environmentId: props.environmentId,
-    cwd: composerTrigger?.kind === "path" ? props.projectCwd : null,
+    cwd: composerTrigger?.kind === "path" ? props.threadCwd : null,
     query: composerTrigger?.kind === "path" ? composerTrigger.query : null,
   });
 
