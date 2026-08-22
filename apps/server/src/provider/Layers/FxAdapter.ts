@@ -917,6 +917,14 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
                     cause,
                   ),
               });
+              ctx.currentModelId = currentModelId;
+              const displayModel = currentModelId
+                ? resolveFxAcpBaseModelId(currentModelId)
+                : undefined;
+              ctx.session = {
+                ...ctx.session,
+                ...(displayModel ? { model: displayModel } : {}),
+              };
 
               const text = input.input?.trim();
               const imagePromptParts = yield* Effect.forEach(
@@ -965,10 +973,6 @@ export function makeFxAdapter(fxSettings: FxSettings, options?: FxAdapterLiveOpt
                 });
               }
 
-              ctx.currentModelId = currentModelId;
-              const displayModel = currentModelId
-                ? resolveFxAcpBaseModelId(currentModelId)
-                : undefined;
               for (let yieldAttempt = 0; yieldAttempt < 8; yieldAttempt += 1) {
                 yield* Effect.yieldNow;
               }

@@ -78,9 +78,6 @@ export function applyFxAcpModelSelection<E>(input: {
   readonly requestedModelId: string | undefined;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<string | undefined, E> {
-  if (input.requestedModelId === "default") {
-    return Effect.succeed(input.currentModelId);
-  }
   const shouldSwitchModel =
     input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
   if (!shouldSwitchModel) {

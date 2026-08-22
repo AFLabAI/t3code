@@ -77,7 +77,7 @@ describe("applyFxAcpModelSelection", () => {
     }),
   );
 
-  it.effect("uses fx's active model for the default sentinel", () =>
+  it.effect("switches back to the default catalog model", () =>
     Effect.gen(function* () {
       const { runtime, modelCalls } = makeRecordingRuntime();
       const result = yield* applyFxAcpModelSelection({
@@ -86,8 +86,8 @@ describe("applyFxAcpModelSelection", () => {
         requestedModelId: "default",
         mapError: (cause) => cause.message,
       });
-      expect(modelCalls).toEqual([]);
-      expect(result).toBe("provider-active-model");
+      expect(modelCalls).toEqual(["default"]);
+      expect(result).toBe("default");
     }),
   );
 

@@ -164,4 +164,45 @@ it.layer(fxAdapterTestLayer)("FxAdapterLive", (it) => {
       );
     }),
   );
+
+  it.effect("keeps the selected model when prompt preparation fails", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("fx-model-switch-preparation-failure");
+      const wrapperPath = yield* Effect.promise(() => makeMockFxWrapper());
+      const adapter = yield* makeTestAdapter(wrapperPath);
+      const switchedModel = "gpt-5.3-codex[reasoning=medium,fast=false]";
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("fx"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { instanceId: ProviderInstanceId.make("fx"), model: "composer-2" },
+      });
+
+      const error = yield* Effect.flip(
+        adapter.sendTurn({
+          threadId,
+          input: "use the screenshot",
+          attachments: [
+            {
+              type: "image",
+              id: "missing-image",
+              name: "missing.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+            },
+          ],
+          modelSelection: { instanceId: ProviderInstanceId.make("fx"), model: switchedModel },
+        }),
+      );
+
+      const session = (yield* adapter.listSessions()).find((entry) => entry.threadId === threadId);
+      assert.equal(error._tag, "ProviderAdapterRequestError");
+      assert.equal(session?.status, "ready");
+      assert.equal(session?.model, switchedModel);
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
 });
