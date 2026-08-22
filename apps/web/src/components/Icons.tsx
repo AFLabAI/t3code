@@ -202,6 +202,16 @@ export const CursorIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+export const FxIcon: Icon = ({ className, ...props }) => (
+  <svg
+    {...props}
+    viewBox="0 0 24 24"
+    className={cn("fill-[#171717] dark:fill-[#F5F5F5]", className)}
+  >
+    <path d="M3 4h8v3H6v3h4v3H6v7H3V4Zm10 6h3l2 3 2-3h3l-3.5 5 3.5 5h-3l-2-3-2 3h-3l3.5-5L13 10Z" />
+  </svg>
+);
+
 export const GrokIcon: Icon = ({ className, ...props }) => (
   <svg
     {...props}
