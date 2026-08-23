@@ -604,6 +604,14 @@ const make = Effect.gen(function* () {
       thread,
       projects: project ? [project] : [],
     });
+    const refreshWorkspaceSnapshot = effectiveCwd
+      ? providerRegistry
+          .refreshWorkspaceSnapshot({
+            instanceId: desiredInstanceId,
+            cwd: effectiveCwd,
+          })
+          .pipe(Effect.forkDetach)
+      : Effect.void;
 
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
@@ -620,18 +628,7 @@ const make = Effect.gen(function* () {
           ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
           runtimeMode: desiredRuntimeMode,
         })
-        .pipe(
-          Effect.tap(() =>
-            effectiveCwd
-              ? providerRegistry
-                  .refreshWorkspaceSnapshot({
-                    instanceId: desiredInstanceId,
-                    cwd: effectiveCwd,
-                  })
-                  .pipe(Effect.forkDetach)
-              : Effect.void,
-          ),
-        );
+        .pipe(Effect.tap(() => refreshWorkspaceSnapshot));
 
     const bindSessionToThread = (session: ProviderSession) =>
       Effect.gen(function* () {
@@ -689,6 +686,7 @@ const make = Effect.gen(function* () {
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange
       ) {
+        yield* refreshWorkspaceSnapshot;
         return existingSessionThreadId;
       }
 

@@ -179,7 +179,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
               new ProviderDriverError({
                 driver: DRIVER_KIND,
                 instanceId,
-                detail: `Failed to probe Codex snapshot for '${cwd}': ${cause.message}`,
+                detail: `Failed to probe Codex snapshot for '${cwd}'`,
                 cause,
               }),
           ),

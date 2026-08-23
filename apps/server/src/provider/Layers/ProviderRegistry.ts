@@ -589,6 +589,21 @@ export const ProviderRegistryLive = Layer.effect(
           newlyAdded.push([instanceId, instance] as const);
         }
 
+        const rebuiltInstanceIds = new Set(
+          newlyAdded
+            .map(([instanceId]) => instanceId)
+            .filter((instanceId) => previousSubs.has(instanceId)),
+        );
+        if (rebuiltInstanceIds.size > 0) {
+          yield* Ref.update(providersRef, (providers) =>
+            providers.map((provider) => {
+              if (!rebuiltInstanceIds.has(provider.instanceId)) return provider;
+              const { workspaceSnapshots: _workspaceSnapshots, ...machineSnapshot } = provider;
+              return machineSnapshot;
+            }),
+          );
+        }
+
         // Fork long-lived subscriptions to each new/rebuilt instance's
         // change stream before reading its current snapshot. If the
         // driver's own initial probe finishes during this sync, either
