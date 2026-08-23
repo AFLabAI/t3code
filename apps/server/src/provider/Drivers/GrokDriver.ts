@@ -113,11 +113,13 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
       });
       const textGeneration = yield* makeGrokTextGeneration(effectiveConfig, processEnv);
 
-      const checkProvider = checkGrokProviderStatus(effectiveConfig, processEnv).pipe(
-        Effect.map(stampIdentity),
-        Effect.provideService(Crypto.Crypto, crypto),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      );
+      const checkProviderForCwd = (cwd?: string) =>
+        checkGrokProviderStatus(effectiveConfig, processEnv, cwd).pipe(
+          Effect.map(stampIdentity),
+          Effect.provideService(Crypto.Crypto, crypto),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        );
+      const checkProvider = checkProviderForCwd();
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<GrokSettings>>({
@@ -156,6 +158,7 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
         accentColor,
         enabled,
         snapshot,
+        snapshotForCwd: checkProviderForCwd,
         adapter,
         textGeneration,
       } satisfies ProviderInstance;

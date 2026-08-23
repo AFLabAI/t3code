@@ -41,6 +41,7 @@ import {
   haveProvidersChanged,
   mergeProviderSnapshot,
   ProviderRegistryLive,
+  upsertProviderWorkspaceSnapshot,
 } from "./ProviderRegistry.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettingsModule from "../../serverSettings.ts";
@@ -399,6 +400,24 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
+      it.effect("probes Codex snapshots from the requested workspace cwd", () =>
+        Effect.gen(function* () {
+          let observedCwd: string | undefined;
+          const status = yield* checkCodexProviderStatus(
+            defaultCodexSettings,
+            (input) => {
+              observedCwd = input.cwd;
+              return Effect.succeed(makeCodexProbeSnapshot());
+            },
+            undefined,
+            "/workspace/project-a",
+          );
+
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(observedCwd, "/workspace/project-a");
+        }),
+      );
+
       it.effect("returns unauthenticated when app-server requires OpenAI auth", () =>
         Effect.gen(function* () {
           const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
@@ -525,6 +544,41 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
     });
 
     describe("ProviderRegistryLive", () => {
+      it("keeps the machine snapshot while caching a provider-probed cwd snapshot", () => {
+        const machine = {
+          instanceId: ProviderInstanceId.make("codex"),
+          driver: ProviderDriverKind.make("codex"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-01-01T00:00:00.000Z",
+          version: "1.0.0",
+          models: [],
+          slashCommands: [{ name: "global" }],
+          skills: [{ name: "global", path: "/global/SKILL.md", enabled: true }],
+        } satisfies ServerProvider;
+        const scoped = {
+          ...machine,
+          checkedAt: "2026-01-01T00:01:00.000Z",
+          slashCommands: [{ name: "project" }],
+          skills: [{ name: "project", path: "/workspace/SKILL.md", enabled: true }],
+        } satisfies ServerProvider;
+
+        const next = upsertProviderWorkspaceSnapshot(machine, "/workspace", scoped);
+
+        assert.deepEqual(next.skills, machine.skills);
+        assert.deepEqual(next.slashCommands, machine.slashCommands);
+        assert.deepEqual(next.workspaceSnapshots, [
+          {
+            cwd: "/workspace",
+            checkedAt: scoped.checkedAt,
+            slashCommands: scoped.slashCommands,
+            skills: scoped.skills,
+          },
+        ]);
+      });
+
       it("treats equal provider snapshots as unchanged", () => {
         const providers = [
           {

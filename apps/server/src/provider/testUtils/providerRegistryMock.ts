@@ -7,15 +7,20 @@ import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMainte
 
 export const makeProviderRegistryMock = (
   providers: ReadonlyArray<ServerProvider> = [],
+  overrides: Partial<ProviderRegistryShape> = {},
 ): ProviderRegistryShape => ({
   getProviders: Effect.succeed(providers),
   refresh: () => Effect.succeed(providers),
   refreshInstance: () => Effect.succeed(providers),
+  refreshWorkspaceSnapshot: () => Effect.succeed(providers),
   getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
     Effect.succeed(makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null })),
   setProviderMaintenanceActionState: () => Effect.succeed(providers),
   streamChanges: Stream.empty,
+  ...overrides,
 });
 
-export const makeProviderRegistryLayer = (providers: ReadonlyArray<ServerProvider> = []) =>
-  Layer.succeed(ProviderRegistry, makeProviderRegistryMock(providers));
+export const makeProviderRegistryLayer = (
+  providers: ReadonlyArray<ServerProvider> = [],
+  overrides: Partial<ProviderRegistryShape> = {},
+) => Layer.succeed(ProviderRegistry, makeProviderRegistryMock(providers, overrides));

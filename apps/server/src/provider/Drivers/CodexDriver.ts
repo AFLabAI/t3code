@@ -166,10 +166,24 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       // in as instance rebuilds from the registry rather than in-place
       // updates. Pre-provide `ChildProcessSpawner` so the check fits
       // `makeManagedServerProvider.checkProvider`'s `R = never`.
-      const checkProvider = checkCodexProviderStatus(effectiveConfig, undefined, processEnv).pipe(
-        Effect.map(stampIdentity),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      );
+      const checkProviderForCwd = (cwd?: string) =>
+        checkCodexProviderStatus(effectiveConfig, undefined, processEnv, cwd).pipe(
+          Effect.map(stampIdentity),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        );
+      const checkProvider = checkProviderForCwd();
+      const snapshotForCwd = (cwd: string) =>
+        checkProviderForCwd(cwd).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderDriverError({
+                driver: DRIVER_KIND,
+                instanceId,
+                detail: `Failed to probe Codex snapshot for '${cwd}': ${cause.message}`,
+                cause,
+              }),
+          ),
+        );
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({
         maintenanceCapabilities,
@@ -206,6 +220,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         accentColor,
         enabled,
         snapshot,
+        snapshotForCwd,
         adapter,
         textGeneration,
       } satisfies ProviderInstance;

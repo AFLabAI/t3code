@@ -143,11 +143,12 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
       });
       const textGeneration = yield* makeOpenCodeTextGeneration(effectiveConfig, processEnv);
 
-      const checkProvider = checkOpenCodeProviderStatus(
-        effectiveConfig,
-        serverConfig.cwd,
-        processEnv,
-      ).pipe(Effect.map(stampIdentity), Effect.provideService(OpenCodeRuntime, openCodeRuntime));
+      const checkProviderForCwd = (cwd: string) =>
+        checkOpenCodeProviderStatus(effectiveConfig, cwd, processEnv).pipe(
+          Effect.map(stampIdentity),
+          Effect.provideService(OpenCodeRuntime, openCodeRuntime),
+        );
+      const checkProvider = checkProviderForCwd(serverConfig.cwd);
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<OpenCodeSettings>>(
@@ -187,6 +188,7 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         accentColor,
         enabled,
         snapshot,
+        snapshotForCwd: checkProviderForCwd,
         adapter,
         textGeneration,
       } satisfies ProviderInstance;

@@ -1,4 +1,4 @@
-import type { ServerProviderSkill } from "@t3tools/contracts";
+import type { ServerProvider, ServerProviderSkill } from "@t3tools/contracts";
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
 
@@ -55,13 +55,24 @@ export function resolveProviderSkillSourceKind(
   }
 }
 
-export function mergeProviderSkills(
-  providerSkills: ReadonlyArray<ServerProviderSkill>,
-  projectSkills: ReadonlyArray<ServerProviderSkill>,
-): ServerProviderSkill[] {
-  const skillsByName = new Map(providerSkills.map((skill) => [skill.name, skill]));
-  for (const skill of projectSkills) {
-    skillsByName.set(skill.name, skill);
-  }
-  return [...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name));
+function resolveProviderWorkspaceSnapshot(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+) {
+  if (!cwd) return undefined;
+  return provider.workspaceSnapshots?.find((snapshot) => snapshot.cwd === cwd);
+}
+
+export function resolveProviderSkillsForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider["skills"] {
+  return resolveProviderWorkspaceSnapshot(provider, cwd)?.skills ?? provider.skills;
+}
+
+export function resolveProviderSlashCommandsForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider["slashCommands"] {
+  return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
 }

@@ -64,11 +64,12 @@ import {
   normalizeSearchQuery,
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
+import {
+  resolveProviderSkillsForCwd,
+  resolveProviderSlashCommandsForCwd,
+} from "@t3tools/client-runtime/providerSkills";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
-import { mergeProviderSkills } from "@t3tools/client-runtime/providerSkills";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
-import { projectEnvironment } from "../../state/projects";
-import { useEnvironmentQuery } from "../../state/query";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
 import {
@@ -111,6 +112,7 @@ export interface ThreadComposerProps {
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
   readonly environmentId: EnvironmentId;
+  readonly projectCwd: string | null;
   readonly threadCwd: string | null;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
@@ -358,18 +360,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const projectSkillsQuery = useEnvironmentQuery(
-    selectedProviderStatus && props.threadCwd
-      ? projectEnvironment.listSkills({
-          environmentId: props.environmentId,
-          input: { cwd: props.threadCwd, driver: selectedProviderStatus.driver },
-        })
-      : null,
-  );
-  const selectedProviderSkills = useMemo(
-    () => mergeProviderSkills(selectedProviderStatus?.skills ?? [], projectSkillsQuery.data ?? []),
-    [projectSkillsQuery.data, selectedProviderStatus?.skills],
-  );
+  const selectedProviderSkills = selectedProviderStatus
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, props.threadCwd)
+    : [];
+  const selectedProviderSlashCommands = selectedProviderStatus
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, props.threadCwd)
+    : [];
 
   // ── Trigger detection ────────────────────────────────────
   const [composerSelection, setComposerSelection] = useState(() => ({
@@ -400,7 +396,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [composerSelection, props.draftMessage]);
   const pathSearch = useComposerPathSearch({
     environmentId: props.environmentId,
-    cwd: composerTrigger?.kind === "path" ? props.threadCwd : null,
+    cwd: composerTrigger?.kind === "path" ? props.projectCwd : null,
     query: composerTrigger?.kind === "path" ? composerTrigger.query : null,
   });
 
@@ -435,7 +431,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       const builtIn = allBuiltIn.filter((item) => item.command.includes(q));
 
       const providerCommands: ComposerCommandItem[] = [];
-      for (const cmd of selectedProviderStatus?.slashCommands ?? []) {
+      for (const cmd of selectedProviderSlashCommands) {
         if (!cmd.name.toLowerCase().includes(q)) continue;
         providerCommands.push({
           id: `pcmd:${cmd.name}`,
@@ -557,7 +553,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     return [];
-  }, [composerTrigger, pathSearch.entries, selectedProviderSkills, selectedProviderStatus]);
+  }, [composerTrigger, pathSearch.entries, selectedProviderSkills, selectedProviderSlashCommands]);
 
   // ── Handle command selection ──────────────────────────────
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
@@ -748,19 +744,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         layout={COMPOSER_LAYOUT_TRANSITION}
         style={{ maxWidth: props.contentMaxWidth }}
       >
-        {composerTrigger &&
-        (composerMenuItems.length > 0 ||
-          ((composerTrigger.kind === "skill" || composerTrigger.kind === "slash-command") &&
-            projectSkillsQuery.isPending)) ? (
+        {composerTrigger && composerMenuItems.length > 0 ? (
           <View className="absolute inset-x-0 bottom-full z-10 mb-2">
             <ComposerCommandPopover
               items={composerMenuItems}
               triggerKind={composerTrigger.kind}
-              isLoading={
-                composerTrigger.kind === "path"
-                  ? pathSearch.isPending
-                  : projectSkillsQuery.isPending
-              }
+              isLoading={pathSearch.isPending}
               onSelect={handleCommandSelect}
             />
           </View>

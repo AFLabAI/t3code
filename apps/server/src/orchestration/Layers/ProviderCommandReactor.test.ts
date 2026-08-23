@@ -306,6 +306,7 @@ describe("ProviderCommandReactor", () => {
           : {}),
       },
     ];
+    const refreshWorkspaceSnapshot = vi.fn(() => Effect.succeed(providerSnapshots as never));
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
@@ -391,7 +392,9 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(reactorOrchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(makeProviderRegistryLayer(providerSnapshots as never)),
+      Layer.provideMerge(
+        makeProviderRegistryLayer(providerSnapshots as never, { refreshWorkspaceSnapshot }),
+      ),
       Layer.provideMerge(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
           renameBranch,
@@ -500,6 +503,7 @@ describe("ProviderCommandReactor", () => {
       stopSession,
       renameBranch,
       refreshStatus,
+      refreshWorkspaceSnapshot,
       generateBranchName,
       generateThreadTitle,
       runtimeSessions,
@@ -535,6 +539,7 @@ describe("ProviderCommandReactor", () => {
 
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await waitFor(() => harness.refreshWorkspaceSnapshot.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.make("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       cwd: "/tmp/provider-project",
@@ -543,6 +548,10 @@ describe("ProviderCommandReactor", () => {
         model: "gpt-5-codex",
       },
       runtimeMode: "approval-required",
+    });
+    expect(harness.refreshWorkspaceSnapshot).toHaveBeenCalledWith({
+      instanceId: ProviderInstanceId.make("codex"),
+      cwd: "/tmp/provider-project",
     });
 
     const readModel = await harness.readModel();

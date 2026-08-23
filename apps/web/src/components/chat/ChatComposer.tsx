@@ -254,13 +254,12 @@ import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
 import {
   formatProviderSkillDisplayName,
-  mergeProviderSkills,
+  resolveProviderSkillsForCwd,
+  resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
-import { projectEnvironment } from "../../state/projects";
-import { useEnvironmentQuery } from "../../state/query";
 
 const runtimeModeConfig: Record<
   RuntimeMode,
@@ -891,18 +890,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => selectedProviderEntry?.snapshot ?? null,
     [selectedProviderEntry],
   );
-  const projectSkillsQuery = useEnvironmentQuery(
-    gitCwd
-      ? projectEnvironment.listSkills({
-          environmentId,
-          input: { cwd: gitCwd, driver: selectedProvider },
-        })
-      : null,
-  );
-  const selectedProviderSkills = useMemo(
-    () => mergeProviderSkills(selectedProviderStatus?.skills ?? [], projectSkillsQuery.data ?? []),
-    [projectSkillsQuery.data, selectedProviderStatus?.skills],
-  );
+  const selectedProviderSkills = selectedProviderStatus
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
+    : [];
+  const selectedProviderSlashCommands = selectedProviderStatus
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
+    : [];
   const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],
@@ -1124,16 +1117,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ] as const)
           : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
-      const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
-        (command) => ({
-          id: `provider-slash-command:${selectedProvider}:${command.name}`,
-          type: "provider-slash-command" as const,
-          provider: selectedProvider,
-          command,
-          label: `/${command.name}`,
-          description: command.description ?? command.input?.hint ?? "Run provider command",
-        }),
-      );
+      const providerSlashCommandItems = selectedProviderSlashCommands.map((command) => ({
+        id: `provider-slash-command:${selectedProvider}:${command.name}`,
+        type: "provider-slash-command" as const,
+        provider: selectedProvider,
+        command,
+        label: `/${command.name}`,
+        description: command.description ?? command.input?.hint ?? "Run provider command",
+      }));
       const query = composerTrigger.query.trim().toLowerCase();
       const skillItems = selectedProviderSkills
         .filter((skill) => skill.enabled)
@@ -1174,6 +1165,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeUiEnabled,
     selectedProvider,
     selectedProviderSkills,
+    selectedProviderSlashCommands,
     selectedProviderStatus,
     workspaceEntries.entries,
   ]);
@@ -1240,9 +1232,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
-    (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
-    ((composerTriggerKind === "skill" || composerTriggerKind === "slash-command") &&
-      projectSkillsQuery.isPending);
+    composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending;
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";

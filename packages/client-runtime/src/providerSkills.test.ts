@@ -1,10 +1,34 @@
+import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   formatProviderSkillDisplayName,
-  mergeProviderSkills,
+  resolveProviderSkillsForCwd,
+  resolveProviderSlashCommandsForCwd,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
+
+const provider = {
+  instanceId: ProviderInstanceId.make("codex"),
+  driver: ProviderDriverKind.make("codex"),
+  enabled: true,
+  installed: true,
+  version: "1.0.0",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: "2026-01-01T00:00:00.000Z",
+  models: [],
+  slashCommands: [{ name: "global" }],
+  skills: [{ name: "global", path: "/global/SKILL.md", enabled: true }],
+  workspaceSnapshots: [
+    {
+      cwd: "/workspace/project-a",
+      checkedAt: "2026-01-01T00:01:00.000Z",
+      slashCommands: [{ name: "project" }],
+      skills: [{ name: "project", path: "/workspace/project-a/SKILL.md", enabled: true }],
+    },
+  ],
+} satisfies ServerProvider;
 
 describe("formatProviderSkillDisplayName", () => {
   it("prefers the provider display name", () => {
@@ -77,58 +101,18 @@ describe("resolveProviderSkillSourceKind", () => {
   });
 });
 
-describe("mergeProviderSkills", () => {
-  it("keeps global skills and lets project skills override matching names", () => {
-    expect(
-      mergeProviderSkills(
-        [
-          {
-            name: "global-only",
-            path: "/home/user/.agents/skills/global-only/SKILL.md",
-            enabled: true,
-            scope: "user",
-          },
-          {
-            name: "deploy",
-            path: "/home/user/.agents/skills/deploy/SKILL.md",
-            enabled: true,
-            scope: "user",
-          },
-        ],
-        [
-          {
-            name: "deploy",
-            path: "/workspace/.agents/skills/deploy/SKILL.md",
-            enabled: true,
-            scope: "project",
-          },
-          {
-            name: "project-only",
-            path: "/workspace/.agents/skills/project-only/SKILL.md",
-            enabled: true,
-            scope: "project",
-          },
-        ],
-      ),
-    ).toEqual([
-      {
-        name: "deploy",
-        path: "/workspace/.agents/skills/deploy/SKILL.md",
-        enabled: true,
-        scope: "project",
-      },
-      {
-        name: "global-only",
-        path: "/home/user/.agents/skills/global-only/SKILL.md",
-        enabled: true,
-        scope: "user",
-      },
-      {
-        name: "project-only",
-        path: "/workspace/.agents/skills/project-only/SKILL.md",
-        enabled: true,
-        scope: "project",
-      },
+describe("workspace provider snapshots", () => {
+  it("uses the cwd snapshot after a provider session has populated it", () => {
+    expect(resolveProviderSkillsForCwd(provider, "/workspace/project-a")).toEqual([
+      { name: "project", path: "/workspace/project-a/SKILL.md", enabled: true },
     ]);
+    expect(resolveProviderSlashCommandsForCwd(provider, "/workspace/project-a")).toEqual([
+      { name: "project" },
+    ]);
+  });
+
+  it("keeps the machine snapshot before this cwd has a provider snapshot", () => {
+    expect(resolveProviderSkillsForCwd(provider, "/workspace/project-b")).toEqual(provider.skills);
+    expect(resolveProviderSlashCommandsForCwd(provider, null)).toEqual(provider.slashCommands);
   });
 });

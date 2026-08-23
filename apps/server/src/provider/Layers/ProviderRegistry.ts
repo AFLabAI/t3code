@@ -78,6 +78,26 @@ const makeManualProviderMaintenanceCapabilities = (provider: ProviderDriverKind)
 const hasModelCapabilities = (model: ServerProvider["models"][number]): boolean =>
   (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
 
+const MAX_WORKSPACE_SNAPSHOTS_PER_PROVIDER = 16;
+
+export function upsertProviderWorkspaceSnapshot(
+  provider: ServerProvider,
+  cwd: string,
+  scopedSnapshot: ServerProvider,
+): ServerProvider {
+  const workspaceSnapshot = {
+    cwd,
+    checkedAt: scopedSnapshot.checkedAt,
+    slashCommands: scopedSnapshot.slashCommands,
+    skills: scopedSnapshot.skills,
+  } satisfies NonNullable<ServerProvider["workspaceSnapshots"]>[number];
+  const workspaceSnapshots = [
+    ...(provider.workspaceSnapshots ?? []).filter((snapshot) => snapshot.cwd !== cwd),
+    workspaceSnapshot,
+  ].slice(-MAX_WORKSPACE_SNAPSHOTS_PER_PROVIDER);
+  return { ...provider, workspaceSnapshots };
+}
+
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
   if (provider.driver !== ProviderDriverKind.make("opencode")) {
     return true;
@@ -132,6 +152,11 @@ export const mergeProviderSnapshot = (
     : {
         ...nextProvider,
         models: mergeProviderModels(nextProvider, previousProvider.models, nextProvider.models),
+        ...(nextProvider.workspaceSnapshots !== undefined
+          ? { workspaceSnapshots: nextProvider.workspaceSnapshots }
+          : previousProvider.workspaceSnapshots !== undefined
+            ? { workspaceSnapshots: previousProvider.workspaceSnapshots }
+            : {}),
       };
 
 export const mergeProviderSnapshots = (
@@ -321,7 +346,8 @@ export const ProviderRegistryLive = Layer.effect(
           cacheDir: config.providerStatusCacheDir,
           instanceId: key,
         }).pipe(Effect.provideService(Path.Path, path));
-        yield* writeProviderStatusCache({ filePath, provider }).pipe(
+        const { workspaceSnapshots: _workspaceSnapshots, ...machineProvider } = provider;
+        yield* writeProviderStatusCache({ filePath, provider: machineProvider }).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),
           Effect.tapError(Effect.logError),
@@ -704,12 +730,54 @@ export const ProviderRegistryLive = Layer.effect(
       return yield* Ref.get(providersRef);
     });
 
+    const refreshWorkspaceSnapshot = Effect.fn("refreshWorkspaceSnapshot")(function* (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly cwd: string;
+    }) {
+      const providers = yield* Ref.get(providersRef);
+      const machineSnapshot = providers.find(
+        (provider) => provider.instanceId === input.instanceId,
+      );
+      if (
+        machineSnapshot === undefined ||
+        machineSnapshot.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
+      ) {
+        return providers;
+      }
+      const instance = yield* instanceRegistry.getInstance(input.instanceId);
+      if (instance?.snapshotForCwd === undefined) {
+        return providers;
+      }
+      const scopedSnapshot = yield* instance.snapshotForCwd(input.cwd);
+      if (scopedSnapshot.status === "error") {
+        return yield* Ref.get(providersRef);
+      }
+      const source = buildSnapshotSource(instance);
+      const correlatedSnapshot = yield* correlateSnapshotWithSource(source, scopedSnapshot);
+      const latestProviders = yield* Ref.get(providersRef);
+      const latestMachineSnapshot = latestProviders.find(
+        (provider) => provider.instanceId === input.instanceId,
+      );
+      if (
+        latestMachineSnapshot === undefined ||
+        latestMachineSnapshot.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
+      ) {
+        return latestProviders;
+      }
+      return yield* upsertProviders(
+        [upsertProviderWorkspaceSnapshot(latestMachineSnapshot, input.cwd, correlatedSnapshot)],
+        { persist: false, replace: true },
+      );
+    });
+
     return {
       getProviders: Ref.get(providersRef),
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      refreshWorkspaceSnapshot: (input) =>
+        refreshWorkspaceSnapshot(input).pipe(Effect.catchCause(recoverRefreshFailure)),
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {

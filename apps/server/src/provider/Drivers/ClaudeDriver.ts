@@ -174,6 +174,21 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
       );
+      const snapshotForCwd = (workspaceCwd: string) =>
+        checkClaudeProviderStatus(
+          effectiveConfig,
+          () =>
+            probeClaudeCapabilities(effectiveConfig, processEnv, workspaceCwd).pipe(
+              Effect.provideService(Path.Path, path),
+            ),
+          processEnv,
+          workspaceCwd,
+        ).pipe(
+          Effect.map(stampIdentity),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        );
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<ClaudeSettings>>({
@@ -214,6 +229,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         accentColor,
         enabled,
         snapshot,
+        snapshotForCwd,
         adapter,
         textGeneration,
       } satisfies ProviderInstance;
