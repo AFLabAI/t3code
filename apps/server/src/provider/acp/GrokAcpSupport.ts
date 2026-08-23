@@ -109,21 +109,25 @@ export function resolveGrokReasoningEffortSelection(
 /**
  * Apply model and/or reasoning effort via Grok ACP `session/set_model`.
  * Effort is sent as `_meta.reasoningEffort` (Grok private extension).
- * Calls set_model when the model changes or when an effort selection is present
- * (effort can change without a model id change).
+ * Calls set_model only when the model id or the applied effort actually
+ * changes. A present-but-unchanged `reasoningEffort` selection is a no-op —
+ * the composer always includes that option once Grok capabilities are
+ * discovered, and `session/set_model` is unsafe while a prompt is in flight.
  */
 export function applyGrokAcpModelSelection<E>(input: {
   readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setSessionModel">;
   readonly currentModelId: string | undefined;
   readonly requestedModelId: string | undefined;
-  readonly selections?: ReadonlyArray<ProviderOptionSelection> | null;
+  readonly currentReasoningEffort?: string | undefined;
+  readonly selections?: ReadonlyArray<ProviderOptionSelection> | null | undefined;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<string | undefined, E> {
   const targetModelId = input.requestedModelId ?? input.currentModelId;
   const reasoningEffort = resolveGrokReasoningEffortSelection(input.selections);
   const shouldSwitchModel =
     input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
-  const shouldApplyEffort = reasoningEffort !== undefined;
+  const shouldApplyEffort =
+    reasoningEffort !== undefined && reasoningEffort !== input.currentReasoningEffort;
 
   if (!targetModelId || (!shouldSwitchModel && !shouldApplyEffort)) {
     return Effect.succeed(input.currentModelId);

@@ -1264,4 +1264,75 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
       // hang until the suite timeout instead of failing here.
     }).pipe(TestClock.withLive),
   );
+
+  it.effect("does not call session/set_model while a prior Grok prompt is in flight", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-steer-skips-set-model");
+      const tempDir = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-steer-set-model-")),
+      );
+      const requestLogPath = NodePath.join(tempDir, "requests.ndjson");
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({
+          T3_ACP_PROMPT_DELAY_MS: "400",
+          T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath);
+      const instanceId = ProviderInstanceId.make("grok");
+      const startSelection = {
+        instanceId,
+        model: "grok-build",
+        options: [{ id: "reasoningEffort", value: "high" }],
+      };
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: startSelection,
+      });
+
+      const firstSendTurnFiber = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "first prompt",
+          attachments: [],
+          modelSelection: startSelection,
+        })
+        .pipe(Effect.forkChild);
+      yield* waitForFileContent(requestLogPath, 80, '"method":"session/prompt"');
+
+      const runningSessions = yield* adapter.listSessions();
+      const runningSession = runningSessions.find((session) => session.threadId === threadId);
+      const steered = yield* adapter.sendTurn({
+        threadId,
+        input: "steer with a different effort",
+        attachments: [],
+        modelSelection: {
+          instanceId,
+          model: "grok-build",
+          options: [{ id: "reasoningEffort", value: "low" }],
+        },
+      });
+      const firstTurn = yield* Fiber.join(firstSendTurnFiber);
+
+      assert.equal(String(steered.turnId), String(firstTurn.turnId));
+      assert.equal(String(steered.turnId), String(runningSession?.activeTurnId));
+
+      const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+      const methods = requests.flatMap((entry) =>
+        typeof entry.method === "string" ? [entry.method] : [],
+      );
+      const firstPromptIndex = methods.indexOf("session/prompt");
+      assert.isAtLeast(firstPromptIndex, 0);
+      assert.isFalse(
+        methods.slice(firstPromptIndex + 1).includes("session/set_model"),
+        `set_model after in-flight prompt: ${methods.join(", ")}`,
+      );
+
+      yield* adapter.stopSession(threadId);
+    }).pipe(TestClock.withLive),
+  );
 });

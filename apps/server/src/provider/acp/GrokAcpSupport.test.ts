@@ -117,6 +117,43 @@ describe("applyGrokAcpModelSelection", () => {
     }),
   );
 
+  it.effect("skips set_model when the composer restates the already-applied effort", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "model-a",
+        requestedModelId: "model-a",
+        currentReasoningEffort: "effort-c",
+        selections: [{ id: "reasoningEffort", value: "effort-c" }],
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([]);
+      expect(result).toBe("model-a");
+    }),
+  );
+
+  it.effect("calls set_model when only the reasoning effort changes", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "model-a",
+        requestedModelId: "model-a",
+        currentReasoningEffort: "effort-c",
+        selections: [{ id: "reasoningEffort", value: "effort-d" }],
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([
+        {
+          modelId: "model-a",
+          options: { _meta: { reasoningEffort: "effort-d" } },
+        },
+      ]);
+      expect(result).toBe("model-a");
+    }),
+  );
+
   it.effect("applies model switch and effort together", () =>
     Effect.gen(function* () {
       const { runtime, modelCalls } = makeRecordingRuntime();

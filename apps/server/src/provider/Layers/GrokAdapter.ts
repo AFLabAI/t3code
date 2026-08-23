@@ -58,6 +58,7 @@ import {
   currentGrokModelIdFromSessionSetup,
   makeGrokAcpRuntime,
   resolveGrokAcpBaseModelId,
+  resolveGrokReasoningEffortSelection,
 } from "../acp/GrokAcpSupport.ts";
 import {
   extractXAiAskUserQuestions,
@@ -117,6 +118,8 @@ interface GrokSessionContext {
    * continues it, and only the last remaining prompt settles the turn. */
   promptsInFlight: number;
   currentModelId: string | undefined;
+  /** Last effort successfully applied via `session/set_model` `_meta`. */
+  currentReasoningEffort: string | undefined;
   stopped: boolean;
 }
 
@@ -738,6 +741,9 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           const requestedStartModelId = grokModelSelection?.model
             ? resolveGrokAcpBaseModelId(grokModelSelection.model)
             : undefined;
+          const requestedStartReasoningEffort = resolveGrokReasoningEffortSelection(
+            grokModelSelection?.options,
+          );
           const boundModelId = yield* applyGrokAcpModelSelection({
             runtime: acp,
             currentModelId: currentGrokModelIdFromSessionSetup(started.sessionSetupResult),
@@ -779,6 +785,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             interruptedTurnIds: new Set(),
             promptsInFlight: 0,
             currentModelId: boundModelId,
+            currentReasoningEffort: requestedStartReasoningEffort,
             stopped: false,
           };
 
@@ -949,14 +956,24 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               const requestedTurnModelId = turnModelSelection?.model
                 ? resolveGrokAcpBaseModelId(turnModelSelection.model)
                 : undefined;
-              const currentModelId = yield* applyGrokAcpModelSelection({
-                runtime: ctx.acp,
-                currentModelId: ctx.currentModelId,
-                requestedModelId: requestedTurnModelId,
-                selections: turnModelSelection?.options,
-                mapError: (cause) =>
-                  mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
-              });
+              const requestedTurnReasoningEffort = resolveGrokReasoningEffortSelection(
+                turnModelSelection?.options,
+              );
+              const previousModelId = ctx.currentModelId;
+              // Steers must not call session/set_model: prep holds the thread
+              // lock while the prior prompt is still in flight outside it.
+              const currentModelId =
+                steeringTurnId === undefined
+                  ? yield* applyGrokAcpModelSelection({
+                      runtime: ctx.acp,
+                      currentModelId: ctx.currentModelId,
+                      requestedModelId: requestedTurnModelId,
+                      currentReasoningEffort: ctx.currentReasoningEffort,
+                      selections: turnModelSelection?.options,
+                      mapError: (cause) =>
+                        mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
+                    })
+                  : ctx.currentModelId;
 
               const text = input.input?.trim();
               const imagePromptParts = yield* Effect.forEach(
@@ -1006,6 +1023,16 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               }
 
               ctx.currentModelId = currentModelId;
+              if (steeringTurnId === undefined) {
+                if (requestedTurnReasoningEffort !== undefined) {
+                  ctx.currentReasoningEffort = requestedTurnReasoningEffort;
+                } else if (
+                  requestedTurnModelId !== undefined &&
+                  requestedTurnModelId !== previousModelId
+                ) {
+                  ctx.currentReasoningEffort = undefined;
+                }
+              }
               const displayModel = currentModelId
                 ? resolveGrokAcpBaseModelId(currentModelId)
                 : undefined;
