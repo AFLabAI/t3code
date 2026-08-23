@@ -508,12 +508,11 @@ struct FeatureRootModelTests {
             var acknowledged = try #require(model.snapshot.threads.first)
             acknowledged.title = "Accepted on the server"
             acknowledged.state = .working
-            await withCheckedContinuation { continuation in
-                withObservationTracking {
-                    _ = model.snapshot.threads.first(where: { $0.id == acknowledged.id })?.state
-                } onChange: {
-                    continuation.resume()
+            await waitForChange(
+                model.$snapshot.map { snapshot in
+                    snapshot.threads.first(where: { $0.id == acknowledged.id })?.state
                 }
+            ) {
                 client.emit(.thread(acknowledged))
             }
         }
