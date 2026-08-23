@@ -1,4 +1,4 @@
-import { ClaudeSettings } from "@t3tools/contracts";
+import { ClaudeSettings, type ServerProviderSkill } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -10,6 +10,7 @@ import {
   buildClaudeCapabilitiesProbeQueryOptions,
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
   isLegacyClaudeModel,
+  makeClaudeWorkspaceCatalog,
   probeClaudeCapabilities,
 } from "./ClaudeProvider.ts";
 
@@ -53,6 +54,19 @@ it("isolates Claude capability probes without dropping workspace setting sources
   assert.equal(options.abortController, abortController);
   assert.equal(options.env?.HOME, "/home/user");
   assert.equal(options.env?.ENABLE_CLAUDEAI_MCP_SERVERS, "false");
+});
+
+it("keeps cwd skills and machine slash commands when capabilities are unavailable", () => {
+  const skills: ReadonlyArray<ServerProviderSkill> = [
+    {
+      name: "project-skill",
+      description: "Project skill",
+      path: "/workspace/.claude/skills/project-skill/SKILL.md",
+      enabled: true,
+    },
+  ];
+
+  assert.deepEqual(makeClaudeWorkspaceCatalog(skills, undefined), { skills });
 });
 
 it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {

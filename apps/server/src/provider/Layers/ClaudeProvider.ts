@@ -3,6 +3,7 @@ import {
   type ModelCapabilities,
   type ModelSelection,
   type ServerProviderModel,
+  type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -796,6 +797,14 @@ const probeClaudeCapabilities = (
     }),
   );
 
+export const makeClaudeWorkspaceCatalog = (
+  skills: ReadonlyArray<ServerProviderSkill>,
+  capabilities: ClaudeCapabilitiesProbe | undefined,
+) => ({
+  skills,
+  ...(capabilities ? { slashCommands: dedupeSlashCommands(capabilities.slashCommands) } : {}),
+});
+
 export const probeClaudeWorkspaceCatalog = Effect.fn("probeClaudeWorkspaceCatalog")(function* (
   claudeSettings: ClaudeSettings,
   environment: NodeJS.ProcessEnv | undefined,
@@ -803,17 +812,12 @@ export const probeClaudeWorkspaceCatalog = Effect.fn("probeClaudeWorkspaceCatalo
 ) {
   const [capabilities, skills] = yield* Effect.all(
     [
-      probeClaudeCapabilitiesStrict(claudeSettings, environment, cwd).pipe(
-        Effect.timeout(CAPABILITIES_PROBE_TIMEOUT_MS),
-      ),
+      probeClaudeCapabilities(claudeSettings, environment, cwd),
       discoverClaudeSkills(claudeSettings, cwd, environment ?? process.env),
     ],
     { concurrency: "unbounded" },
   );
-  return {
-    skills,
-    slashCommands: dedupeSlashCommands(capabilities.slashCommands),
-  };
+  return makeClaudeWorkspaceCatalog(skills, capabilities);
 });
 
 const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (
