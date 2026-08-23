@@ -451,17 +451,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
     return config ? { ...config, onReady: handleAnchorReady } : undefined;
   }, [anchorMessageId, handleAnchorReady, rows]);
-  const timelineBottomFadeMask =
-    contentInsetEndAdjustment > 0
-      ? "linear-gradient(to bottom, black 0, black calc(100% - var(--timeline-composer-overlay-height) - 1.5rem), transparent calc(100% - var(--timeline-composer-overlay-height)), transparent 100%)"
-      : null;
   const timelineViewportStyle =
-    timelineBottomFadeMask === null
+    contentInsetEndAdjustment === 0
       ? undefined
       : ({
           "--timeline-composer-overlay-height": `min(${contentInsetEndAdjustment}px, 60%)`,
-          WebkitMaskImage: timelineBottomFadeMask,
-          maskImage: timelineBottomFadeMask,
         } as CSSProperties);
 
   const handleScroll = useCallback(() => {
@@ -618,7 +612,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onScroll={handleScroll}
             className={cn(
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
-              topFadeEnabled && "topbar-scroll-fade",
+              contentInsetEndAdjustment > 0 && "virtualized-scroll-fade",
+              contentInsetEndAdjustment > 0 &&
+                (topFadeEnabled ? "timeline-scroll-combined-fade" : "timeline-scroll-bottom-fade"),
+              contentInsetEndAdjustment === 0 && topFadeEnabled && "topbar-scroll-fade",
             )}
             ListHeaderComponent={
               loadEarlier !== null ? (
