@@ -33,6 +33,7 @@ import {
   checkClaudeProviderStatus,
   makePendingClaudeProvider,
   probeClaudeCapabilities,
+  probeClaudeWorkspaceCatalog,
 } from "../Layers/ClaudeProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -174,22 +175,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
       );
-      const snapshotForCwd = (workspaceCwd: string) =>
-        checkClaudeProviderStatus(
-          effectiveConfig,
-          () =>
-            probeClaudeCapabilities(effectiveConfig, processEnv, workspaceCwd).pipe(
-              Effect.provideService(Path.Path, path),
-            ),
-          processEnv,
-          workspaceCwd,
-        ).pipe(
-          Effect.map(stampIdentity),
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.provideService(FileSystem.FileSystem, fileSystem),
-          Effect.provideService(Path.Path, path),
-        );
-
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<ClaudeSettings>>({
         maintenanceCapabilities,
@@ -217,6 +202,25 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
             }),
         ),
       );
+      const snapshotForCwd = (workspaceCwd: string) =>
+        Effect.all([
+          snapshot.getSnapshot,
+          probeClaudeWorkspaceCatalog(effectiveConfig, processEnv, workspaceCwd).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          ),
+        ]).pipe(
+          Effect.map(([machineSnapshot, catalog]) => ({ ...machineSnapshot, ...catalog })),
+          Effect.mapError(
+            (cause) =>
+              new ProviderDriverError({
+                driver: DRIVER_KIND,
+                instanceId,
+                detail: `Failed to probe Claude catalog for '${workspaceCwd}'`,
+                cause,
+              }),
+          ),
+        );
 
       return {
         instanceId,

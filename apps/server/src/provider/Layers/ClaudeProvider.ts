@@ -631,7 +631,7 @@ function nonEmptyProbeString(value: string): string | undefined {
   return candidate ? candidate : undefined;
 }
 
-type ClaudeCapabilitiesProbe = {
+export type ClaudeCapabilitiesProbe = {
   readonly email: string | undefined;
   readonly subscriptionType: string | undefined;
   readonly tokenSource: string | undefined;
@@ -729,7 +729,7 @@ function waitForAbortSignal(signal: AbortSignal): Promise<void> {
  * This is used as a fallback when `claude auth status` does not include
  * subscription type information.
  */
-const probeClaudeCapabilities = (
+const probeClaudeCapabilitiesStrict = (
   claudeSettings: ClaudeSettings,
   environment?: NodeJS.ProcessEnv,
   cwd?: string,
@@ -779,6 +779,15 @@ const probeClaudeCapabilities = (
         if (!abort.signal.aborted) abort.abort();
       }),
     ),
+  );
+};
+
+const probeClaudeCapabilities = (
+  claudeSettings: ClaudeSettings,
+  environment?: NodeJS.ProcessEnv,
+  cwd?: string,
+) =>
+  probeClaudeCapabilitiesStrict(claudeSettings, environment, cwd).pipe(
     Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
     Effect.result,
     Effect.map((result) => {
@@ -786,7 +795,26 @@ const probeClaudeCapabilities = (
       return Option.isSome(result.success) ? result.success.value : undefined;
     }),
   );
-};
+
+export const probeClaudeWorkspaceCatalog = Effect.fn("probeClaudeWorkspaceCatalog")(function* (
+  claudeSettings: ClaudeSettings,
+  environment: NodeJS.ProcessEnv | undefined,
+  cwd: string,
+) {
+  const [capabilities, skills] = yield* Effect.all(
+    [
+      probeClaudeCapabilitiesStrict(claudeSettings, environment, cwd).pipe(
+        Effect.timeout(CAPABILITIES_PROBE_TIMEOUT_MS),
+      ),
+      discoverClaudeSkills(claudeSettings, cwd, environment ?? process.env),
+    ],
+    { concurrency: "unbounded" },
+  );
+  return {
+    skills,
+    slashCommands: dedupeSlashCommands(capabilities.slashCommands),
+  };
+});
 
 const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (
   claudeSettings: ClaudeSettings,
