@@ -916,12 +916,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
   }
 
-  /* Banner text must hide timeline content, but the fill still stops where the
-     composer overlap begins so two translucent surfaces never stack. */
-  .chat-composer-banner-surface::before {
-    --glass-opacity: 100%;
-  }
-
   .chat-composer-drawer-slot + .chat-composer-drawer-slot::before,
   .chat-composer-drawer-slot + :has(.chat-composer-top-drawer) .chat-composer-top-drawer::before {
     border-top: 0;

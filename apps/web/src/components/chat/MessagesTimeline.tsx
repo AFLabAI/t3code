@@ -29,6 +29,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { FileDiff } from "@pierre/diffs/react";
@@ -450,6 +451,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
     return config ? { ...config, onReady: handleAnchorReady } : undefined;
   }, [anchorMessageId, handleAnchorReady, rows]);
+  const timelineScrollFadeMask =
+    contentInsetEndAdjustment > 0
+      ? `linear-gradient(to bottom, ${
+          topFadeEnabled ? "transparent 0, black var(--timeline-top-fade-height)," : "black 0,"
+        } black calc(100% - var(--timeline-composer-overlay-height) - 1.5rem), transparent calc(100% - var(--timeline-composer-overlay-height)), transparent 100%)`
+      : null;
+  const timelineViewportStyle =
+    timelineScrollFadeMask === null
+      ? undefined
+      : ({
+          "--timeline-composer-overlay-height": `${contentInsetEndAdjustment}px`,
+          "--virtualized-scroll-fade-mask": timelineScrollFadeMask,
+        } as CSSProperties);
 
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
@@ -581,7 +595,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   return (
     <TimelineRowCtx value={sharedState}>
       <TimelineRowActivityCtx value={activityState}>
-        <div ref={setTimelineViewportElement} className="relative h-full min-h-0">
+        <div
+          ref={setTimelineViewportElement}
+          className={cn(
+            "relative h-full min-h-0",
+            topFadeEnabled &&
+              "[--timeline-top-fade-height:2.5rem] sm:[--timeline-top-fade-height:3rem]",
+          )}
+          style={timelineViewportStyle}
+        >
           <LegendList<MessagesTimelineRow>
             ref={listRef}
             data={rows}
@@ -601,7 +623,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onScroll={handleScroll}
             className={cn(
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
-              topFadeEnabled && "topbar-scroll-fade",
+              contentInsetEndAdjustment > 0 && "virtualized-scroll-fade",
+              contentInsetEndAdjustment === 0 && topFadeEnabled && "topbar-scroll-fade",
             )}
             ListHeaderComponent={
               loadEarlier !== null ? (
