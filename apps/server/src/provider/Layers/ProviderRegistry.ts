@@ -789,7 +789,7 @@ export const ProviderRegistryLive = Layer.effect(
       }
       return yield* Effect.gen(function* () {
         const scopedSnapshot = yield* snapshotForCwd(input.cwd);
-        if (scopedSnapshot.status === "error") {
+        if (!scopedSnapshot.installed || scopedSnapshot.status === "error") {
           return yield* Ref.get(providersRef);
         }
         const source = buildSnapshotSource(instance);

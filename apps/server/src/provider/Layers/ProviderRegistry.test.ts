@@ -973,7 +973,14 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             slashCommands: [{ name: "project" }],
             skills: [{ name: "project", path: "/workspace/SKILL.md", enabled: true }],
           } as const satisfies ServerProvider;
+          const pendingScopedProvider = {
+            ...scopedProvider,
+            status: "warning",
+            installed: false,
+            slashCommands: [],
+          } as const satisfies ServerProvider;
           const snapshotCalls = yield* Ref.make(0);
+          const returnPendingSnapshot = yield* Ref.make(true);
           const probeStarted = yield* Deferred.make<void>();
           const releaseProbe = yield* Deferred.make<void>();
           const makeInstance = (
@@ -1004,6 +1011,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           const firstInstance = makeInstance(machineProvider, () =>
             Effect.gen(function* () {
               yield* Ref.update(snapshotCalls, (count) => count + 1);
+              if (yield* Ref.get(returnPendingSnapshot)) {
+                return pendingScopedProvider;
+              }
               yield* Deferred.succeed(probeStarted, undefined);
               yield* Deferred.await(releaseProbe);
               return scopedProvider;
@@ -1052,6 +1062,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
 
           yield* Effect.gen(function* () {
             const registry = yield* ProviderRegistry.ProviderRegistry;
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            assert.strictEqual((yield* registry.getProviders)[0]?.workspaceSnapshots, undefined);
+            yield* Ref.set(returnPendingSnapshot, false);
             const workspaceUpdate = yield* registry.streamChanges.pipe(
               Stream.runHead,
               Effect.forkChild,
@@ -1065,7 +1078,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
               .pipe(Effect.forkChild);
             yield* Effect.yieldNow;
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 1);
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 2);
             yield* Deferred.succeed(releaseProbe, undefined);
             yield* Fiber.join(firstRefresh);
             yield* Fiber.join(duplicateRefresh);
@@ -1078,7 +1091,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               scopedProvider.skills,
             );
             yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 1);
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 2);
 
             yield* Ref.set(instancesRef, [rebuiltInstance]);
             yield* PubSub.publish(registryChanges, undefined);
@@ -1094,7 +1107,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             assert.strictEqual(rebuilt[0]?.checkedAt, rebuiltProvider.checkedAt);
             assert.strictEqual(rebuilt[0]?.workspaceSnapshots, undefined);
             yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 1);
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 2);
           }).pipe(Effect.provide(runtimeServices));
         }),
       );
