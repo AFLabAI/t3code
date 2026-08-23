@@ -113,7 +113,6 @@ export interface ThreadComposerProps {
   readonly queueCount: number;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
-  readonly threadCwd: string | null;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
@@ -360,11 +359,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const workspaceSnapshotCwd = props.selectedThread.worktreePath ?? props.projectCwd;
   const selectedProviderSkills = selectedProviderStatus
-    ? resolveProviderSkillsForCwd(selectedProviderStatus, props.threadCwd)
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, workspaceSnapshotCwd)
     : [];
   const selectedProviderSlashCommands = selectedProviderStatus
-    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, props.threadCwd)
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, workspaceSnapshotCwd)
     : [];
 
   // ── Trigger detection ────────────────────────────────────

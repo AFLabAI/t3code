@@ -82,6 +82,7 @@ Review changed TypeScript and directly affected call sites for the conventions b
 ## Change discipline
 
 - Keep provider capability discovery provider-owned. Project/worktree catalogs must be cached by provider instance plus cwd, preserve the machine snapshot as the pre-session fallback, and never overwrite one project's menus with another cwd's snapshot. Flag generic filesystem reimplementations of provider discovery when the driver can probe from the active session cwd.
+- Treat provider-instance rebuilds as cache-generation changes: clear and publish volatile cwd catalogs, reject results from stale instance objects, and attach scoped data to the current machine snapshot inside one atomic `Ref.modify` so concurrent status refreshes cannot be rolled back.
 - Preserve useful comments, invariants, and specification documentation while moving code.
 - Do not add large tests solely to prove a mechanical refactor. Update existing tests and imports as needed.
 - If backend behavior changes, require focused tests. Use test implementations/layers for external services only; do not mock out core business logic.

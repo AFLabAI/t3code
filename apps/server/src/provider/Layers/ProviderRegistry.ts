@@ -595,13 +595,20 @@ export const ProviderRegistryLive = Layer.effect(
             .filter((instanceId) => previousSubs.has(instanceId)),
         );
         if (rebuiltInstanceIds.size > 0) {
-          yield* Ref.update(providersRef, (providers) =>
-            providers.map((provider) => {
-              if (!rebuiltInstanceIds.has(provider.instanceId)) return provider;
-              const { workspaceSnapshots: _workspaceSnapshots, ...machineSnapshot } = provider;
-              return machineSnapshot;
-            }),
+          const [previousProviders, providers] = yield* Ref.modify(
+            providersRef,
+            (previousProviders) => {
+              const providers = previousProviders.map((provider) => {
+                if (!rebuiltInstanceIds.has(provider.instanceId)) return provider;
+                const { workspaceSnapshots: _workspaceSnapshots, ...machineSnapshot } = provider;
+                return machineSnapshot;
+              });
+              return [[previousProviders, providers] as const, providers];
+            },
           );
+          if (haveProvidersChanged(previousProviders, providers)) {
+            yield* PubSub.publish(changesPubSub, providers);
+          }
         }
 
         // Fork long-lived subscriptions to each new/rebuilt instance's
@@ -769,20 +776,26 @@ export const ProviderRegistryLive = Layer.effect(
       }
       const source = buildSnapshotSource(instance);
       const correlatedSnapshot = yield* correlateSnapshotWithSource(source, scopedSnapshot);
-      const latestProviders = yield* Ref.get(providersRef);
-      const latestMachineSnapshot = latestProviders.find(
-        (provider) => provider.instanceId === input.instanceId,
-      );
-      if (
-        latestMachineSnapshot === undefined ||
-        latestMachineSnapshot.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
-      ) {
-        return latestProviders;
+      const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
+      if (currentInstance !== instance) {
+        return yield* Ref.get(providersRef);
       }
-      return yield* upsertProviders(
-        [upsertProviderWorkspaceSnapshot(latestMachineSnapshot, input.cwd, correlatedSnapshot)],
-        { persist: false, replace: true },
+      const [previousProviders, nextProviders] = yield* Ref.modify(
+        providersRef,
+        (previousProviders) => {
+          const nextProviders = previousProviders.map((provider) =>
+            provider.instanceId === input.instanceId &&
+            !provider.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
+              ? upsertProviderWorkspaceSnapshot(provider, input.cwd, correlatedSnapshot)
+              : provider,
+          );
+          return [[previousProviders, nextProviders] as const, nextProviders];
+        },
       );
+      if (haveProvidersChanged(previousProviders, nextProviders)) {
+        yield* PubSub.publish(changesPubSub, nextProviders);
+      }
+      return nextProviders;
     });
 
     return {
