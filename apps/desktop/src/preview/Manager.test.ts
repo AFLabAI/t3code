@@ -1611,7 +1611,6 @@ describe("PreviewManager", () => {
         });
         expect(sendCommand).toHaveBeenCalledWith("Emulation.clearDeviceMetricsOverride");
         expect(controllers).not.toContain("agent");
-
       }),
     ),
   );
