@@ -30,6 +30,7 @@ import { makeOpenCodeAdapter } from "../Layers/OpenCodeAdapter.ts";
 import {
   checkOpenCodeProviderStatus,
   makePendingOpenCodeProvider,
+  openCodeSkillsToServerProviderSkills,
 } from "../Layers/OpenCodeProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -143,12 +144,11 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
       });
       const textGeneration = yield* makeOpenCodeTextGeneration(effectiveConfig, processEnv);
 
-      const checkProviderForCwd = (cwd: string) =>
-        checkOpenCodeProviderStatus(effectiveConfig, cwd, processEnv).pipe(
-          Effect.map(stampIdentity),
-          Effect.provideService(OpenCodeRuntime, openCodeRuntime),
-        );
-      const checkProvider = checkProviderForCwd(serverConfig.cwd);
+      const checkProvider = checkOpenCodeProviderStatus(
+        effectiveConfig,
+        serverConfig.cwd,
+        processEnv,
+      ).pipe(Effect.map(stampIdentity), Effect.provideService(OpenCodeRuntime, openCodeRuntime));
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<OpenCodeSettings>>(
@@ -188,7 +188,29 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         accentColor,
         enabled,
         snapshot,
-        snapshotForCwd: checkProviderForCwd,
+        snapshotForCwd: (cwd) =>
+          Effect.all([
+            snapshot.getSnapshot,
+            openCodeRuntime.loadSkillsFromCli({
+              binaryPath: effectiveConfig.binaryPath,
+              cwd,
+              environment: processEnv,
+            }),
+          ]).pipe(
+            Effect.map(([machineSnapshot, skills]) => ({
+              ...machineSnapshot,
+              skills: openCodeSkillsToServerProviderSkills(skills),
+            })),
+            Effect.mapError(
+              (cause) =>
+                new ProviderDriverError({
+                  driver: DRIVER_KIND,
+                  instanceId,
+                  detail: `Failed to probe OpenCode skills for '${cwd}'`,
+                  cause,
+                }),
+            ),
+          ),
         adapter,
         textGeneration,
       } satisfies ProviderInstance;

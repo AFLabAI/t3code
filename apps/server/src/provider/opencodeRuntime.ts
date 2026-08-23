@@ -183,6 +183,11 @@ export interface OpenCodeRuntimeShape {
     readonly cwd: string;
     readonly environment?: NodeJS.ProcessEnv;
   }) => Effect.Effect<OpenCodeInventory, OpenCodeRuntimeError>;
+  readonly loadSkillsFromCli: (input: {
+    readonly binaryPath: string;
+    readonly cwd: string;
+    readonly environment?: NodeJS.ProcessEnv;
+  }) => Effect.Effect<ReadonlyArray<OpenCodeSkill>, OpenCodeRuntimeError>;
 }
 
 function parseServerUrlFromOutput(output: string): string | null {
@@ -809,6 +814,25 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       };
     });
 
+  const loadSkillsFromCli: OpenCodeRuntimeShape["loadSkillsFromCli"] = (input) =>
+    runOpenCodeCommand({
+      binaryPath: input.binaryPath,
+      args: ["debug", "skill"],
+      cwd: input.cwd,
+      ...(input.environment !== undefined ? { environment: input.environment } : {}),
+    }).pipe(
+      Effect.flatMap((result) =>
+        result.code === 0
+          ? Effect.succeed(parseSkillsCliOutput(result.stdout))
+          : Effect.fail(
+              new OpenCodeRuntimeError({
+                operation: "loadSkillsFromCli",
+                detail: `OpenCode skills command exited with code ${result.code}.`,
+              }),
+            ),
+      ),
+    );
+
   return {
     startOpenCodeServerProcess,
     connectToOpenCodeServer,
@@ -816,6 +840,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
     createOpenCodeSdkClient,
     loadOpenCodeInventory,
     loadInventoryFromCli,
+    loadSkillsFromCli,
   } satisfies OpenCodeRuntimeShape;
 });
 

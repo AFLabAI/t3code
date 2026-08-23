@@ -229,6 +229,14 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         cause: null,
       }),
     ),
+  loadSkillsFromCli: () =>
+    Effect.fail(
+      new OpenCodeRuntimeError({
+        operation: "loadSkillsFromCli",
+        detail: "OpenCodeRuntimeTestDouble.loadSkillsFromCli not used in this test",
+        cause: null,
+      }),
+    ),
 };
 
 const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory, {

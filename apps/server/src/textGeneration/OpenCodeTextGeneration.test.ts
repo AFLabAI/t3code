@@ -115,6 +115,14 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntimeShape = {
         cause: null,
       }),
     ),
+  loadSkillsFromCli: () =>
+    Effect.fail(
+      new OpenCodeRuntime.OpenCodeRuntimeError({
+        operation: "loadSkillsFromCli",
+        detail: "OpenCodeRuntimeTestDouble.loadSkillsFromCli not used in this test",
+        cause: null,
+      }),
+    ),
 };
 
 const DEFAULT_TEST_MODEL_SELECTION = {
