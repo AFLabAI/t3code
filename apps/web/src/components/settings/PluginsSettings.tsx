@@ -271,7 +271,7 @@ export function PluginsSettingsPanel() {
             <PluginPackageRow
               key={pluginPackage.id}
               pluginPackage={pluginPackage}
-              readOnly={readOnly}
+              readOnly={readOnly || pending !== null}
               pendingAction={
                 pending !== null && pending.id === pluginPackage.id ? pending.action : null
               }

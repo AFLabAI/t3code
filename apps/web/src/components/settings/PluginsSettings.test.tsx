@@ -242,4 +242,24 @@ describe("PluginsSettingsPanel", () => {
       visitElements(panel, (element) => element.props["data-plugin-read-only"] === true),
     ).not.toBeNull();
   });
+
+  it("disables every package action while one lifecycle mutation is pending", () => {
+    commands.disable.mockReturnValue(new Promise(() => undefined));
+    const panel = renderPanel();
+    const activeRow = renderPackageRow(panel, "com.acme.active");
+    const disable = visitElements(
+      activeRow,
+      (element) => element.props["aria-label"] === "Disable com.acme.active",
+    );
+    (disable?.props.onCheckedChange as ((checked: boolean) => void) | undefined)?.(false);
+
+    const pendingPanel = renderPanel();
+    const disabledRow = renderPackageRow(pendingPanel, "com.acme.disabled");
+    const enable = visitElements(
+      disabledRow,
+      (element) => element.props["aria-label"] === "Enable com.acme.disabled",
+    );
+
+    expect(enable?.props.disabled).toBe(true);
+  });
 });
