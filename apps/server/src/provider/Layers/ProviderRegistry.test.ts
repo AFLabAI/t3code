@@ -949,6 +949,132 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
+      it.effect("publishes cwd snapshots and clears them when the provider instance rebuilds", () =>
+        Effect.gen(function* () {
+          const driver = ProviderDriverKind.make("codex");
+          const instanceId = ProviderInstanceId.make("codex");
+          const machineProvider = {
+            instanceId,
+            driver,
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" },
+            checkedAt: "2026-06-10T00:00:00.000Z",
+            version: "1.0.0",
+            models: [],
+            slashCommands: [{ name: "global" }],
+            skills: [{ name: "global", path: "/global/SKILL.md", enabled: true }],
+          } as const satisfies ServerProvider;
+          const scopedProvider = {
+            ...machineProvider,
+            checkedAt: "2026-06-10T00:01:00.000Z",
+            slashCommands: [{ name: "project" }],
+            skills: [{ name: "project", path: "/workspace/SKILL.md", enabled: true }],
+          } as const satisfies ServerProvider;
+          const snapshotCalls = yield* Ref.make(0);
+          const makeInstance = (
+            provider: ServerProvider,
+            snapshotForCwd: NonNullable<ProviderInstance["snapshotForCwd"]>,
+          ): ProviderInstance => ({
+            instanceId,
+            driverKind: driver,
+            continuationIdentity: {
+              driverKind: driver,
+              continuationKey: "codex:instance:codex",
+            },
+            displayName: undefined,
+            enabled: true,
+            snapshot: {
+              maintenanceCapabilities: makeManualOnlyProviderMaintenanceCapabilities({
+                provider: driver,
+                packageName: null,
+              }),
+              getSnapshot: Effect.succeed(provider),
+              refresh: Effect.succeed(provider),
+              streamChanges: Stream.empty,
+            },
+            snapshotForCwd,
+            adapter: {} as ProviderInstance["adapter"],
+            textGeneration: {} as ProviderInstance["textGeneration"],
+          });
+          const firstInstance = makeInstance(machineProvider, () =>
+            Ref.update(snapshotCalls, (count) => count + 1).pipe(Effect.as(scopedProvider)),
+          );
+          const rebuiltProvider = {
+            ...machineProvider,
+            checkedAt: "2026-06-10T00:02:00.000Z",
+          } satisfies ServerProvider;
+          const rebuiltInstance = makeInstance(rebuiltProvider, () =>
+            Effect.succeed(scopedProvider),
+          );
+          const registryChanges = yield* PubSub.unbounded<void>();
+          const instancesRef = yield* Ref.make<ReadonlyArray<ProviderInstance>>([firstInstance]);
+          const instanceRegistryLayer = Layer.succeed(
+            ProviderInstanceRegistry.ProviderInstanceRegistry,
+            {
+              getInstance: (requestedId) =>
+                Ref.get(instancesRef).pipe(
+                  Effect.map((instances) =>
+                    instances.find((instance) => instance.instanceId === requestedId),
+                  ),
+                ),
+              listInstances: Ref.get(instancesRef),
+              listUnavailable: Effect.succeed([]),
+              streamChanges: Stream.fromPubSub(registryChanges),
+              subscribeChanges: PubSub.subscribe(registryChanges),
+            },
+          );
+          const scope = yield* Scope.make();
+          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+          const runtimeServices = yield* Layer.build(
+            ProviderRegistryLive.pipe(
+              Layer.provideMerge(instanceRegistryLayer),
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), {
+                  prefix: "t3-provider-registry-workspace-snapshot-",
+                }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ).pipe(Scope.provide(scope));
+
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            const workspaceUpdate = yield* registry.streamChanges.pipe(
+              Stream.runHead,
+              Effect.forkChild,
+            );
+            yield* Effect.yieldNow;
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            const published = yield* Fiber.join(workspaceUpdate);
+            assert.strictEqual(published._tag, "Some");
+            const providers = yield* registry.getProviders;
+            assert.deepStrictEqual(providers[0]?.skills, machineProvider.skills);
+            assert.deepStrictEqual(
+              providers[0]?.workspaceSnapshots?.[0]?.skills,
+              scopedProvider.skills,
+            );
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 1);
+
+            yield* Ref.set(instancesRef, [rebuiltInstance]);
+            yield* PubSub.publish(registryChanges, undefined);
+            let rebuilt = yield* registry.getProviders;
+            for (
+              let attempt = 0;
+              attempt < 50 && rebuilt[0]?.checkedAt !== rebuiltProvider.checkedAt;
+              attempt += 1
+            ) {
+              yield* Effect.yieldNow;
+              rebuilt = yield* registry.getProviders;
+            }
+            assert.strictEqual(rebuilt[0]?.checkedAt, rebuiltProvider.checkedAt);
+            assert.strictEqual(rebuilt[0]?.workspaceSnapshots, undefined);
+          }).pipe(Effect.provide(runtimeServices));
+        }),
+      );
+
       it.effect("persists the merged snapshot when a live update has empty models", () =>
         Effect.gen(function* () {
           const cursorDriver = ProviderDriverKind.make("cursor");
