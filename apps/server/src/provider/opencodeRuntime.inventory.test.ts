@@ -38,4 +38,19 @@ it.layer(testLayer)("loadOpenCodeInventory", (it) => {
       NodeAssert.deepEqual(inventory.skills, []);
     }),
   );
+
+  it.effect("keeps direct skill discovery failures visible", () =>
+    Effect.gen(function* () {
+      const runtime = yield* OpenCodeRuntime;
+      const client = {
+        app: {
+          skills: () => Promise.reject(new Error("skills endpoint unavailable")),
+        },
+      } as unknown as OpencodeClient;
+
+      const error = yield* runtime.loadOpenCodeSkills(client).pipe(Effect.flip);
+
+      NodeAssert.equal(error.operation, "app.skills");
+    }),
+  );
 });

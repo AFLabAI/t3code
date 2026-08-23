@@ -180,7 +180,7 @@ export interface OpenCodeRuntimeShape {
   ) => Effect.Effect<OpenCodeInventory, OpenCodeRuntimeError>;
   readonly loadOpenCodeSkills: (
     client: OpencodeClient,
-  ) => Effect.Effect<ReadonlyArray<OpenCodeSkill>, never>;
+  ) => Effect.Effect<ReadonlyArray<OpenCodeSkill>, OpenCodeRuntimeError>;
   readonly loadInventoryFromCli: (input: {
     readonly binaryPath: string;
     readonly cwd: string;
@@ -708,12 +708,12 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       Effect.map((result) => result.data ?? []),
     );
 
-  const loadSkills = (client: OpencodeClient) =>
+  const loadOpenCodeSkills: OpenCodeRuntimeShape["loadOpenCodeSkills"] = (client) =>
     runOpenCodeSdk("app.skills", () => client.app.skills()).pipe(
       Effect.map((result) => (result.data ?? []) as ReadonlyArray<OpenCodeSkill>),
-      Effect.orElseSucceed((): ReadonlyArray<OpenCodeSkill> => []),
     );
-  const loadOpenCodeSkills: OpenCodeRuntimeShape["loadOpenCodeSkills"] = loadSkills;
+  const loadSkills = (client: OpencodeClient) =>
+    loadOpenCodeSkills(client).pipe(Effect.orElseSucceed((): ReadonlyArray<OpenCodeSkill> => []));
 
   const loadOpenCodeInventory: OpenCodeRuntimeShape["loadOpenCodeInventory"] = (client) =>
     Effect.all([loadProviders(client), loadAgents(client), loadSkills(client)], {
