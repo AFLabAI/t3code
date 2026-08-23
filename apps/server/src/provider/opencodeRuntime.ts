@@ -178,6 +178,9 @@ export interface OpenCodeRuntimeShape {
   readonly loadOpenCodeInventory: (
     client: OpencodeClient,
   ) => Effect.Effect<OpenCodeInventory, OpenCodeRuntimeError>;
+  readonly loadOpenCodeSkills: (
+    client: OpencodeClient,
+  ) => Effect.Effect<ReadonlyArray<OpenCodeSkill>, never>;
   readonly loadInventoryFromCli: (input: {
     readonly binaryPath: string;
     readonly cwd: string;
@@ -710,6 +713,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       Effect.map((result) => (result.data ?? []) as ReadonlyArray<OpenCodeSkill>),
       Effect.orElseSucceed((): ReadonlyArray<OpenCodeSkill> => []),
     );
+  const loadOpenCodeSkills: OpenCodeRuntimeShape["loadOpenCodeSkills"] = loadSkills;
 
   const loadOpenCodeInventory: OpenCodeRuntimeShape["loadOpenCodeInventory"] = (client) =>
     Effect.all([loadProviders(client), loadAgents(client), loadSkills(client)], {
@@ -839,6 +843,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
     runOpenCodeCommand,
     createOpenCodeSdkClient,
     loadOpenCodeInventory,
+    loadOpenCodeSkills,
     loadInventoryFromCli,
     loadSkillsFromCli,
   } satisfies OpenCodeRuntimeShape;

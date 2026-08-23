@@ -99,6 +99,8 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
           }),
         )
       : Effect.succeed(runtimeMock.state.inventory as OpenCodeInventory),
+  loadOpenCodeSkills: () =>
+    Effect.succeed((runtimeMock.state.inventory as OpenCodeInventory).skills ?? []),
   loadInventoryFromCli: ({ cwd }) => {
     runtimeMock.state.inventoryCwd = cwd;
     return runtimeMock.state.inventoryError

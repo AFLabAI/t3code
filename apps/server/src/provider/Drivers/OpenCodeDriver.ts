@@ -188,7 +188,7 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
                   serverUrl: effectiveConfig.serverUrl,
                   environment: processEnv,
                 });
-                const inventory = yield* openCodeRuntime.loadOpenCodeInventory(
+                return yield* openCodeRuntime.loadOpenCodeSkills(
                   openCodeRuntime.createOpenCodeSdkClient({
                     baseUrl: server.url,
                     directory: cwd,
@@ -197,7 +197,6 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
                       : {}),
                   }),
                 );
-                return inventory.skills;
               }),
             )
           : openCodeRuntime.loadSkillsFromCli({
