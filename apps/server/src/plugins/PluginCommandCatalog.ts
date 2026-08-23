@@ -3,6 +3,7 @@ import {
   type PluginCommand,
   type PluginCommandCatalog as PluginCommandCatalogSnapshot,
   PluginCommandCatalogChangedError,
+  PluginCommandId,
   type PluginCommandInvocationResult,
   PluginCommandInvocationError,
   type PluginCommandInvokeInput,
@@ -46,8 +47,12 @@ const validateCommandSnapshot = (snapshot: PluginRuntimeSnapshot): void => {
 
 export class PluginCommandExecutionError extends Schema.TaggedErrorClass<PluginCommandExecutionError>()(
   "PluginCommandExecutionError",
-  { cause: Schema.Defect() },
-) {}
+  { cause: Schema.Defect(), id: PluginCommandId },
+) {
+  override get message(): string {
+    return `Plugin command ${this.id} failed during execution.`;
+  }
+}
 
 type PluginCommandHandler = Effect.Effect<
   PluginCommandInvocationResult,
@@ -202,7 +207,6 @@ export const make = Effect.gen(function* () {
           return new PluginCommandInvocationError({
             cause: error,
             id: input.id,
-            message: "Plugin command failed.",
           });
         }),
       );

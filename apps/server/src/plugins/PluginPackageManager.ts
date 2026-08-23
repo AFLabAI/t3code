@@ -130,12 +130,17 @@ const makeDefinition = (
             command,
             handler: Effect.tryPromise({
               try: async () => handler(),
-              catch: (cause) => new PluginCommandCatalog.PluginCommandExecutionError({ cause }),
+              catch: (cause) =>
+                new PluginCommandCatalog.PluginCommandExecutionError({ cause, id: command.id }),
             }).pipe(
               Effect.flatMap((result) =>
                 decodeInvocationResult(result).pipe(
                   Effect.mapError(
-                    (cause) => new PluginCommandCatalog.PluginCommandExecutionError({ cause }),
+                    (cause) =>
+                      new PluginCommandCatalog.PluginCommandExecutionError({
+                        cause,
+                        id: command.id,
+                      }),
                   ),
                 ),
               ),

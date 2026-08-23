@@ -34,6 +34,15 @@ const testPlugin = (input: {
 });
 
 describe("plugin command catalog", () => {
+  it("keeps command identity on execution errors", () => {
+    const error = new PluginCommandCatalog.PluginCommandExecutionError({
+      cause: new Error("handler failed"),
+      id: "acme.hello",
+    });
+
+    expect(error.message).toBe("Plugin command acme.hello failed during execution.");
+  });
+
   it.effect("lists and invokes the trusted built-in command", () =>
     Effect.gen(function* () {
       const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;

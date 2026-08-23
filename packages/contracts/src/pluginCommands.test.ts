@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import {
   PluginCommandCatalog,
   PluginCommandInvokeInput,
+  PluginCommandInvocationError,
   PluginCommandInvocationResult,
 } from "./pluginCommands.ts";
 import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
@@ -58,6 +59,15 @@ describe("plugin command contracts", () => {
         tone: "success",
       }),
     ).toEqual({ message: "Command completed.", tone: "success" });
+  });
+
+  it("derives invocation failure messages from the command id", () => {
+    const error = new PluginCommandInvocationError({
+      cause: new Error("handler failed"),
+      id: "acme.command",
+    });
+
+    expect(error.message).toBe("Plugin command failed: acme.command");
   });
 
   it("registers fixed list, invoke, and subscribe rpc methods", () => {

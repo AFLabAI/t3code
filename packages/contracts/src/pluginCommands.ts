@@ -60,6 +60,9 @@ export class PluginCommandInvocationError extends Schema.TaggedErrorClass<Plugin
   {
     cause: Schema.Defect(),
     id: PluginCommandId,
-    message: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
   },
-) {}
+) {
+  override get message(): string {
+    return `Plugin command failed: ${this.id}`;
+  }
+}
