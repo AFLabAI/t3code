@@ -259,7 +259,10 @@ export function PluginsSettingsPanel() {
           </Empty>
         ) : null}
 
-        {!status.isPending && status.error === null && packages.length === 0 ? (
+        {!status.isPending &&
+        status.error === null &&
+        packages.length === 0 &&
+        (status.data?.errors.length ?? 0) === 0 ? (
           <Empty data-plugin-empty className="min-h-52">
             <EmptyMedia variant="icon">
               <FolderCodeIcon />

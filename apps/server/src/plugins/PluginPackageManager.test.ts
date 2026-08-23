@@ -104,6 +104,7 @@ export default function activate(api) {
 
 interface EnvironmentLayerOptions {
   readonly persistenceFailures?: { remaining: number };
+  readonly startupFailure?: boolean;
 }
 
 const makeEnvironmentLayer = (baseDir: string, options?: EnvironmentLayerOptions) => {
@@ -113,8 +114,9 @@ const makeEnvironmentLayer = (baseDir: string, options?: EnvironmentLayerOptions
     Layer.provideMerge(configLayer),
   );
   const persistenceFailures = options?.persistenceFailures;
+  const startupFailure = options?.startupFailure === true;
   const settingsLayer =
-    persistenceFailures === undefined
+    persistenceFailures === undefined && !startupFailure
       ? liveSettingsLayer
       : Layer.effect(
           ServerSettings.ServerSettingsService,
@@ -122,9 +124,18 @@ const makeEnvironmentLayer = (baseDir: string, options?: EnvironmentLayerOptions
             const live = yield* ServerSettings.ServerSettingsService;
             return ServerSettings.ServerSettingsService.of({
               ...live,
+              start: startupFailure
+                ? Effect.fail(
+                    new ServerSettingsError({
+                      cause: new Error("injected startup failure"),
+                      operation: "read-file",
+                      settingsPath: `${baseDir}/userdata/settings.json`,
+                    }),
+                  )
+                : live.start,
               setEnabledPluginIds: (ids) =>
                 Effect.suspend(() => {
-                  if (persistenceFailures.remaining > 0) {
+                  if (persistenceFailures !== undefined && persistenceFailures.remaining > 0) {
                     persistenceFailures.remaining -= 1;
                     return Effect.fail(
                       new ServerSettingsError({
@@ -158,6 +169,31 @@ const useEnvironment = <A, E>(
 ) => Effect.scoped(effect.pipe(Effect.provide(makeEnvironmentLayer(baseDir, options))));
 
 it.layer(NodeServices.layer)("plugin package lifecycle", (it) => {
+  it.effect("keeps the environment available when package manager startup fails", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3code-plugin-package-startup-failure-test-",
+      });
+
+      const exit = yield* Effect.exit(
+        useEnvironment(
+          baseDir,
+          Effect.gen(function* () {
+            const manager = yield* PluginPackageManager.PluginPackageManager;
+            return yield* Effect.exit(manager.status);
+          }),
+          { startupFailure: true },
+        ),
+      );
+
+      expect(exit._tag).toBe("Success");
+      if (exit._tag === "Success") {
+        expect(exit.value._tag).toBe("Failure");
+      }
+    }),
+  );
+
   it.effect("loads the committed external runtime-status example without rebuilding", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -455,10 +491,13 @@ it.layer(NodeServices.layer)("plugin package lifecycle", (it) => {
         baseDir,
         Effect.gen(function* () {
           const manager = yield* PluginPackageManager.PluginPackageManager;
-          expect(yield* manager.status).toMatchObject({
+          const status = yield* manager.status;
+          expect(status).toMatchObject({
             errors: [{ directory: "broken-package" }],
             packages: [],
           });
+          expect(status.errors[0]?.error).toContain("manifestVersion");
+          expect(status.errors[0]?.error).not.toContain("Cause([");
         }),
       );
     }),

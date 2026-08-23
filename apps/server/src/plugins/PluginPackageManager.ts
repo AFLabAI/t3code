@@ -267,7 +267,7 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
         fileSystem.readFileString(manifestPath).pipe(Effect.flatMap(decodeManifestJson)),
       );
       if (decoded._tag === "Failure") {
-        errors.push({ directory: entry, error: detailFromUnknown(decoded.cause) });
+        errors.push({ directory: entry, error: detailFromCause(decoded.cause) });
         continue;
       }
       const packageManifest = decoded.value;
@@ -650,4 +650,21 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
   } as const;
 });
 
-export const layer = Layer.effect(PluginPackageManager, make());
+const unavailableService = (error: PluginPackageOperationError) =>
+  PluginPackageManager.of({
+    status: Effect.fail(error),
+    enable: () => Effect.fail(error),
+    disable: () => Effect.fail(error),
+    reload: () => Effect.fail(error),
+  });
+
+export const layer = Layer.effect(
+  PluginPackageManager,
+  make().pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("Local plugin package manager failed to start", {
+        error: detailFromUnknown(error),
+      }).pipe(Effect.as(unavailableService(error))),
+    ),
+  ),
+);

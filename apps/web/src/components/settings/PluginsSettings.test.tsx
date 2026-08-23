@@ -228,6 +228,21 @@ describe("PluginsSettingsPanel", () => {
     ).not.toBeNull();
   });
 
+  it("does not claim no plugins were found when discovery reported a broken package", () => {
+    query.data = {
+      packages: [],
+      errors: [{ directory: "broken-package", error: "manifest is invalid" }],
+    };
+    const panel = renderPanel();
+
+    expect(
+      visitElements(panel, (element) => element.props["data-plugin-error"] === "broken-package"),
+    ).not.toBeNull();
+    expect(
+      visitElements(panel, (element) => element.props["data-plugin-empty"] === true),
+    ).toBeNull();
+  });
+
   it("shows package status without offering writes when the session is read only", () => {
     access.value = "denied";
     const panel = renderPanel();

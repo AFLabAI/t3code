@@ -2508,7 +2508,5 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     );
   }),
 ).pipe(
-  Layer.provide(
-    PluginPackageManager.layer.pipe(Layer.provideMerge(PluginCommandCatalog.layer), Layer.orDie),
-  ),
+  Layer.provide(PluginPackageManager.layer.pipe(Layer.provideMerge(PluginCommandCatalog.layer))),
 );
