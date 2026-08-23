@@ -27,9 +27,21 @@ const ISO_DATE_TIME_PATTERN =
 
 export const ValidIsoDateTime = IsoDateTime.check(
   Schema.isPattern(ISO_DATE_TIME_PATTERN),
-  Schema.makeFilter((value) => Option.isSome(DateTime.make(value)), {
-    expected: "a valid ISO 8601 date and time",
-  }),
+  Schema.makeFilter(
+    (value) => {
+      const parsed = DateTime.make(value);
+      if (Option.isNone(parsed) || Number(value.slice(11, 13)) > 23) {
+        return false;
+      }
+
+      const date = value.slice(0, 10);
+      const parsedDate = DateTime.make(`${date}T00:00:00.000Z`);
+      return Option.isSome(parsedDate) && DateTime.formatIsoDateUtc(parsedDate.value) === date;
+    },
+    {
+      expected: "a valid ISO 8601 date and time",
+    },
+  ),
 );
 export type ValidIsoDateTime = typeof ValidIsoDateTime.Type;
 

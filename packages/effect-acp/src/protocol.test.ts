@@ -727,6 +727,57 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
     }),
   );
 
+  it.effect("does not deliver notifications after the output writer terminates the protocol", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const cause = PlatformError.systemError({
+        _tag: "Unknown",
+        module: "Stdio",
+        method: "write",
+        cause: new Error("broken output pipe"),
+      });
+      const termination = yield* Deferred.make<AcpError.AcpError>();
+      const lateMessageRead = yield* Deferred.make<void>();
+      const notificationCount = yield* Ref.make(0);
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio: Stdio.make({
+          args: stdio.args,
+          stdin: stdio.stdin,
+          stdout: () => Sink.forEach((_chunk: string | Uint8Array) => Effect.fail(cause)),
+          stderr: stdio.stderr,
+        }),
+        serverRequestMethods: new Set(),
+        logIncoming: true,
+        logger: (event) =>
+          event.stage === "decoded" &&
+          Array.isArray(event.payload) &&
+          event.payload.some((message) => message.tag === "x/barrier")
+            ? Deferred.succeed(lateMessageRead, undefined).pipe(Effect.asVoid)
+            : Effect.void,
+        onNotification: () => Ref.update(notificationCount, (count) => count + 1),
+        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+      });
+
+      yield* transport.notify("x/trigger", {});
+      yield* Deferred.await(termination);
+      yield* Queue.offer(
+        input,
+        encoder.encode(
+          `${encodeUnknownJsonString({ jsonrpc: "2.0", method: "x/late", params: 1 })}\n`,
+        ),
+      );
+      yield* Queue.offer(
+        input,
+        encoder.encode(
+          `${encodeUnknownJsonString({ jsonrpc: "2.0", method: "x/barrier", params: 2 })}\n`,
+        ),
+      );
+      yield* Deferred.await(lateMessageRead);
+
+      assert.equal(yield* Ref.get(notificationCount), 0);
+    }),
+  );
+
   it.effect("keeps only the latest handled notifications for the raw stream", () =>
     Effect.gen(function* () {
       const { stdio, input } = yield* makeInMemoryStdio();

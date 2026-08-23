@@ -8,6 +8,9 @@
  *
  * @module DrainableWorker
  */
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Effect from "effect/Effect";
 import * as TxQueue from "effect/TxQueue";
@@ -113,10 +116,10 @@ export const makeKeyedDrainableWorker = <K, A, E, R>(options: {
       Effect.flatMap((key) =>
         TxRef.modify(stateRef, (state) => {
           const pending = state.pendingByKey.get(key);
-          const item = pending?.[0];
-          if (pending === undefined || item === undefined) {
+          if (pending === undefined || pending.length === 0) {
             return [undefined, state] as const;
           }
+          const item = pending[0]!;
 
           const pendingByKey = new Map(state.pendingByKey);
           if (pending.length === 1) {
@@ -136,7 +139,17 @@ export const makeKeyedDrainableWorker = <K, A, E, R>(options: {
       Effect.flatMap((next) =>
         next === undefined
           ? Effect.void
-          : Effect.ensuring(options.process(next.item), finish(next.key)),
+          : Effect.forkChild(options.process(next.item)).pipe(
+              Effect.flatMap(Fiber.await),
+              Effect.flatMap((exit) =>
+                Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)
+                  ? Effect.void
+                  : Effect.logWarning("keyed worker failed to process item", {
+                      cause: Cause.pretty(exit.cause),
+                    }),
+              ),
+              Effect.ensuring(finish(next.key)),
+            ),
       ),
       Effect.forever,
     );

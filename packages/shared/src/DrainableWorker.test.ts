@@ -57,6 +57,76 @@ describe("makeDrainableWorker", () => {
 });
 
 describe("makeKeyedDrainableWorker", () => {
+  it.live("continues processing after a work item fails", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const processed: string[] = [];
+        const worker = yield* makeKeyedDrainableWorker({
+          concurrency: 1,
+          key: () => "thread",
+          process: (item: string) =>
+            item === "failed"
+              ? Effect.fail("expected failure")
+              : Effect.sync(() => {
+                  processed.push(item);
+                }),
+        });
+
+        yield* worker.enqueue("failed");
+        yield* worker.enqueue("continued");
+        yield* worker.drain;
+
+        expect(processed).toEqual(["continued"]);
+      }),
+    ),
+  );
+
+  it.live("continues processing after a work item interrupts itself", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const processed: string[] = [];
+        const worker = yield* makeKeyedDrainableWorker({
+          concurrency: 1,
+          key: () => "thread",
+          process: (item: string) =>
+            item === "interrupted"
+              ? Effect.interrupt
+              : Effect.sync(() => {
+                  processed.push(item);
+                }),
+        });
+
+        yield* worker.enqueue("interrupted");
+        yield* worker.enqueue("continued");
+        yield* worker.drain;
+
+        expect(processed).toEqual(["continued"]);
+      }),
+    ),
+  );
+
+  it.live("processes undefined items without stranding the worker", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const processed: Array<string | undefined> = [];
+        const worker = yield* makeKeyedDrainableWorker({
+          concurrency: 1,
+          key: () => "thread",
+          process: (item: string | undefined) =>
+            Effect.sync(() => {
+              processed.push(item);
+            }),
+        });
+
+        yield* worker.enqueue(undefined);
+        yield* worker.enqueue("continued");
+        yield* worker.drain;
+
+        expect(processed).toEqual([undefined, "continued"]);
+      }),
+    ),
+  );
+
   it.live("processes other keys while the first key is blocked", () =>
     Effect.scoped(
       Effect.gen(function* () {

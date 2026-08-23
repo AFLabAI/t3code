@@ -2207,6 +2207,70 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("caps buffered assistant text while repeated spill writes fail", async () => {
+    const harness = await createHarness({
+      dispatchFailure: {
+        commandType: "thread.message.assistant.delta",
+        count: 9,
+      },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-buffer-bounded");
+    const itemId = asItemId("item-buffer-bounded");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffer-bounded"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await harness.drain();
+
+    for (const [index, character] of ["a", "b", "c"].entries()) {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-message-delta-buffer-bounded-${index}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        itemId,
+        payload: {
+          streamKind: "assistant_text",
+          delta: character.repeat(30_000),
+        },
+      });
+      await harness.drain();
+    }
+
+    expect(harness.remainingDispatchFailures).toBe(0);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffer-bounded"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    await harness.drain();
+
+    const thread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    const message = thread?.messages.find((entry) => entry.id === "assistant:item-buffer-bounded");
+
+    expect(message?.text).toBe("a".repeat(24_000));
+    expect(message?.streaming).toBe(false);
+  });
+
   it("flushes and completes buffered assistant text when an approval request opens", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

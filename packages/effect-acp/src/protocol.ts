@@ -149,7 +149,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
           error ??
             new AcpError.AcpTransportError({
               operation: "write-output-stream",
-              cause: new Error("ACP output stream ended."),
+              detail: "ACP output stream ended.",
             })
         );
       }
@@ -199,8 +199,8 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
 
   const dispatchNotification = (notification: AcpIncomingNotification) =>
     Queue.offer(notificationQueue, notification).pipe(
-      Effect.andThen(
-        options.onNotification
+      Effect.flatMap((accepted) =>
+        accepted && options.onNotification
           ? options.onNotification(notification).pipe(Effect.catch(() => Effect.void))
           : Effect.void,
       ),

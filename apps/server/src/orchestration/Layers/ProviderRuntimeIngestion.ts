@@ -26,13 +26,12 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
-import { PersistenceSqlError } from "../../persistence/Errors.ts";
+import { isPersistenceSqlError } from "../../persistence/Errors.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
@@ -102,7 +101,6 @@ const TASK_DESCRIPTION_BY_TASK_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const PERSISTENCE_RETRY_COUNT = 2;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
-const isPersistenceSqlError = Schema.is(PersistenceSqlError);
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
@@ -1094,7 +1092,11 @@ const make = Effect.gen(function* () {
             onNone: () => delta,
             onSome: (text) => `${text}${delta}`,
           });
-          yield* Cache.set(bufferedAssistantTextByMessageId, messageId, nextText);
+          const retainedText =
+            nextText.length > MAX_BUFFERED_ASSISTANT_CHARS
+              ? nextText.slice(0, MAX_BUFFERED_ASSISTANT_CHARS)
+              : nextText;
+          yield* Cache.set(bufferedAssistantTextByMessageId, messageId, retainedText);
           return nextText.length <= MAX_BUFFERED_ASSISTANT_CHARS ? "" : nextText;
         }),
       ),
@@ -1688,7 +1690,19 @@ const make = Effect.gen(function* () {
               delta: spillChunk,
               ...(turnId ? { turnId } : {}),
               createdAt: now,
-            });
+            }).pipe(
+              Effect.tapError((cause) =>
+                Effect.logWarning(
+                  "assistant text exceeded its buffer during a persistence failure",
+                  {
+                    messageId: assistantMessageId,
+                    retainedCharacters: MAX_BUFFERED_ASSISTANT_CHARS,
+                    droppedCharacters: spillChunk.length - MAX_BUFFERED_ASSISTANT_CHARS,
+                    cause,
+                  },
+                ),
+              ),
+            );
             yield* clearBufferedAssistantText(assistantMessageId);
           }
         } else {

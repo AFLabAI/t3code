@@ -38,6 +38,18 @@ const decodeConsumeRateLimitResetCreditResponse = Schema.decodeUnknownEffect(
 );
 
 it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
+  it("represents an ended transport without inventing an underlying cause", () => {
+    const error = new CodexError.CodexAppServerTransportError({
+      operation: "write-output-stream",
+    });
+
+    assert.equal(
+      error.message,
+      "Codex App Server transport operation 'write-output-stream' failed.",
+    );
+    assert.equal(error.cause, undefined);
+  });
+
   it.effect("maps account usage responses to the upstream token usage schema", () =>
     Effect.gen(function* () {
       assert.strictEqual(

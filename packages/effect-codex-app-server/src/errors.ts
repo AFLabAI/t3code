@@ -236,7 +236,7 @@ export class CodexAppServerTransportError extends Schema.TaggedErrorClass<CodexA
   {
     operation: CodexAppServerTransportOperation,
     pid: Schema.optionalKey(Schema.Int),
-    cause: Schema.Defect(),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message() {

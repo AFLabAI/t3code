@@ -170,7 +170,7 @@ export class AcpTransportError extends Schema.TaggedErrorClass<AcpTransportError
     method: Schema.optional(Schema.String),
     detail: Schema.optional(Schema.String),
     pid: Schema.optionalKey(Schema.Int),
-    cause: Schema.Defect(),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message() {

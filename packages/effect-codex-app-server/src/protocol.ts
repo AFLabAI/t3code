@@ -237,7 +237,6 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
             error ??
               new CodexError.CodexAppServerTransportError({
                 operation: "write-output-stream",
-                cause: new Error("Codex App Server output stream ended."),
               })
           );
         }
@@ -297,8 +296,8 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
 
     const handleRequest = (request: CodexAppServerIncomingRequest) =>
       Queue.offer(incomingRequests, request).pipe(
-        Effect.andThen(
-          options.onRequest
+        Effect.flatMap((accepted) =>
+          accepted && options.onRequest
             ? options.onRequest(request).pipe(
                 Effect.matchEffect({
                   onFailure: (error) =>
@@ -319,7 +318,9 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
 
     const handleNotification = (notification: CodexAppServerIncomingNotification) =>
       Queue.offer(incomingNotifications, notification).pipe(
-        Effect.andThen(options.onNotification ? options.onNotification(notification) : Effect.void),
+        Effect.flatMap((accepted) =>
+          accepted && options.onNotification ? options.onNotification(notification) : Effect.void,
+        ),
         Effect.asVoid,
       );
 

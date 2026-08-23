@@ -68,6 +68,16 @@ describe("effect-acp errors", () => {
     expect(error.cause).toBe(cause);
   });
 
+  it("represents an ended transport without inventing an underlying cause", () => {
+    const error = new AcpError.AcpTransportError({
+      operation: "write-output-stream",
+      detail: "ACP output stream ended.",
+    });
+
+    expect(error.message).toBe("ACP transport operation write-output-stream failed.");
+    expect(error.cause).toBeUndefined();
+  });
+
   it("preserves structured extension handler failures behind stable request errors", () => {
     const cause = new AcpError.AcpTransportError({
       operation: "read-input-stream",
