@@ -22,6 +22,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
@@ -253,17 +254,18 @@ export function PluginsSettingsPanel() {
         ) : null}
 
         {!status.isPending && status.error === null && packages.length === 0 ? (
-          <div
-            data-plugin-empty
-            className="flex flex-col items-center rounded-xl border border-dashed border-border px-6 py-12 text-center"
-          >
-            <FolderCodeIcon className="mb-3 size-7 text-muted-foreground/70" />
-            <h3 className="text-sm font-medium">No plugins found</h3>
-            <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-              Add a trusted plugin package to this environment's userdata/plugins directory, then
-              refresh this page.
-            </p>
-          </div>
+          <Empty data-plugin-empty className="min-h-52">
+            <EmptyMedia variant="icon">
+              <FolderCodeIcon />
+            </EmptyMedia>
+            <EmptyHeader>
+              <EmptyTitle>No plugins found</EmptyTitle>
+              <EmptyDescription>
+                Add a trusted plugin package to this environment's userdata/plugins directory, then
+                refresh this page.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : null}
 
         <div className="space-y-2">
