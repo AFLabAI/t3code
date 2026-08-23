@@ -4,7 +4,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  BlocksIcon,
   CircleAlertIcon,
   FolderCodeIcon,
   RefreshCwIcon,
@@ -26,6 +25,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { resolvePrimaryOperateAccess } from "./ProviderSettingsPanel.logic";
 import { searchableSetting } from "./settingsSearch";
@@ -185,24 +185,30 @@ export function PluginsSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection
         {...searchableSetting("plugins")}
-        icon={<BlocksIcon className="size-4.5 text-muted-foreground" />}
         headerAction={
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-muted-foreground">{countLabel}</span>
-            <Button
-              type="button"
-              size="icon-micro"
-              variant="ghost-muted"
-              aria-label="Refresh plugins"
-              disabled={status.isPending}
-              onClick={status.refresh}
-            >
-              {status.isPending ? (
-                <Spinner className="size-3" />
-              ) : (
-                <RefreshCwIcon className="size-3" />
-              )}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label="Refresh plugins"
+                    disabled={status.isPending}
+                    onClick={status.refresh}
+                  >
+                    {status.isPending ? (
+                      <Spinner className="size-3" />
+                    ) : (
+                      <RefreshCwIcon className="size-3" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="top">Refresh plugins</TooltipPopup>
+            </Tooltip>
           </div>
         }
       >
