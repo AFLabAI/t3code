@@ -253,10 +253,10 @@ export function PluginsSettingsPanel() {
         ))}
 
         {status.isPending && status.data === null ? (
-          <div className="flex items-center justify-center gap-2 rounded-xl border border-border/60 px-4 py-12 text-sm text-muted-foreground">
+          <Empty className="min-h-52 gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Loading plugins
-          </div>
+          </Empty>
         ) : null}
 
         {!status.isPending && status.error === null && packages.length === 0 ? (
