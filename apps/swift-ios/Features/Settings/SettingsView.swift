@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct SettingsView: View {
     @SwiftUI.Environment(\.dismiss) private var dismiss
-    @Bindable private var model: FeatureRootModel
+    @ObservedObject private var model: FeatureRootModel
     @State private var settings: FeatureSettings
     @State private var isSaving = false
     @State private var appearanceSaveTask: Task<Bool, Never>?
@@ -79,12 +79,12 @@ public struct SettingsView: View {
             .onDisappear {
                 model.setConnectionManagementPresented(false)
             }
-            .onChange(of: settings.appearance) { _, appearance in
+            .t3OnChange(of: settings.appearance) { _, appearance in
                 saveAppearance(appearance)
             }
         }
         .interactiveDismissDisabled(isSaving || hasUnsavedChanges)
-        .presentationBackground(T3Colors.background)
+        .t3PresentationBackground(T3Colors.background)
         .presentationDragIndicator(.visible)
     }
 

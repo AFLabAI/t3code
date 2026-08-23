@@ -24,7 +24,7 @@ public struct FeatureSourceControlView: View {
             } else if let status, status.isRepository {
                 statusList(status)
             } else {
-                ContentUnavailableView(
+                T3ContentUnavailableView(
                     "Source control unavailable",
                     systemImage: "arrow.triangle.branch",
                     description: Text(

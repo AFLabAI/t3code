@@ -3,7 +3,7 @@ import SwiftUI
 public struct NewThreadView: View {
     @SwiftUI.Environment(\.dismiss) private var dismiss
     @SwiftUI.Environment(\.scenePhase) private var scenePhase
-    @Bindable var model: FeatureRootModel
+    @ObservedObject var model: FeatureRootModel
     let submit: (NewTaskRequest) async -> FeatureThread?
     let onCreated: (FeatureThread) -> Void
     let onCreateProject: @MainActor () -> Void
@@ -118,8 +118,8 @@ public struct NewThreadView: View {
                 selectInitialProject(initialID)
             }
         }
-        .onChange(of: projectID) { prepareProjectIfNeeded(projectID) }
-        .onChange(of: creationProjectIDs) { _, ids in
+        .t3OnChange(of: projectID) { prepareProjectIfNeeded(projectID) }
+        .t3OnChange(of: creationProjectIDs) { _, ids in
             guard !ids.contains(projectID) else { return }
             if projectID.isEmpty {
                 let recentProject = DailyUXCreationContext.recentProjects(
@@ -143,19 +143,19 @@ public struct NewThreadView: View {
                 ?? creationProjectGroups.first?.projects.first
             selectInitialProject(replacement?.id ?? "")
         }
-        .onChange(of: model.homePresentationRevision) { _, _ in
+        .t3OnChange(of: model.homePresentationRevision) { _, _ in
             refreshAutomaticProjectIfNeeded()
         }
-        .onChange(of: prompt) { scheduleDraftSave() }
-        .onChange(of: selection) { scheduleDraftSave() }
-        .onChange(of: attachments) { scheduleDraftSave() }
-        .onChange(of: workspaceMode) { scheduleDraftSave() }
-        .onChange(of: selectedBranch) { scheduleDraftSave() }
-        .onChange(of: startFromOrigin) { scheduleDraftSave() }
-        .onChange(of: submissionValidationMessage) { _, _ in
+        .t3OnChange(of: prompt) { scheduleDraftSave() }
+        .t3OnChange(of: selection) { scheduleDraftSave() }
+        .t3OnChange(of: attachments) { scheduleDraftSave() }
+        .t3OnChange(of: workspaceMode) { scheduleDraftSave() }
+        .t3OnChange(of: selectedBranch) { scheduleDraftSave() }
+        .t3OnChange(of: startFromOrigin) { scheduleDraftSave() }
+        .t3OnChange(of: submissionValidationMessage) { _, _ in
             submissionValidationError = nil
         }
-        .onChange(of: scenePhase) { _, phase in
+        .t3OnChange(of: scenePhase) { _, phase in
             if phase != .active, !submittedSuccessfully {
                 persistCurrentDraftImmediately()
             }
@@ -1115,12 +1115,12 @@ private struct NewTaskProjectPicker: View {
         NavigationStack {
             Group {
                 if groups.isEmpty {
-                    ContentUnavailableView(
+                    T3ContentUnavailableView(
                         "No projects",
                         systemImage: "folder"
                     )
                 } else if filteredGroups.isEmpty {
-                    ContentUnavailableView(
+                    T3ContentUnavailableView(
                         "No matching projects",
                         systemImage: "magnifyingglass"
                     )
@@ -1166,7 +1166,7 @@ private struct NewTaskProjectPicker: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .presentationBackground(T3Colors.background)
+        .t3PresentationBackground(T3Colors.background)
     }
 
     private func projectRow(_ group: DailyUXProjectGroup) -> some View {
@@ -1250,7 +1250,7 @@ private struct NewTaskBranchPicker: View {
                         .foregroundStyle(T3Colors.textSecondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if filteredBranches.isEmpty {
-                    ContentUnavailableView {
+                    T3ContentUnavailableView {
                         Label(
                             loadFailed
                                 ? "Could not load branches"
@@ -1331,7 +1331,7 @@ private struct NewTaskBranchPicker: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .presentationBackground(T3Colors.background)
+        .t3PresentationBackground(T3Colors.background)
     }
 
     private var filteredBranches: [FeatureWorkspaceBranch] {

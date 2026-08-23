@@ -111,7 +111,7 @@ public struct FeatureTerminalView: View {
                     .tint(T3Colors.textPrimary)
                     .foregroundStyle(T3Colors.textPrimary)
             } else if let errorMessage, terminal == nil {
-                ContentUnavailableView(
+                T3ContentUnavailableView(
                     "Terminal unavailable",
                     systemImage: "terminal",
                     description: Text(errorMessage)

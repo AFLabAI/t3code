@@ -7,7 +7,7 @@ public struct ThreadDetailView: View {
     @SwiftUI.Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @SwiftUI.Environment(\.scenePhase) private var scenePhase
 
-    @Bindable var model: FeatureRootModel
+    @ObservedObject var model: FeatureRootModel
     let thread: FeatureThread
     let submitMessage: (FeatureMessageSubmission) async -> Bool
     let onNavigateBack: () -> Void
@@ -48,7 +48,7 @@ public struct ThreadDetailView: View {
             } else if isLoading {
                 FeatureThreadOpeningView()
             } else {
-                ContentUnavailableView {
+                T3ContentUnavailableView {
                     Label("Thread unavailable", systemImage: "exclamationmark.bubble")
                 } description: {
                     Text("The thread could not be loaded.")
@@ -77,10 +77,10 @@ public struct ThreadDetailView: View {
             await restoreDraft(from: restoreBaseline, key: restoreKey)
             isLoading = false
         }
-        .onChange(of: draft) { scheduleDraftSave() }
-        .onChange(of: attachments) { scheduleDraftSave() }
-        .onChange(of: selection) { scheduleDraftSave() }
-        .onChange(of: scenePhase) { _, phase in
+        .t3OnChange(of: draft) { scheduleDraftSave() }
+        .t3OnChange(of: attachments) { scheduleDraftSave() }
+        .t3OnChange(of: selection) { scheduleDraftSave() }
+        .t3OnChange(of: scenePhase) { _, phase in
             if phase != .active {
                 persistDraftBeforeLeaving()
             }
@@ -353,7 +353,7 @@ public struct ThreadDetailView: View {
             || detail.thread.state == .monitoring
         return Group {
             if detail.messages.isEmpty, !isWorking {
-                ContentUnavailableView(
+                T3ContentUnavailableView(
                     "Ready for a task",
                     systemImage: "sparkles",
                     description: Text("Tell the agent what you want to build.")
@@ -1986,7 +1986,7 @@ private struct FeatureAttachmentPreview: View {
                                 .resizable()
                                 .scaledToFit()
                         case .failure:
-                            ContentUnavailableView(
+                            T3ContentUnavailableView(
                                 "Image unavailable",
                                 systemImage: "exclamationmark.triangle"
                             )

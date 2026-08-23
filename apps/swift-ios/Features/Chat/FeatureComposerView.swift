@@ -117,7 +117,7 @@ struct FeatureComposerView: View {
                 )
                 .ignoresSafeArea()
             }
-            .onChange(of: focused) {
+            .t3OnChange(of: focused) {
                 if FeatureComposerCollapsePolicy.shouldCollapse(
                     isFocused: focused,
                     textIsEmpty: textIsEmpty,

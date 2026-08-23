@@ -263,11 +263,11 @@ struct FeatureComposerUserInputPanel: View {
                 .opacity(isResponding ? 0.56 : 1)
             }
         }
-        .onChange(of: input.id) {
+        .t3OnChange(of: input.id) {
             answers = [:]
             questionIndex = 0
         }
-        .onChange(of: questionIDs) { previousIDs, currentIDs in
+        .t3OnChange(of: questionIDs) { previousIDs, currentIDs in
             questionIndex = FeatureComposerQuestionReconciliation.index(
                 current: questionIndex,
                 previousQuestionIDs: previousIDs,

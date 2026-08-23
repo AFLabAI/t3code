@@ -60,7 +60,7 @@ public struct UsageView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 64)
                 } else if let errorMessage, environments.isEmpty {
-                    ContentUnavailableView {
+                    T3ContentUnavailableView {
                         Label("Couldn’t load usage", systemImage: "exclamationmark.circle")
                     } description: {
                         Text(errorMessage)
@@ -68,13 +68,13 @@ public struct UsageView: View {
                         Button("Try again") { Task { await load() } }
                     }
                 } else if environments.isEmpty {
-                    ContentUnavailableView {
+                    T3ContentUnavailableView {
                         Label("No environments", systemImage: "chart.bar.xaxis")
                     } description: {
                         Text("Connect an environment to see usage.")
                     }
                 } else if !hasCompatibleSummary {
-                    ContentUnavailableView {
+                    T3ContentUnavailableView {
                         Label("Couldn’t load usage", systemImage: "exclamationmark.circle")
                     } description: {
                         Text("No compatible usage data is available.")

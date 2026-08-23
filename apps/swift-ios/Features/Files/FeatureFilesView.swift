@@ -35,13 +35,13 @@ private struct FeatureFileDirectoryView: View {
                 ProgressView("Loading files…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, entries.isEmpty {
-                ContentUnavailableView(
+                T3ContentUnavailableView(
                     "Files unavailable",
                     systemImage: "folder.badge.questionmark",
                     description: Text(errorMessage)
                 )
             } else if filteredEntries.isEmpty {
-                ContentUnavailableView(
+                T3ContentUnavailableView(
                     searchText.isEmpty ? "Empty folder" : "No matches",
                     systemImage: "folder",
                     description: Text(searchText.isEmpty ? "This folder has no visible files." : "Try another search.")
@@ -204,7 +204,7 @@ private struct FeatureFilePreviewView: View {
                     }
                 }
             } else {
-                ContentUnavailableView(
+                T3ContentUnavailableView(
                     previewKind == .image ? "Image unavailable" : "File unavailable",
                     systemImage: previewKind == .image ? "photo.badge.exclamationmark" : "doc.badge.ellipsis",
                     description: Text(errorMessage ?? "The file could not be read.")

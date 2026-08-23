@@ -9,7 +9,7 @@ public struct T3ConnectView: View {
     }
 
     @SwiftUI.Environment(\.dismiss) private var dismiss
-    @Bindable private var controller: T3ConnectController
+    @ObservedObject private var controller: T3ConnectController
     @State private var isAuthPresented = false
     @State private var didFinishInitialRefresh = false
     @State private var connectingEnvironmentID: String?
@@ -28,7 +28,7 @@ public struct T3ConnectView: View {
         onConnected: @escaping @MainActor () async -> Void = {},
         onUnlinked: @escaping @MainActor (String) async -> Void = { _ in }
     ) {
-        controller = capability.t3ConnectController
+        _controller = ObservedObject(wrappedValue: capability.t3ConnectController)
         connectEnvironment = capability.connectT3Environment
         signOut = if let model {
             model.signOutT3Connect
@@ -55,7 +55,7 @@ public struct T3ConnectView: View {
                 didFinishInitialRefresh = true
                 presentAuthenticationIfNeeded()
             }
-            .onChange(of: controller.account?.id) { _, accountID in
+            .t3OnChange(of: controller.account?.id) { _, accountID in
                 guard didFinishInitialRefresh,
                       !isSigningOut,
                       accountID == nil,
@@ -108,7 +108,7 @@ public struct T3ConnectView: View {
             content()
         }
         .listStyle(.plain)
-        .listSectionSpacing(28)
+        .t3ListSectionSpacing(28)
         .scrollContentBackground(.hidden)
         .background(T3Colors.background.ignoresSafeArea())
     }
@@ -160,8 +160,8 @@ public struct T3ConnectView: View {
                 }
                 return false
             }
-                .environment(\.clerkTheme, T3ConnectClerkAppearance.theme)
-                .environment(clerk)
+            .environment(\.clerkTheme, T3ConnectClerkAppearance.theme)
+            .environmentObject(clerk)
         } else {
             loadingView("Loading sign-in")
         }
@@ -393,7 +393,7 @@ public struct T3ConnectView: View {
 @MainActor
 private struct T3ConnectAuthenticationView: View {
     @SwiftUI.Environment(\.dismiss) private var dismiss
-    @SwiftUI.Environment(Clerk.self) private var clerk
+    @EnvironmentObject private var clerk: Clerk
     @State private var activeProvider: OAuthProvider?
     @State private var errorMessage: String?
     @State private var isEmailPresented = false
@@ -441,7 +441,7 @@ private struct T3ConnectAuthenticationView: View {
                 .padding(.bottom, 40)
                 .frame(maxWidth: .infinity)
             }
-            .scrollBounceBehavior(.basedOnSize)
+            .t3ScrollBounceBasedOnSize()
             .background(T3Colors.background.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -469,7 +469,7 @@ private struct T3ConnectAuthenticationView: View {
             AuthView(mode: .signInOrUp)
                 .prefetchClerkImages()
                 .environment(\.clerkTheme, T3ConnectClerkAppearance.theme)
-                .environment(clerk)
+                .environmentObject(clerk)
         }
         .alert(
             "Couldn’t sign in",
@@ -624,8 +624,10 @@ private struct T3ConnectAuthProviderIcon: View {
                 .foregroundStyle(T3Colors.textPrimary)
         case .github:
             Image("AuthGitHub")
+                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
+                .foregroundStyle(T3Colors.textPrimary)
         case .google:
             Image("AuthGoogle")
                 .resizable()

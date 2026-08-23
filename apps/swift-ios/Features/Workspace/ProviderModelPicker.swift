@@ -93,8 +93,8 @@ public struct ProviderModelPicker: View {
             )
         }
         .onAppear(perform: materializeSelection)
-        .onChange(of: providers) { materializeSelection() }
-        .onChange(of: selection) { materializeSelection() }
+        .t3OnChange(of: providers) { materializeSelection() }
+        .t3OnChange(of: selection) { materializeSelection() }
     }
 
     private var selectedOption: DailyUXModelOption? {
@@ -212,7 +212,7 @@ private struct ModelPickerSheet: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if availableModelCount == 0 {
-                    ContentUnavailableView(
+                    T3ContentUnavailableView(
                         emptyStateTitle,
                         systemImage: emptyStateSymbol,
                         description: Text(emptyStateMessage)
@@ -230,14 +230,18 @@ private struct ModelPickerSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .navigationDestination(item: $configuring) { option in
-                ModelConfigurationView(
-                    option: option,
-                    currentSelection: selection
-                ) { configuredSelection in
-                    selection = configuredSelection
-                    recordRecent(option.id)
-                    dismiss()
+            // `navigationDestination(item:)` needs iOS 17; the `isPresented:` form
+            // covers every supported OS with one code path.
+            .navigationDestination(isPresented: configuringPresented) {
+                if let option = configuring {
+                    ModelConfigurationView(
+                        option: option,
+                        currentSelection: selection
+                    ) { configuredSelection in
+                        selection = configuredSelection
+                        recordRecent(option.id)
+                        dismiss()
+                    }
                 }
             }
             .t3NavigationChrome()
@@ -245,8 +249,15 @@ private struct ModelPickerSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onAppear(perform: revealSelectedLegacyModel)
-        .onChange(of: selection) { revealSelectedLegacyModel() }
-        .onChange(of: providers) { revealSelectedLegacyModel() }
+        .t3OnChange(of: selection) { revealSelectedLegacyModel() }
+        .t3OnChange(of: providers) { revealSelectedLegacyModel() }
+    }
+
+    private var configuringPresented: Binding<Bool> {
+        Binding(
+            get: { configuring != nil },
+            set: { if !$0 { configuring = nil } }
+        )
     }
 
     private var modelList: some View {
@@ -334,7 +345,7 @@ private struct ModelPickerSheet: View {
             }
 
             if catalog.all.isEmpty {
-                ContentUnavailableView.search(text: query)
+                T3ContentUnavailableView.search(text: query)
                     .listRowBackground(Color.clear)
             }
         }

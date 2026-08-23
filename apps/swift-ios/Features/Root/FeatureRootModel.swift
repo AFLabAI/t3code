@@ -1,5 +1,5 @@
+import Combine
 import Foundation
-import Observation
 
 private struct FeatureConnectionUnavailableError: LocalizedError {
     var errorDescription: String? {
@@ -19,26 +19,25 @@ struct FeatureDetailRenderUpdate: Equatable {
 }
 
 @MainActor
-@Observable
-public final class FeatureRootModel {
+public final class FeatureRootModel: ObservableObject {
     private static let maximumRetainedThreadDetails = 6
 
-    public private(set) var snapshot = FeatureSnapshot()
-    public private(set) var details: [String: FeatureThreadDetail] = [:]
+    @Published public private(set) var snapshot = FeatureSnapshot()
+    @Published public private(set) var details: [String: FeatureThreadDetail] = [:]
     /// Advances whenever a Home presentation input changes.
-    public private(set) var homePresentationRevision: UInt64 = 0
+    @Published public private(set) var homePresentationRevision: UInt64 = 0
     /// Advances when a Home-visible thread is inserted, removed, or changed.
-    public private(set) var threadCollectionRevision: UInt64 = 0
+    @Published public private(set) var threadCollectionRevision: UInt64 = 0
     /// Advances for any selected-thread metadata, message, approval, or input change.
-    public private(set) var detailRevision: UInt64 = 0
+    @Published public private(set) var detailRevision: UInt64 = 0
     /// The latest detail revision for each loaded thread.
-    public private(set) var detailRevisions: [String: UInt64] = [:]
-    private(set) var detailRenderUpdates: [String: FeatureDetailRenderUpdate] = [:]
-    public private(set) var isLoading = true
-    public private(set) var isPerformingAction = false
-    public private(set) var isManagingConnections = false
-    private(set) var isSigningOutT3Connect = false
-    public var errorMessage: String?
+    @Published public private(set) var detailRevisions: [String: UInt64] = [:]
+    @Published private(set) var detailRenderUpdates: [String: FeatureDetailRenderUpdate] = [:]
+    @Published public private(set) var isLoading = true
+    @Published public private(set) var isPerformingAction = false
+    @Published public private(set) var isManagingConnections = false
+    @Published private(set) var isSigningOutT3Connect = false
+    @Published public var errorMessage: String?
 
     let client: any FeatureClient
     private let outboxStore: FeatureOutboxStore
