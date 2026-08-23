@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -973,6 +974,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             skills: [{ name: "project", path: "/workspace/SKILL.md", enabled: true }],
           } as const satisfies ServerProvider;
           const snapshotCalls = yield* Ref.make(0);
+          const probeStarted = yield* Deferred.make<void>();
+          const releaseProbe = yield* Deferred.make<void>();
           const makeInstance = (
             provider: ServerProvider,
             snapshotForCwd: NonNullable<ProviderInstance["snapshotForCwd"]>,
@@ -999,14 +1002,22 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             textGeneration: {} as ProviderInstance["textGeneration"],
           });
           const firstInstance = makeInstance(machineProvider, () =>
-            Ref.update(snapshotCalls, (count) => count + 1).pipe(Effect.as(scopedProvider)),
+            Effect.gen(function* () {
+              yield* Ref.update(snapshotCalls, (count) => count + 1);
+              yield* Deferred.succeed(probeStarted, undefined);
+              yield* Deferred.await(releaseProbe);
+              return scopedProvider;
+            }),
           );
           const rebuiltProvider = {
             ...machineProvider,
             checkedAt: "2026-06-10T00:02:00.000Z",
+            status: "warning",
+            installed: false,
+            auth: { status: "unknown" },
           } satisfies ServerProvider;
           const rebuiltInstance = makeInstance(rebuiltProvider, () =>
-            Effect.succeed(scopedProvider),
+            Ref.update(snapshotCalls, (count) => count + 1).pipe(Effect.as(scopedProvider)),
           );
           const registryChanges = yield* PubSub.unbounded<void>();
           const instancesRef = yield* Ref.make<ReadonlyArray<ProviderInstance>>([firstInstance]);
@@ -1046,7 +1057,18 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               Effect.forkChild,
             );
             yield* Effect.yieldNow;
-            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            const firstRefresh = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(probeStarted);
+            const duplicateRefresh = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(Effect.forkChild);
+            yield* Effect.yieldNow;
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 1);
+            yield* Deferred.succeed(releaseProbe, undefined);
+            yield* Fiber.join(firstRefresh);
+            yield* Fiber.join(duplicateRefresh);
             const published = yield* Fiber.join(workspaceUpdate);
             assert.strictEqual(published._tag, "Some");
             const providers = yield* registry.getProviders;
@@ -1071,6 +1093,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             }
             assert.strictEqual(rebuilt[0]?.checkedAt, rebuiltProvider.checkedAt);
             assert.strictEqual(rebuilt[0]?.workspaceSnapshots, undefined);
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 1);
           }).pipe(Effect.provide(runtimeServices));
         }),
       );

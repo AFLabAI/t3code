@@ -314,6 +314,9 @@ export const ProviderRegistryLive = Layer.effect(
       ),
     );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(cachedProviders);
+    const workspaceRefreshesRef = yield* Ref.make<
+      ReadonlyMap<ProviderInstance, ReadonlySet<string>>
+    >(new Map());
     const maintenanceActionStatesRef = yield* Ref.make<
       ReadonlyMap<ProviderInstanceId, { readonly update?: ServerProviderUpdateState | undefined }>
     >(new Map());
@@ -762,40 +765,70 @@ export const ProviderRegistryLive = Layer.effect(
       );
       if (
         machineSnapshot === undefined ||
+        !machineSnapshot.installed ||
         machineSnapshot.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
       ) {
         return providers;
       }
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
-      if (instance?.snapshotForCwd === undefined) {
+      if (instance === undefined || instance.snapshotForCwd === undefined) {
         return providers;
       }
-      const scopedSnapshot = yield* instance.snapshotForCwd(input.cwd);
-      if (scopedSnapshot.status === "error") {
+      const snapshotForCwd = instance.snapshotForCwd;
+      const claimed = yield* Ref.modify(workspaceRefreshesRef, (refreshes) => {
+        const instanceRefreshes = refreshes.get(instance);
+        if (instanceRefreshes?.has(input.cwd)) {
+          return [false, refreshes] as const;
+        }
+        const next = new Map(refreshes);
+        next.set(instance, new Set(instanceRefreshes).add(input.cwd));
+        return [true, next] as const;
+      });
+      if (!claimed) {
         return yield* Ref.get(providersRef);
       }
-      const source = buildSnapshotSource(instance);
-      const correlatedSnapshot = yield* correlateSnapshotWithSource(source, scopedSnapshot);
-      const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
-      if (currentInstance !== instance) {
-        return yield* Ref.get(providersRef);
-      }
-      const [previousProviders, nextProviders] = yield* Ref.modify(
-        providersRef,
-        (previousProviders) => {
-          const nextProviders = previousProviders.map((provider) =>
-            provider.instanceId === input.instanceId &&
-            !provider.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
-              ? upsertProviderWorkspaceSnapshot(provider, input.cwd, correlatedSnapshot)
-              : provider,
-          );
-          return [[previousProviders, nextProviders] as const, nextProviders];
-        },
+      return yield* Effect.gen(function* () {
+        const scopedSnapshot = yield* snapshotForCwd(input.cwd);
+        if (scopedSnapshot.status === "error") {
+          return yield* Ref.get(providersRef);
+        }
+        const source = buildSnapshotSource(instance);
+        const correlatedSnapshot = yield* correlateSnapshotWithSource(source, scopedSnapshot);
+        const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
+        if (currentInstance !== instance) {
+          return yield* Ref.get(providersRef);
+        }
+        const [previousProviders, nextProviders] = yield* Ref.modify(
+          providersRef,
+          (previousProviders) => {
+            const nextProviders = previousProviders.map((provider) =>
+              provider.instanceId === input.instanceId &&
+              !provider.workspaceSnapshots?.some((snapshot) => snapshot.cwd === input.cwd)
+                ? upsertProviderWorkspaceSnapshot(provider, input.cwd, correlatedSnapshot)
+                : provider,
+            );
+            return [[previousProviders, nextProviders] as const, nextProviders];
+          },
+        );
+        if (haveProvidersChanged(previousProviders, nextProviders)) {
+          yield* PubSub.publish(changesPubSub, nextProviders);
+        }
+        return nextProviders;
+      }).pipe(
+        Effect.ensuring(
+          Ref.update(workspaceRefreshesRef, (refreshes) => {
+            const next = new Map(refreshes);
+            const instanceRefreshes = new Set(next.get(instance));
+            instanceRefreshes.delete(input.cwd);
+            if (instanceRefreshes.size === 0) {
+              next.delete(instance);
+            } else {
+              next.set(instance, instanceRefreshes);
+            }
+            return next;
+          }),
+        ),
       );
-      if (haveProvidersChanged(previousProviders, nextProviders)) {
-        yield* PubSub.publish(changesPubSub, nextProviders);
-      }
-      return nextProviders;
     });
 
     return {
