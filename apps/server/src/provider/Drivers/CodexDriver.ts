@@ -41,6 +41,7 @@ import {
   makePendingCodexProvider,
   probeCodexSkillsForCwd,
 } from "../Layers/CodexProvider.ts";
+import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import type { ProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
@@ -207,11 +208,12 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
           probeCodexSkillsForCwd({
             binaryPath: effectiveConfig.binaryPath,
             homePath: effectiveConfig.homePath,
-            launchArgs: effectiveConfig.launchArgs,
+            launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv),
             cwd,
             environment: processEnv,
           }).pipe(
             Effect.scoped,
+            Effect.timeout("20 seconds"),
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
           ),
         ]).pipe(

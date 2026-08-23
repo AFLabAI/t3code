@@ -132,15 +132,13 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
       });
       const textGeneration = yield* makeCursorTextGeneration(effectiveConfig, processEnv);
 
-      const checkProviderForCwd = (cwd?: string) =>
-        checkCursorProviderStatus(effectiveConfig, processEnv, cwd).pipe(
-          Effect.map(stampIdentity),
-          Effect.provideService(Crypto.Crypto, crypto),
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.provideService(FileSystem.FileSystem, fileSystem),
-          Effect.provideService(Path.Path, path),
-        );
-      const checkProvider = checkProviderForCwd();
+      const checkProvider = checkCursorProviderStatus(effectiveConfig, processEnv).pipe(
+        Effect.map(stampIdentity),
+        Effect.provideService(Crypto.Crypto, crypto),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CursorSettings>>({
@@ -183,7 +181,6 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
         accentColor,
         enabled,
         snapshot,
-        snapshotForCwd: checkProviderForCwd,
         adapter,
         textGeneration,
       } satisfies ProviderInstance;

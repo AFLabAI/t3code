@@ -179,6 +179,32 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
             }),
         ),
       );
+      const loadSkillsForCwd = (cwd: string) =>
+        effectiveConfig.serverUrl.trim().length > 0
+          ? Effect.scoped(
+              Effect.gen(function* () {
+                const server = yield* openCodeRuntime.connectToOpenCodeServer({
+                  binaryPath: effectiveConfig.binaryPath,
+                  serverUrl: effectiveConfig.serverUrl,
+                  environment: processEnv,
+                });
+                const inventory = yield* openCodeRuntime.loadOpenCodeInventory(
+                  openCodeRuntime.createOpenCodeSdkClient({
+                    baseUrl: server.url,
+                    directory: cwd,
+                    ...(effectiveConfig.serverPassword
+                      ? { serverPassword: effectiveConfig.serverPassword }
+                      : {}),
+                  }),
+                );
+                return inventory.skills;
+              }),
+            )
+          : openCodeRuntime.loadSkillsFromCli({
+              binaryPath: effectiveConfig.binaryPath,
+              cwd,
+              environment: processEnv,
+            });
 
       return {
         instanceId,
@@ -191,11 +217,7 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         snapshotForCwd: (cwd) =>
           Effect.all([
             snapshot.getSnapshot,
-            openCodeRuntime.loadSkillsFromCli({
-              binaryPath: effectiveConfig.binaryPath,
-              cwd,
-              environment: processEnv,
-            }),
+            loadSkillsForCwd(cwd).pipe(Effect.timeout("20 seconds")),
           ]).pipe(
             Effect.map(([machineSnapshot, skills]) => ({
               ...machineSnapshot,

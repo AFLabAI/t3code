@@ -403,7 +403,6 @@ function buildCursorDiscoveredModelsFromAvailableModelsResponse(
 const makeCursorAcpProbeRuntime = (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
-  cwd: string = process.cwd(),
 ) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -415,10 +414,10 @@ const makeCursorAcpProbeRuntime = (
             ...(cursorSettings.apiEndpoint ? (["-e", cursorSettings.apiEndpoint] as const) : []),
             "acp",
           ],
-          cwd,
+          cwd: process.cwd(),
           ...(environment ? { env: environment } : {}),
         },
-        cwd,
+        cwd: process.cwd(),
         clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
         authMethodId: "cursor_login",
         clientCapabilities: CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
@@ -433,9 +432,8 @@ const withCursorAcpProbeRuntime = <A, E, R>(
   cursorSettings: CursorSettings,
   useRuntime: (acp: AcpSessionRuntime.AcpSessionRuntime["Service"]) => Effect.Effect<A, E, R>,
   environment?: NodeJS.ProcessEnv,
-  cwd?: string,
 ) =>
-  makeCursorAcpProbeRuntime(cursorSettings, environment, cwd).pipe(
+  makeCursorAcpProbeRuntime(cursorSettings, environment).pipe(
     Effect.flatMap(useRuntime),
     Effect.scoped,
   );
@@ -555,7 +553,6 @@ export function resolveCursorAcpConfigUpdates(
 const discoverCursorModelsViaListAvailableModels = (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
-  cwd?: string,
 ) =>
   withCursorAcpProbeRuntime(
     cursorSettings,
@@ -567,14 +564,12 @@ const discoverCursorModelsViaListAvailableModels = (
         return buildCursorDiscoveredModelsFromAvailableModelsResponse(decoded);
       }),
     environment,
-    cwd,
   );
 
 export const discoverCursorModelsViaAcp = (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
-  cwd?: string,
-) => discoverCursorModelsViaListAvailableModels(cursorSettings, environment, cwd);
+) => discoverCursorModelsViaListAvailableModels(cursorSettings, environment);
 
 export function getCursorFallbackModels(
   cursorSettings: Pick<CursorSettings, "customModels">,
@@ -992,7 +987,6 @@ const runCursorAboutCommand = (cursorSettings: CursorSettings, environment?: Nod
 export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(function* (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
-  cwd: string = process.cwd(),
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
@@ -1090,7 +1084,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
   let discoveryWarning: string | undefined;
   if (parsed.auth.status !== "unauthenticated") {
     const discoveryExit = yield* Effect.exit(
-      discoverCursorModelsViaAcp(cursorSettings, environment, cwd).pipe(
+      discoverCursorModelsViaAcp(cursorSettings, environment).pipe(
         Effect.timeoutOption(CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT_MS),
       ),
     );
