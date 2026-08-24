@@ -687,6 +687,15 @@ enum MarkdownCodeBlockWrapping {
     }
 }
 
+enum MarkdownLinkInteractionPolicy {
+    static func shouldOpenURL(for interaction: UITextItemInteraction) -> Bool {
+        if #available(iOS 17.0, *) {
+            return false
+        }
+        return interaction == .invokeDefaultAction
+    }
+}
+
 private struct MarkdownInlineText: UIViewRepresentable {
     @SwiftUI.Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @SwiftUI.Environment(\.openURL) private var openURL
@@ -961,6 +970,9 @@ private struct MarkdownInlineText: UIViewRepresentable {
             in characterRange: NSRange,
             interaction: UITextItemInteraction
         ) -> Bool {
+            guard MarkdownLinkInteractionPolicy.shouldOpenURL(for: interaction) else {
+                return true
+            }
             onOpenURL?(url)
             return false
         }
