@@ -9,6 +9,7 @@ struct HomeThreadCollectionView: UIViewRepresentable {
     let query: String
     let selectedThreadID: String?
     let forceRichRows: Bool
+    let hapticsEnabled: Bool
     let isSnoozedExpanded: Bool
     let isSettledExpanded: Bool
     let isArchiveExpanded: Bool
@@ -21,7 +22,7 @@ struct HomeThreadCollectionView: UIViewRepresentable {
     let onRename: (FeatureThread) -> Void
     let onRegenerateTitle: (FeatureThread) -> Void
     let onArchive: (FeatureThread, Bool) -> Void
-    let onSettle: (FeatureThread, Bool) -> Void
+    let onSettle: (FeatureThread, Bool, @escaping (Bool) -> Void) -> Void
     let onSnooze: (FeatureThread, Date?) -> Void
     let onPin: (FeatureThread, Bool) -> Void
     let onDelete: (FeatureThread) -> Void
@@ -60,6 +61,7 @@ struct HomeThreadCollectionView: UIViewRepresentable {
 
     static func dismantleUIView(_ collectionView: UICollectionView, coordinator: Coordinator) {
         coordinator.invalidateTimer()
+        coordinator.cancelPendingSwipeActions()
         collectionView.delegate = nil
     }
 
@@ -69,15 +71,23 @@ struct HomeThreadCollectionView: UIViewRepresentable {
             case main
         }
 
+        private struct PendingSwipeCompletion {
+            let id: UUID
+            let settled: Bool
+            let finish: (Bool) -> Void
+        }
+
         private var parent: HomeThreadCollectionView
         private var dataSource: UICollectionViewDiffableDataSource<Section, HomeCollectionItem.ID>?
         private var registration: UICollectionView.CellRegistration<HomeCollectionCell, HomeCollectionItem.ID>?
         private var itemsByID: [HomeCollectionItem.ID: HomeCollectionItem] = [:]
+        private var pullRequestsByThreadID: [String: HomeThreadPullRequestPresentation] = [:]
         private var selectedThreadID: String?
         private weak var collectionView: UICollectionView?
         private var timer: Timer?
         private var timerTick = 0
         private var timerInterval: TimeInterval = 0
+        private var pendingSwipeCompletions: [String: PendingSwipeCompletion] = [:]
 
         init(parent: HomeThreadCollectionView) {
             self.parent = parent
@@ -118,6 +128,9 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                 seenIdentifiers.insert(item.id).inserted
             }
             itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+            pullRequestsByThreadID = pullRequestsByThreadID.filter {
+                itemsByID[.thread($0.key)] != nil
+            }
             // After items land: picks 1 Hz when a working thread is present,
             // 60s otherwise, and is a no-op when the interval is unchanged.
             startTimer()
@@ -125,6 +138,19 @@ struct HomeThreadCollectionView: UIViewRepresentable {
             guard let dataSource else { return }
             let currentIdentifiers = dataSource.snapshot().itemIdentifiers
             let newIdentifiers = items.map(\.id)
+            let resolvedSwipeIDs = pendingSwipeCompletions.keys.filter { threadID in
+                guard let pending = pendingSwipeCompletions[threadID] else { return false }
+                guard case let .thread(thread, _, _, _, _) = itemsByID[.thread(threadID)] else {
+                    return true
+                }
+                return thread.isSettled == pending.settled
+            }
+            let resolvedSwipeCompletions = resolvedSwipeIDs.compactMap {
+                pendingSwipeCompletions.removeValue(forKey: $0)
+            }
+            let finishSwipes = {
+                resolvedSwipeCompletions.forEach { $0.finish(true) }
+            }
 
             if currentIdentifiers == newIdentifiers {
                 let changed = newIdentifiers.filter { previousItems[$0] != itemsByID[$0] }
@@ -135,13 +161,26 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                 if !identifiers.isEmpty {
                     var snapshot = dataSource.snapshot()
                     snapshot.reconfigureItems(identifiers)
-                    dataSource.apply(snapshot, animatingDifferences: false)
+                    dataSource.apply(
+                        snapshot,
+                        animatingDifferences: false,
+                        completion: finishSwipes
+                    )
+                } else {
+                    finishSwipes()
                 }
             } else {
                 var snapshot = NSDiffableDataSourceSnapshot<Section, HomeCollectionItem.ID>()
                 snapshot.appendSections([.main])
                 snapshot.appendItems(newIdentifiers, toSection: .main)
-                dataSource.apply(snapshot, animatingDifferences: false)
+                let shouldAnimate = !resolvedSwipeCompletions.isEmpty
+                    && !currentIdentifiers.isEmpty
+                    && collectionView.window != nil
+                dataSource.apply(
+                    snapshot,
+                    animatingDifferences: shouldAnimate,
+                    completion: finishSwipes
+                )
             }
 
             synchronizeSelection(in: collectionView)
@@ -150,6 +189,11 @@ struct HomeThreadCollectionView: UIViewRepresentable {
         func invalidateTimer() {
             timer?.invalidate()
             timer = nil
+        }
+
+        func cancelPendingSwipeActions() {
+            pendingSwipeCompletions.values.forEach { $0.finish(false) }
+            pendingSwipeCompletions.removeAll()
         }
 
         func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -215,14 +259,45 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                 style: action.style,
                 title: action.title
             ) { [weak self] _, _, finish in
-                self?.perform(action.intent, for: thread)
-                finish(true)
+                guard let self else {
+                    finish(false)
+                    return
+                }
+                self.performSwipe(action, for: thread, finish: finish)
             }
             contextualAction.image = UIImage(systemName: action.systemImage)
             if let backgroundColor = action.backgroundColor {
                 contextualAction.backgroundColor = backgroundColor
             }
             return contextualAction
+        }
+
+        func performSwipe(
+            _ action: HomeThreadSwipeAction,
+            for thread: FeatureThread,
+            finish: @escaping (Bool) -> Void
+        ) {
+            if case let .setSettled(settled) = action.intent {
+                pendingSwipeCompletions.removeValue(forKey: thread.id)?.finish(false)
+                let completionID = UUID()
+                pendingSwipeCompletions[thread.id] = PendingSwipeCompletion(
+                    id: completionID,
+                    settled: settled,
+                    finish: finish
+                )
+                PlatformHapticEngine.shared.selection(enabled: parent.hapticsEnabled)
+                parent.onSettle(thread, settled) { [weak self] succeeded in
+                    guard !succeeded,
+                          let self,
+                          self.pendingSwipeCompletions[thread.id]?.id == completionID else {
+                        return
+                    }
+                    self.pendingSwipeCompletions.removeValue(forKey: thread.id)?.finish(false)
+                }
+            } else {
+                perform(action.intent, for: thread)
+                finish(true)
+            }
         }
 
         /// Swipe actions reuse the same closures the context menu does, so a
@@ -236,7 +311,7 @@ struct HomeThreadCollectionView: UIViewRepresentable {
             case let .setPinned(pinned):
                 parent.onPin(thread, pinned)
             case let .setSettled(settled):
-                parent.onSettle(thread, settled)
+                parent.onSettle(thread, settled) { _ in }
             }
         }
 
@@ -251,7 +326,19 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                     item: item,
                     projectFaviconClient: parent.projectFaviconClient,
                     isSelected: identifier.threadID == selectedThreadID,
-                    now: now
+                    now: now,
+                    onPullRequestChange: { [weak self, weak cell] pullRequest in
+                        guard let self,
+                              let cell,
+                              let threadID = identifier.threadID else {
+                            return
+                        }
+                        self.updatePullRequestAccessibility(
+                            pullRequest,
+                            threadID: threadID,
+                            cell: cell
+                        )
+                    }
                 )
             }
             .margins(.all, 0)
@@ -259,6 +346,8 @@ struct HomeThreadCollectionView: UIViewRepresentable {
             cell.backgroundConfiguration = UIBackgroundConfiguration.clear()
             cell.accessories = []
             cell.tintColor = T3Colors.uiTextPrimary
+            cell.clipsToBounds = true
+            cell.contentView.clipsToBounds = true
             cell.contentView.accessibilityElementsHidden = true
             configureAccessibility(cell, item: item)
         }
@@ -335,6 +424,9 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                 status += " for \(duration)"
             }
             var values = [status, "Project \(context.projectName)"]
+            if let pullRequest = pullRequestsByThreadID[thread.id] {
+                values.append(pullRequest.accessibilityLabel)
+            }
             if thread.pinnedAt != nil {
                 values.append("Pinned")
             }
@@ -350,6 +442,24 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                 values.append("on \(environment)")
             }
             return values.joined(separator: ". ")
+        }
+
+        private func updatePullRequestAccessibility(
+            _ pullRequest: HomeThreadPullRequestPresentation?,
+            threadID: String,
+            cell: HomeCollectionCell
+        ) {
+            guard case let .thread(thread, context, _, _, _) = itemsByID[.thread(threadID)],
+                  let indexPath = dataSource?.indexPath(for: .thread(threadID)),
+                  collectionView?.cellForItem(at: indexPath) === cell else {
+                return
+            }
+            if let pullRequest {
+                pullRequestsByThreadID[threadID] = pullRequest
+            } else {
+                pullRequestsByThreadID.removeValue(forKey: threadID)
+            }
+            cell.accessibilityValue = threadAccessibilityValue(thread, context: context)
         }
 
         private func threadAccessibilityActions(
@@ -383,7 +493,7 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                         isSettled ? "Reopen" : "Settle",
                         systemImage: isSettled ? "arrow.counterclockwise" : "checkmark"
                     ) { coordinator in
-                        coordinator.parent.onSettle(thread, !isSettled)
+                        coordinator.parent.onSettle(thread, !isSettled) { _ in }
                     })
                 }
 
@@ -506,7 +616,7 @@ struct HomeThreadCollectionView: UIViewRepresentable {
                                 systemName: isSettled ? "arrow.counterclockwise" : "checkmark"
                             )
                         ) { [weak self] _ in
-                            self?.parent.onSettle(thread, !isSettled)
+                            self?.parent.onSettle(thread, !isSettled) { _ in }
                         }
                     )
                 }
@@ -882,6 +992,7 @@ private struct HomeCollectionCellContent: View {
     let projectFaviconClient: any FeatureClient
     let isSelected: Bool
     let now: Date
+    let onPullRequestChange: (HomeThreadPullRequestPresentation?) -> Void
 
     @ViewBuilder
     var body: some View {
@@ -891,6 +1002,7 @@ private struct HomeCollectionCellContent: View {
                 thread: thread,
                 context: context,
                 projectFaviconClient: projectFaviconClient,
+                onPullRequestChange: onPullRequestChange,
                 isSelected: isSelected,
                 style: style,
                 now: now,

@@ -22,6 +22,21 @@ struct FeatureDetailRenderUpdate: Equatable {
 public final class FeatureRootModel: ObservableObject {
     private static let maximumRetainedThreadDetails = 6
 
+    private struct PendingSettlementMutation {
+        let id: UUID
+        let settled: Bool
+        let settledAt: Date?
+
+        func apply(to thread: inout FeatureThread) {
+            thread.isSettled = settled
+            thread.keepsActive = !settled
+            thread.settledAt = settledAt
+            if settled {
+                thread.pinnedAt = nil
+            }
+        }
+    }
+
     @Published public private(set) var snapshot = FeatureSnapshot()
     @Published public private(set) var details: [String: FeatureThreadDetail] = [:]
     /// Advances whenever a Home presentation input changes.
@@ -44,6 +59,7 @@ public final class FeatureRootModel: ObservableObject {
     private let draftStore: FeatureComposerDraftStore
     private var pendingSubmissionsByID: [String: FeatureQueuedSubmission] = [:]
     private var pendingThreadsByID: [String: FeatureThread] = [:]
+    private var pendingSettlementMutations: [String: PendingSettlementMutation] = [:]
     private var pendingCompletionSubmissionIDs: Set<String> = []
     private var pendingDiscardSubmissionIDs: Set<String> = []
     private var detailRecency: [String] = []
@@ -409,27 +425,42 @@ public final class FeatureRootModel: ObservableObject {
         }
     }
 
-    public func setSettled(_ id: String, settled: Bool) async {
-        if settled,
-           let thread = snapshot.threads.first(where: { $0.id == id }),
-           !thread.canSettleNow {
+    @discardableResult
+    public func setSettled(_ id: String, settled: Bool) async -> Bool {
+        guard let previous = snapshot.threads.first(where: { $0.id == id }) else {
+            return false
+        }
+        if settled, !previous.canSettleNow {
             errorMessage = "This thread still needs attention. Resolve or stop it first."
-            return
+            return false
         }
+
         let environment = currentEnvironmentIdentity
-        await perform {
+        let mutation = PendingSettlementMutation(
+            id: UUID(),
+            settled: settled,
+            settledAt: settled ? Date.now : nil
+        )
+        pendingSettlementMutations[id] = mutation
+        mutateThread(id: id) { mutation.apply(to: &$0) }
+
+        let succeeded = await perform {
             try await client.setThreadSettled(id: id, settled: settled)
-            guard currentEnvironmentIdentity == environment else { return }
-            let settledAt = settled ? Date.now : nil
-            mutateThread(id: id) {
-                $0.isSettled = settled
-                $0.keepsActive = !settled
-                $0.settledAt = settledAt
-                if settled {
-                    $0.pinnedAt = nil
-                }
-            }
         }
+
+        guard pendingSettlementMutations[id]?.id == mutation.id else { return false }
+        pendingSettlementMutations.removeValue(forKey: id)
+        guard !succeeded else { return true }
+        guard currentEnvironmentIdentity == environment else { return false }
+
+        mutateThread(id: id) {
+            guard $0.isSettled == settled, $0.settledAt == mutation.settledAt else { return }
+            $0.isSettled = previous.isSettled
+            $0.keepsActive = previous.keepsActive
+            $0.settledAt = previous.settledAt
+            $0.pinnedAt = previous.pinnedAt
+        }
+        return false
     }
 
     public func setSnoozed(_ id: String, until: Date?) async {
@@ -813,6 +844,7 @@ public final class FeatureRootModel: ObservableObject {
     }
 
     private func upsert(_ thread: FeatureThread) {
+        let thread = retainingPendingSettlement(in: thread)
         var metadataChanged = false
         if let index = snapshot.threads.firstIndex(where: { $0.id == thread.id }) {
             let previous = snapshot.threads[index]
@@ -861,6 +893,9 @@ public final class FeatureRootModel: ObservableObject {
 
     private func install(_ value: FeatureSnapshot) {
         var value = value
+        for index in value.threads.indices {
+            value.threads[index] = retainingPendingSettlement(in: value.threads[index])
+        }
         let authoritativeThreadIDs = Set(value.threads.map(\.id))
         for id in authoritativeThreadIDs {
             pendingThreadsByID.removeValue(forKey: id)
@@ -941,7 +976,8 @@ public final class FeatureRootModel: ObservableObject {
         _ incoming: FeatureThreadDetail,
         invalidatesInFlightLoad: Bool = true
     ) {
-        let incoming = retainingLocalAttachmentPreviews(in: incoming)
+        var incoming = retainingLocalAttachmentPreviews(in: incoming)
+        incoming.thread = retainingPendingSettlement(in: incoming.thread)
         let id = incoming.thread.id
         acknowledgeDeliveredMessages(incoming.messages)
         let prepared = addingPendingMessages(to: incoming)
@@ -966,7 +1002,8 @@ public final class FeatureRootModel: ObservableObject {
     }
 
     private func store(_ incoming: FeatureThreadDetail, delta: FeatureDetailDelta) {
-        let incoming = retainingLocalAttachmentPreviews(in: incoming)
+        var incoming = retainingLocalAttachmentPreviews(in: incoming)
+        incoming.thread = retainingPendingSettlement(in: incoming.thread)
         let id = incoming.thread.id
         acknowledgeDeliveredMessages(incoming.messages)
         let next = addingPendingMessages(to: incoming)
@@ -979,6 +1016,13 @@ public final class FeatureRootModel: ObservableObject {
             appendedMessageIDs: delta.appendedMessageIDs + appended
         )
         bumpDetailRevision(id: id, change: .delta(pendingDelta))
+    }
+
+    private func retainingPendingSettlement(in thread: FeatureThread) -> FeatureThread {
+        guard let mutation = pendingSettlementMutations[thread.id] else { return thread }
+        var thread = thread
+        mutation.apply(to: &thread)
+        return thread
     }
 
     @discardableResult
