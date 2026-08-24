@@ -79,25 +79,44 @@ describe("session cookie isolation", () => {
     expect(first).not.toBe(second);
   });
 
-  it("keeps the hosted web cookie stable across server instances", () => {
-    expect(
-      resolveSessionCookieName({
-        mode: "web",
-        port: 8080,
-        host: "0.0.0.0",
-        instanceKey: "/srv/release-a",
-        development: false,
-      }),
-    ).toBe("t3_session");
-    expect(
-      resolveSessionCookieName({
-        mode: "web",
-        port: 9090,
-        host: "app.example.com",
-        instanceKey: "/srv/release-b",
-        development: false,
-      }),
-    ).toBe("t3_session");
+  it("isolates remote web servers by server state", () => {
+    const first = resolveSessionCookieName({
+      mode: "web",
+      port: 3773,
+      host: "192.168.1.50",
+      instanceKey: "/srv/t3-one",
+      development: false,
+    });
+    const second = resolveSessionCookieName({
+      mode: "web",
+      port: 5775,
+      host: "192.168.1.50",
+      instanceKey: "/srv/t3-two",
+      development: false,
+    });
+
+    expect(first).toMatch(/^t3_session_[a-f0-9]{12}$/);
+    expect(second).toMatch(/^t3_session_[a-f0-9]{12}$/);
+    expect(first).not.toBe(second);
+  });
+
+  it("keeps a remote web server cookie stable across port changes", () => {
+    const first = resolveSessionCookieName({
+      mode: "web",
+      port: 8080,
+      host: "0.0.0.0",
+      instanceKey: "/srv/t3",
+      development: false,
+    });
+    const second = resolveSessionCookieName({
+      mode: "web",
+      port: 9090,
+      host: "app.example.com",
+      instanceKey: "/srv/t3",
+      development: false,
+    });
+
+    expect(first).toBe(second);
   });
 
   it("retains desktop port scoping", () => {

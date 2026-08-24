@@ -16,14 +16,11 @@ const SESSION_COOKIE_NAME = "t3_session";
  * clobbers the first's session and both sides see "Invalid session token
  * signature" until someone clears cookies by hand.
  *
- * Two populations qualify, for the same reason but from different causes:
+ * Web servers use a state-specific name. Remote servers omit the port so the
+ * name stays stable when their public port changes.
  *
- * - **Dev servers** (`devUrl` set), which run several at a time across worktrees.
- * - **Desktop**, which scans upward from 3773 for a free port and binds
+ * Desktop scans upward from 3773 for a free port and binds
  *   127.0.0.1, so a second instance lands on a different port and the same host.
- *
- * Hosted deployments keep the stable production name: their public port can
- * change between releases, and scoping it would log every user out.
  */
 export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
@@ -36,17 +33,18 @@ export function resolveSessionCookieName(input: {
     return `${SESSION_COOKIE_NAME}_${input.port}`;
   }
 
+  const instanceHash = NodeCrypto.createHash("sha256")
+    .update(input.instanceKey)
+    .digest("hex")
+    .slice(0, 12);
+
   if (!input.development && isRemoteReachableHost(input.host)) {
-    return SESSION_COOKIE_NAME;
+    return `${SESSION_COOKIE_NAME}_${instanceHash}`;
   }
 
   // Cookies are scoped by host, not port. Loopback development servers need an
   // instance-specific name or parallel agents overwrite each other's session,
   // and a server that later reuses the port receives a token signed elsewhere.
-  const instanceHash = NodeCrypto.createHash("sha256")
-    .update(input.instanceKey)
-    .digest("hex")
-    .slice(0, 12);
   return `${SESSION_COOKIE_NAME}_${input.port}_${instanceHash}`;
 }
 
