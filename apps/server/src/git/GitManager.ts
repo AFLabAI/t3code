@@ -538,6 +538,7 @@ function toStatusPr(pr: PullRequestInfo): {
   baseRef: string;
   headRef: string;
   state: "open" | "closed" | "merged";
+  updatedAt: string | null;
 } {
   return {
     number: pr.number,
@@ -546,6 +547,10 @@ function toStatusPr(pr: PullRequestInfo): {
     baseRef: pr.baseRefName,
     headRef: pr.headRefName,
     state: pr.state,
+    updatedAt: Option.match(pr.updatedAt, {
+      onNone: () => null,
+      onSome: (updatedAt) => DateTime.formatIso(updatedAt),
+    }),
   };
 }
 
@@ -1482,6 +1487,18 @@ export const make = Effect.gen(function* () {
     );
     if (defaultFromProvider) {
       return defaultFromProvider;
+    }
+
+    // The provider lookup can fail for reasons unrelated to the branch, so fall
+    // back to what the remote itself records before assuming a name. A repository
+    // whose default branch is master would otherwise get a base branch that does
+    // not exist.
+    const defaultFromRemote = yield* gitCore.resolvePrimaryRemoteName(cwd).pipe(
+      Effect.flatMap((remoteName) => gitCore.resolveDefaultBranchName(cwd, remoteName)),
+      Effect.orElseSucceed(() => null),
+    );
+    if (defaultFromRemote) {
+      return defaultFromRemote;
     }
 
     return "main";
