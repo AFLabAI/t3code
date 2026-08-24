@@ -21,7 +21,7 @@ struct FeaturePullRequestRow: Identifiable, Equatable {
 }
 
 @MainActor
-private final class PullRequestsModel: ObservableObject {
+final class PullRequestsModel: ObservableObject {
     @Published var rows: [FeaturePullRequestRow] = []
     private var allRows: [FeaturePullRequestRow] = []
     @Published var environments: [FeaturePullRequestEnvironmentList] = []
