@@ -35,12 +35,17 @@ interface PreparedMobileTurnAttachments {
   readonly release: () => Promise<void>;
 }
 
-const preparedAttachmentsByCommand = new Map<
-  string,
-  {
-    readonly sourceAttachments: ReadonlyArray<TurnAttachment>;
-    readonly prepared: PreparedMobileTurnAttachments;
-  }
+interface CachedMobileTurnAttachments {
+  readonly sourceAttachments: ReadonlyArray<TurnAttachment>;
+  readonly prepared: PreparedMobileTurnAttachments;
+  readonly previous?: CachedMobileTurnAttachments;
+  preparation: Promise<PreparedMobileTurnAttachments> | null;
+  released: boolean;
+}
+
+const preparedAttachmentsByEnvironment = new Map<
+  EnvironmentId,
+  Map<string, CachedMobileTurnAttachments>
 >();
 
 /** Releases uploads retained for one queued turn or for every turn in an environment. */
@@ -48,16 +53,19 @@ export async function releaseMobileTurnAttachments(input: {
   readonly environmentId: EnvironmentId;
   readonly commandId?: string;
 }): Promise<void> {
-  const keyPrefix = `${input.environmentId}:`;
-  const matching =
-    input.commandId === undefined
-      ? [...preparedAttachmentsByCommand.entries()]
-          .filter(([key]) => key.startsWith(keyPrefix))
-          .map(([, entry]) => entry.prepared)
-      : [preparedAttachmentsByCommand.get(`${keyPrefix}${input.commandId}`)?.prepared].filter(
-          (prepared): prepared is PreparedMobileTurnAttachments => prepared !== undefined,
-        );
-  await Promise.allSettled(matching.map((prepared) => prepared.release()));
+  const commands = preparedAttachmentsByEnvironment.get(input.environmentId);
+  if (!commands) {
+    return;
+  }
+  const matching = new Set<CachedMobileTurnAttachments>();
+  const current =
+    input.commandId === undefined ? commands.values() : [commands.get(input.commandId)];
+  for (const entry of current) {
+    for (let candidate = entry; candidate; candidate = candidate.previous) {
+      matching.add(candidate);
+    }
+  }
+  await Promise.allSettled([...matching].map((entry) => entry.prepared.release()));
 }
 
 function sameAttachments(
@@ -109,127 +117,175 @@ export async function prepareMobileTurnAttachments(
     });
   }
 
-  const commandKey =
-    input.commandId === undefined ? null : `${input.environmentId}:${input.commandId}`;
-  const existing = commandKey === null ? undefined : preparedAttachmentsByCommand.get(commandKey);
+  const environmentCommands = preparedAttachmentsByEnvironment.get(input.environmentId);
+  const existing =
+    input.commandId === undefined ? undefined : environmentCommands?.get(input.commandId);
   if (existing) {
     if (sameAttachments(existing.sourceAttachments, input.attachments)) {
-      return existing.prepared;
+      return existing.preparation ?? existing.prepared;
     }
-    await existing.prepared.release();
   }
 
-  const { File: ExpoFile, Paths } = await import("expo-file-system");
   const pendingAttachmentIds = new Set<string>();
+  const controller = new AbortController();
+  let releasePromise: Promise<void> | null = null;
+  let entry: CachedMobileTurnAttachments;
   const release = async (): Promise<void> => {
-    if (commandKey !== null) {
-      preparedAttachmentsByCommand.delete(commandKey);
+    if (releasePromise !== null) {
+      return releasePromise;
+    }
+    entry.released = true;
+    controller.abort();
+    if (input.commandId !== undefined) {
+      const commands = preparedAttachmentsByEnvironment.get(input.environmentId);
+      if (commands?.get(input.commandId) === entry) {
+        if (entry.previous && !entry.previous.released) {
+          commands.set(input.commandId, entry.previous);
+        } else {
+          commands.delete(input.commandId);
+        }
+        if (commands.size === 0) {
+          preparedAttachmentsByEnvironment.delete(input.environmentId);
+        }
+      }
     }
     const attachmentIds = [...pendingAttachmentIds];
     pendingAttachmentIds.clear();
-    await Promise.allSettled(attachmentIds.map((attachmentId) => input.deleteUpload(attachmentId)));
+    releasePromise = Promise.allSettled(
+      attachmentIds.map((attachmentId) => input.deleteUpload(attachmentId)),
+    ).then(() => undefined);
+    return releasePromise;
   };
   const uploadedAttachments: TurnAttachment[] = [];
+  const prepared = { attachments: uploadedAttachments, release };
+  entry = {
+    sourceAttachments: input.attachments,
+    prepared,
+    ...(existing ? { previous: existing } : {}),
+    preparation: null,
+    released: false,
+  };
+  if (input.commandId !== undefined) {
+    const commands = environmentCommands ?? new Map<string, CachedMobileTurnAttachments>();
+    preparedAttachmentsByEnvironment.set(input.environmentId, commands);
+    commands.set(input.commandId, entry);
+  }
 
-  for (const attachment of input.attachments) {
-    if (!("dataUrl" in attachment)) {
-      uploadedAttachments.push(attachment);
-      continue;
-    }
-
-    let temporaryFile: File | null = null;
-    try {
-      if (input.httpBaseUrl === null) {
-        throw new ConnectionTransientError({
-          reason: "endpoint-unavailable",
-          detail: `Could not upload '${attachment.name}': environment is not connected.`,
-        });
-      }
-      const mimeType = PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.find(
-        (supportedMimeType) => supportedMimeType === attachment.mimeType.toLowerCase(),
-      );
-      if (!mimeType) {
-        throw new ConnectionBlockedError({
-          reason: "unsupported",
-          detail: `Could not upload '${attachment.name}': image type is not supported.`,
-        });
-      }
-      const separatorIndex = attachment.dataUrl.indexOf(",");
-      const base64 = attachment.dataUrl.slice(separatorIndex + 1);
-      const sizeBytes = estimateBase64ByteSize(base64);
-      if (
-        separatorIndex < 0 ||
-        !attachment.dataUrl.slice(0, separatorIndex).endsWith(";base64") ||
-        sizeBytes <= 0 ||
-        sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
-      ) {
-        throw new ConnectionBlockedError({
-          reason: "configuration",
-          detail: `Could not upload '${attachment.name}': image data is invalid.`,
-        });
+  const runPreparation = async (): Promise<PreparedMobileTurnAttachments> => {
+    const { File: ExpoFile, Paths } = await import("expo-file-system");
+    for (const attachment of input.attachments) {
+      if (!("dataUrl" in attachment)) {
+        uploadedAttachments.push(attachment);
+        continue;
       }
 
-      const upload = await input.createUploadUrl({
-        name: attachment.name,
-        mimeType,
-        sizeBytes,
-      });
-      pendingAttachmentIds.add(upload.attachmentId);
-
-      const url = resolveAssetUrl(input.httpBaseUrl, upload.relativeUrl);
-      if (url === null) {
-        throw new ConnectionBlockedError({
-          reason: "configuration",
-          detail: `Could not upload '${attachment.name}': upload URL is invalid.`,
-        });
-      }
-      temporaryFile = new ExpoFile(Paths.cache, `t3-attachment-${upload.attachmentId}`);
-      temporaryFile.write(base64, { encoding: "base64" });
-
-      const result = await temporaryFile.upload(url, {
-        httpMethod: "POST",
-        headers: { "Content-Type": mimeType },
-      });
-      if (result.status < 200 || result.status >= 300) {
-        const detail = `Could not upload '${attachment.name}': upload rejected (${result.status}).`;
-        if (result.status >= 400 && result.status < 500 && ![408, 429].includes(result.status)) {
-          throw new ConnectionBlockedError({
-            reason: result.status === 401 || result.status === 403 ? "permission" : "configuration",
-            detail,
+      let temporaryFile: File | null = null;
+      try {
+        if (input.httpBaseUrl === null) {
+          throw new ConnectionTransientError({
+            reason: "endpoint-unavailable",
+            detail: `Could not upload '${attachment.name}': environment is not connected.`,
           });
         }
-        throw new ConnectionTransientError({ reason: "network", detail });
-      }
+        const mimeType = PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.find(
+          (supportedMimeType) => supportedMimeType === attachment.mimeType.toLowerCase(),
+        );
+        if (!mimeType) {
+          throw new ConnectionBlockedError({
+            reason: "unsupported",
+            detail: `Could not upload '${attachment.name}': image type is not supported.`,
+          });
+        }
+        const separatorIndex = attachment.dataUrl.indexOf(",");
+        const base64 = attachment.dataUrl.slice(separatorIndex + 1);
+        const sizeBytes = estimateBase64ByteSize(base64);
+        if (
+          separatorIndex < 0 ||
+          !attachment.dataUrl.slice(0, separatorIndex).endsWith(";base64") ||
+          sizeBytes <= 0 ||
+          sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
+        ) {
+          throw new ConnectionBlockedError({
+            reason: "configuration",
+            detail: `Could not upload '${attachment.name}': image data is invalid.`,
+          });
+        }
 
-      uploadedAttachments.push({
-        type: "image",
-        id: upload.attachmentId,
-        name: attachment.name,
-        mimeType,
-        sizeBytes,
-      });
-    } catch (cause) {
-      await release();
-      throw cause instanceof ConnectionBlockedError || cause instanceof ConnectionTransientError
-        ? cause
-        : transientUploadError(attachment.name, cause);
-    } finally {
-      if (temporaryFile?.exists) {
-        try {
-          temporaryFile.delete();
-        } catch (cause) {
-          console.warn("Failed to remove temporary attachment upload", cause);
+        const upload = await input.createUploadUrl({
+          name: attachment.name,
+          mimeType,
+          sizeBytes,
+        });
+        if (entry.released) {
+          await Promise.allSettled([input.deleteUpload(upload.attachmentId)]);
+          throw new ConnectionTransientError({
+            reason: "transport",
+            detail: `Image upload for '${attachment.name}' was cancelled.`,
+          });
+        }
+        pendingAttachmentIds.add(upload.attachmentId);
+
+        const url = resolveAssetUrl(input.httpBaseUrl, upload.relativeUrl);
+        if (url === null) {
+          throw new ConnectionBlockedError({
+            reason: "configuration",
+            detail: `Could not upload '${attachment.name}': upload URL is invalid.`,
+          });
+        }
+        temporaryFile = new ExpoFile(Paths.cache, `t3-attachment-${upload.attachmentId}`);
+        temporaryFile.write(base64, { encoding: "base64" });
+
+        const result = await temporaryFile.upload(url, {
+          httpMethod: "POST",
+          headers: { "Content-Type": mimeType },
+          signal: controller.signal,
+        });
+        if (result.status < 200 || result.status >= 300) {
+          const detail = `Could not upload '${attachment.name}': upload rejected (${result.status}).`;
+          if (result.status >= 400 && result.status < 500 && ![408, 429].includes(result.status)) {
+            throw new ConnectionBlockedError({
+              reason:
+                result.status === 401 || result.status === 403 ? "permission" : "configuration",
+              detail,
+            });
+          }
+          throw new ConnectionTransientError({ reason: "network", detail });
+        }
+
+        uploadedAttachments.push({
+          type: "image",
+          id: upload.attachmentId,
+          name: attachment.name,
+          mimeType,
+          sizeBytes,
+        });
+      } catch (cause) {
+        await release();
+        throw cause instanceof ConnectionBlockedError || cause instanceof ConnectionTransientError
+          ? cause
+          : transientUploadError(attachment.name, cause);
+      } finally {
+        if (temporaryFile?.exists) {
+          try {
+            temporaryFile.delete();
+          } catch (cause) {
+            console.warn("Failed to remove temporary attachment upload", cause);
+          }
         }
       }
     }
-  }
 
-  const prepared = { attachments: uploadedAttachments, release };
-  if (commandKey !== null) {
-    preparedAttachmentsByCommand.set(commandKey, {
-      sourceAttachments: input.attachments,
-      prepared,
-    });
-  }
-  return prepared;
+    if (existing) {
+      await existing.prepared.release();
+    }
+    return prepared;
+  };
+  entry.preparation = runPreparation().catch(async (cause: unknown) => {
+    await release();
+    if (cause instanceof ConnectionBlockedError || cause instanceof ConnectionTransientError) {
+      throw cause;
+    }
+    throw transientUploadError(input.attachments[0]?.name ?? "image", cause);
+  });
+  return entry.preparation;
 }

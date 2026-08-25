@@ -38,8 +38,15 @@ export function confirmThreadOutboxMessageQueued(message: QueuedThreadMessage): 
 }
 
 /** Rewrite a queued message; no-op (false) if it was removed in the meantime. */
-export function updateThreadOutboxMessage(message: QueuedThreadMessage): Promise<boolean> {
-  return threadOutboxManager.update(message);
+export async function updateThreadOutboxMessage(message: QueuedThreadMessage): Promise<boolean> {
+  const updated = await threadOutboxManager.update(message);
+  if (updated && message.attachments.length === 0) {
+    await releaseMobileTurnAttachments({
+      environmentId: message.environmentId,
+      commandId: message.commandId,
+    });
+  }
+  return updated;
 }
 
 export async function removeThreadOutboxMessage(message: QueuedThreadMessage): Promise<void> {

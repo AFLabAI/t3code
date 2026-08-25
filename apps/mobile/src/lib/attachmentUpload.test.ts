@@ -100,7 +100,11 @@ describe("prepareMobileTurnAttachments", () => {
     expect(mocks.upload).toHaveBeenNthCalledWith(
       1,
       "https://remote.example.test/api/attachments/upload/pending-1",
-      { httpMethod: "POST", headers: { "Content-Type": "image/png" } },
+      {
+        httpMethod: "POST",
+        headers: { "Content-Type": "image/png" },
+        signal: expect.any(AbortSignal),
+      },
       expect.stringMatching(/^file:\/\/\/cache\/t3-attachment-/),
     );
     expect(prepared.attachments).toEqual([
@@ -292,6 +296,47 @@ describe("prepareMobileTurnAttachments", () => {
     await edited.release();
   });
 
+  it("keeps the previous upload until replacement preparation finishes", async () => {
+    const dependencies = uploadDependencies();
+    const input = {
+      environmentId,
+      commandId: "replaced-turn",
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [image("before.png")],
+      ...dependencies,
+    };
+    const previous = await prepareMobileTurnAttachments(input);
+    let finishReplacement!: (result: { status: number }) => void;
+    let replacementStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      replacementStarted = resolve;
+    });
+    mocks.upload.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+          replacementStarted();
+        }),
+    );
+
+    const replacing = prepareMobileTurnAttachments({
+      ...input,
+      attachments: [image("after.png")],
+    });
+    await started;
+    expect(dependencies.deleteUpload).not.toHaveBeenCalledWith("pending-1");
+
+    finishReplacement({ status: 204 });
+    const replacement = await replacing;
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
+
+    await previous.release();
+    await releaseMobileTurnAttachments({ environmentId, commandId: "replaced-turn" });
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-2");
+    await replacement.release();
+  });
+
   it("releases cached uploads when a queued turn is deleted", async () => {
     const dependencies = uploadDependencies();
     await prepareMobileTurnAttachments({
@@ -306,6 +351,42 @@ describe("prepareMobileTurnAttachments", () => {
     await releaseMobileTurnAttachments({ environmentId, commandId: "deleted-turn" });
 
     expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
+  });
+
+  it("removes an upload URL that resolves after its queued turn was deleted", async () => {
+    const dependencies = uploadDependencies();
+    let resolveUploadUrl!: (result: AttachmentCreateUploadUrlResult) => void;
+    let signalMintStarted!: () => void;
+    const mintStarted = new Promise<void>((resolve) => {
+      signalMintStarted = resolve;
+    });
+    dependencies.createUploadUrl.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUploadUrl = resolve;
+          signalMintStarted();
+        }),
+    );
+    const preparing = prepareMobileTurnAttachments({
+      environmentId,
+      commandId: "deleted-during-upload",
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [image("deleted.png")],
+      ...dependencies,
+    });
+    await mintStarted;
+
+    await releaseMobileTurnAttachments({ environmentId, commandId: "deleted-during-upload" });
+    resolveUploadUrl({
+      attachmentId: "pending-late",
+      relativeUrl: "/api/attachments/upload/pending-late",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    await expect(preparing).rejects.toMatchObject({ _tag: "ConnectionTransientError" });
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-late");
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
 
   it("releases every cached upload when an environment is removed", async () => {
@@ -325,6 +406,37 @@ describe("prepareMobileTurnAttachments", () => {
 
     expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
     expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-2");
+  });
+
+  it("keeps environment and command IDs with colons isolated", async () => {
+    const firstEnvironmentId = EnvironmentId.make("a");
+    const secondEnvironmentId = EnvironmentId.make("a:b");
+    const first = uploadDependencies();
+    const second = uploadDependencies();
+
+    await prepareMobileTurnAttachments({
+      environmentId: firstEnvironmentId,
+      commandId: "b:c",
+      httpBaseUrl: "https://first.example.test/",
+      supportsUploads: true,
+      attachments: [image("first.png")],
+      ...first,
+    });
+    await prepareMobileTurnAttachments({
+      environmentId: secondEnvironmentId,
+      commandId: "c",
+      httpBaseUrl: "https://second.example.test/",
+      supportsUploads: true,
+      attachments: [image("second.png")],
+      ...second,
+    });
+
+    await releaseMobileTurnAttachments({ environmentId: firstEnvironmentId });
+    expect(first.deleteUpload).toHaveBeenCalledWith("pending-1");
+    expect(second.deleteUpload).not.toHaveBeenCalled();
+
+    await releaseMobileTurnAttachments({ environmentId: secondEnvironmentId });
+    expect(second.deleteUpload).toHaveBeenCalledWith("pending-1");
   });
 
   it("removes pending uploads after a failed request and can retry the original images", async () => {
