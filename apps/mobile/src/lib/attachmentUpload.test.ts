@@ -389,6 +389,38 @@ describe("prepareMobileTurnAttachments", () => {
     expect(mocks.upload).not.toHaveBeenCalled();
   });
 
+  it("rejects an upload that finishes after its queued turn was deleted", async () => {
+    const dependencies = uploadDependencies();
+    let finishUpload!: (result: { status: number }) => void;
+    let signalUploadStarted!: () => void;
+    const uploadStarted = new Promise<void>((resolve) => {
+      signalUploadStarted = resolve;
+    });
+    mocks.upload.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishUpload = resolve;
+          signalUploadStarted();
+        }),
+    );
+    const preparing = prepareMobileTurnAttachments({
+      environmentId,
+      commandId: "deleted-while-finishing",
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [image("deleted.png")],
+      ...dependencies,
+    });
+    await uploadStarted;
+
+    await releaseMobileTurnAttachments({ environmentId, commandId: "deleted-while-finishing" });
+    finishUpload({ status: 204 });
+
+    await expect(preparing).rejects.toMatchObject({ _tag: "ConnectionTransientError" });
+    expect(dependencies.deleteUpload).toHaveBeenCalledTimes(2);
+    expect(dependencies.deleteUpload).toHaveBeenLastCalledWith("pending-1");
+  });
+
   it("releases every cached upload when an environment is removed", async () => {
     const dependencies = uploadDependencies();
     for (const commandId of ["removed-first", "removed-second"]) {

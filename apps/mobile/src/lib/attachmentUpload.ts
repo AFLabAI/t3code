@@ -240,6 +240,13 @@ export async function prepareMobileTurnAttachments(
           headers: { "Content-Type": mimeType },
           signal: controller.signal,
         });
+        if (entry.released) {
+          await Promise.allSettled([input.deleteUpload(upload.attachmentId)]);
+          throw new ConnectionTransientError({
+            reason: "transport",
+            detail: `Image upload for '${attachment.name}' was cancelled.`,
+          });
+        }
         if (result.status < 200 || result.status >= 300) {
           const detail = `Could not upload '${attachment.name}': upload rejected (${result.status}).`;
           if (result.status >= 400 && result.status < 500 && ![408, 429].includes(result.status)) {
