@@ -171,7 +171,7 @@ function ProjectFaviconImage(props: {
               cacheKey: faviconRequest.cacheKey,
             }}
             cachePolicy="memory-disk"
-            recyclingKey={isReplacement ? faviconRequest.cacheKey : (props.projectKey ?? undefined)}
+            recyclingKey={props.projectKey ?? faviconRequest.cacheKey}
             accessibilityLabel={isReplacement ? undefined : `${props.projectTitle} favicon`}
             style={{
               width: props.size,
@@ -192,7 +192,10 @@ function ProjectFaviconImage(props: {
             onError={() => {
               if (isReplacement && !isCurrentProjectFaviconRequest(faviconRequest)) return;
               if (props.projectKey !== null) {
-                forgetProjectFavicon(props.projectKey, faviconRequest.faviconUrl);
+                forgetProjectFavicon(props.projectKey, {
+                  cacheKey: faviconRequest.cacheKey,
+                  src: faviconRequest.faviconUrl,
+                });
               }
             }}
           />

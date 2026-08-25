@@ -231,9 +231,15 @@ export function rememberProjectFavicon(projectKey: string, favicon: LoadedProjec
   notifyFaviconListeners(projectKey);
 }
 
-export function forgetProjectFavicon(projectKey: string, src?: string): void {
+export function forgetProjectFavicon(projectKey: string, favicon?: LoadedProjectFavicon): void {
   const existing = loadedFavicons.get(projectKey);
-  if (!existing || (src !== undefined && existing.src !== src)) return;
+  if (
+    !existing ||
+    (favicon !== undefined &&
+      (existing.src !== favicon.src || existing.cacheKey !== favicon.cacheKey))
+  ) {
+    return;
+  }
 
   loadedFavicons.delete(projectKey);
   notifyFaviconListeners(projectKey);
@@ -249,7 +255,7 @@ export function subscribeProjectFavicons(projectKey: string, listener: () => voi
 
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) {
+    if (listeners.size === 0 && faviconListeners.get(projectKey) === listeners) {
       faviconListeners.delete(projectKey);
       evictInactiveProjectFavicons();
     }

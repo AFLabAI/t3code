@@ -99,6 +99,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 
 type ImageElement = ReactElement<{
   readonly source: { readonly uri: string; readonly cacheKey: string };
+  readonly recyclingKey?: string;
   readonly onLoad: () => void;
   readonly onError: () => void;
 }>;
@@ -195,11 +196,13 @@ describe("ProjectFavicon", () => {
 
     testState.faviconUrl = "https://environment.test/api/assets/token-b/v2-favicon.svg";
     const refreshing = renderImage(renderFavicon(SOURCE_ENVIRONMENT, SOURCE_ROOT));
-    refreshing.props.children[1][1]?.props.onLoad();
+    const replacementImage = refreshing.props.children[1][1];
+    replacementImage?.props.onLoad();
 
     const currentImage = renderImage(renderFavicon(SOURCE_ENVIRONMENT, SOURCE_ROOT)).props
       .children[1][0];
     expect(previousImage?.key).not.toBe(currentImage?.key);
+    expect(replacementImage?.props.recyclingKey).toBe(currentImage?.props.recyclingKey);
 
     previousImage?.props.onError();
 

@@ -313,10 +313,13 @@ describe("loaded project favicons", () => {
     const favicon = { cacheKey: "revision-two", src: "/icons/two.svg" };
     rememberProjectFavicon(projectKey, favicon);
 
-    forgetProjectFavicon(projectKey, "/icons/one.svg");
+    forgetProjectFavicon(projectKey, { cacheKey: "revision-one", src: "/icons/one.svg" });
     expect(getLoadedProjectFavicon(projectKey)).toEqual(favicon);
 
-    forgetProjectFavicon(projectKey, favicon.src);
+    forgetProjectFavicon(projectKey, { cacheKey: "revision-one", src: favicon.src });
+    expect(getLoadedProjectFavicon(projectKey)).toEqual(favicon);
+
+    forgetProjectFavicon(projectKey, favicon);
     expect(getLoadedProjectFavicon(projectKey)).toBeNull();
   });
 
@@ -328,7 +331,7 @@ describe("loaded project favicons", () => {
 
     rememberProjectFavicon(projectKey, favicon);
     rememberProjectFavicon(projectKey, { ...favicon });
-    forgetProjectFavicon(projectKey, "/icons/old.svg");
+    forgetProjectFavicon(projectKey, { cacheKey: "revision-old", src: "/icons/old.svg" });
     rememberProjectFavicon("unrelated-project", favicon);
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -341,6 +344,21 @@ describe("loaded project favicons", () => {
     expect(listener).toHaveBeenCalledTimes(2);
     forgetProjectFavicon(projectKey);
     forgetProjectFavicon("unrelated-project");
+  });
+
+  it("does not let a stale unsubscribe remove newer listeners", () => {
+    const projectKey = "replacement-subscription-project";
+    const firstUnsubscribe = subscribeProjectFavicons(projectKey, () => {});
+    firstUnsubscribe();
+
+    const listener = vi.fn();
+    const unsubscribe = subscribeProjectFavicons(projectKey, listener);
+    firstUnsubscribe();
+    rememberProjectFavicon(projectKey, { cacheKey: "revision-one", src: "/icons/one.svg" });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    forgetProjectFavicon(projectKey);
   });
 
   it("keeps visible favicons while evicting the oldest inactive favicon", () => {

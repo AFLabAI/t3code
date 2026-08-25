@@ -3,6 +3,7 @@ import {
   forgetProjectFavicon,
   getLoadedProjectFavicon,
   getProjectFaviconSourceRejectionKey,
+  type LoadedProjectFavicon,
   rememberProjectFavicon,
   subscribeProjectFavicons,
 } from "@t3tools/client-runtime/state/project-favicon";
@@ -121,13 +122,18 @@ function ProjectFaviconImage({
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
 }) {
-  const [displayedSrc, setDisplayedSrc] = useState<string | null>(
-    () => getLoadedProjectFavicon(projectKey)?.src ?? null,
+  const [displayedFavicon, setDisplayedFavicon] = useState<LoadedProjectFavicon | null>(() =>
+    getLoadedProjectFavicon(projectKey),
   );
-  const isLoading = displayedSrc !== src;
-  const handleLoadError = (failedSrc: string) => {
-    forgetProjectFavicon(projectKey, failedSrc);
-    setDisplayedSrc((currentSrc) => (currentSrc === failedSrc ? null : currentSrc));
+  const isLoading = displayedFavicon?.src !== src || displayedFavicon.cacheKey !== cacheKey;
+  const handleLoadError = (failedFavicon: LoadedProjectFavicon) => {
+    forgetProjectFavicon(projectKey, failedFavicon);
+    setDisplayedFavicon((currentFavicon) =>
+      currentFavicon?.src === failedFavicon.src &&
+      currentFavicon.cacheKey === failedFavicon.cacheKey
+        ? null
+        : currentFavicon,
+    );
   };
 
   // Preload through a dedicated Image per request. The component stays mounted
@@ -140,13 +146,13 @@ function ProjectFaviconImage({
     const image = new Image();
     image.onload = () => {
       if (cancelled) return;
-      rememberProjectFavicon(projectKey, { cacheKey, src });
-      setDisplayedSrc(src);
+      const favicon = { cacheKey, src };
+      rememberProjectFavicon(projectKey, favicon);
+      setDisplayedFavicon(favicon);
     };
     image.onerror = () => {
       if (cancelled) return;
-      forgetProjectFavicon(projectKey, src);
-      setDisplayedSrc((currentSrc) => (currentSrc === src ? null : currentSrc));
+      handleLoadError({ cacheKey, src });
     };
     image.src = src;
     return () => {
@@ -156,15 +162,15 @@ function ProjectFaviconImage({
 
   return (
     <>
-      {displayedSrc === null ? (
+      {displayedFavicon === null ? (
         <ProjectFaviconFallback className={className} icon={FallbackIcon} />
       ) : null}
-      {displayedSrc ? (
+      {displayedFavicon ? (
         <img
-          src={displayedSrc}
+          src={displayedFavicon.src}
           alt=""
           className={cn("size-3.5 shrink-0 rounded-sm object-contain", className)}
-          onError={() => handleLoadError(displayedSrc)}
+          onError={() => handleLoadError(displayedFavicon)}
         />
       ) : null}
     </>
