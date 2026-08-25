@@ -1,5 +1,4 @@
 import ClerkKit
-import ClerkKitUI
 import SwiftUI
 
 public struct T3ConnectView: View {
@@ -160,7 +159,6 @@ public struct T3ConnectView: View {
                 }
                 return false
             }
-            .environment(\.clerkTheme, T3ConnectClerkAppearance.theme)
             .environmentObject(clerk)
         } else {
             loadingView("Loading sign-in")
@@ -395,8 +393,9 @@ private struct T3ConnectAuthenticationView: View {
     @SwiftUI.Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var clerk: Clerk
     @State private var activeProvider: OAuthProvider?
+    @State private var emailAddress = ""
     @State private var errorMessage: String?
-    @State private var isEmailPresented = false
+    @State private var isEmailAuthenticationActive = false
 
     private let onAuthenticationChanged: @MainActor () async -> Bool
     private let preferredProviders: [OAuthProvider] = [
@@ -432,8 +431,8 @@ private struct T3ConnectAuthenticationView: View {
 
                     providerButtons
 
-                    emailButton
-                        .padding(.top, 24)
+                    emailForm
+                        .padding(.top, availableProviders.isEmpty ? 24 : 28)
                 }
                 .frame(maxWidth: 440, alignment: .leading)
                 .padding(.horizontal, 24)
@@ -464,12 +463,6 @@ private struct T3ConnectAuthenticationView: View {
             if clerk.environment == nil {
                 _ = try? await clerk.refreshEnvironment()
             }
-        }
-        .sheet(isPresented: $isEmailPresented, onDismiss: authenticationDidFinish) {
-            AuthView(mode: .signInOrUp)
-                .prefetchClerkImages()
-                .environment(\.clerkTheme, T3ConnectClerkAppearance.theme)
-                .environmentObject(clerk)
         }
         .alert(
             "Couldn’t sign in",
@@ -550,31 +543,71 @@ private struct T3ConnectAuthenticationView: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(activeProvider != nil)
-        .opacity(activeProvider == nil || activeProvider == provider ? 1 : 0.55)
+        .disabled(isAuthenticating)
+        .opacity(!isAuthenticating || activeProvider == provider ? 1 : 0.55)
         .accessibilityIdentifier("t3-connect-auth-\(provider.strategy)")
     }
 
-    private var emailButton: some View {
-        Button {
-            isEmailPresented = true
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "envelope")
-                    .font(.system(size: 15, weight: .medium))
-                Text(availableProviders.isEmpty ? "Continue with email" : "Use email")
-                    .font(T3Typography.control)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+    private var emailForm: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !availableProviders.isEmpty {
+                HStack(spacing: 12) {
+                    Rectangle()
+                        .fill(T3Colors.border)
+                        .frame(height: 1)
+                    Text("or")
+                        .font(T3Typography.supporting)
+                        .foregroundStyle(T3Colors.textTertiary)
+                    Rectangle()
+                        .fill(T3Colors.border)
+                        .frame(height: 1)
+                }
+                .padding(.bottom, 8)
             }
-            .foregroundStyle(T3Colors.textSecondary)
-            .frame(maxWidth: .infinity, minHeight: T3Metrics.minimumTapTarget)
-            .contentShape(Rectangle())
+
+            Text("Email address")
+                .font(T3Typography.control.weight(.semibold))
+                .foregroundStyle(T3Colors.textPrimary)
+
+            TextField("you@example.com", text: $emailAddress)
+                .textContentType(.emailAddress)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.continue)
+                .onSubmit(startEmailAuthentication)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(T3Colors.input)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(T3Colors.border, lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .disabled(isAuthenticating)
+                .accessibilityIdentifier("t3-connect-auth-email-field")
+
+            Button(action: startEmailAuthentication) {
+                HStack(spacing: 10) {
+                    Text("Continue with email")
+                        .font(.system(.body, design: .default, weight: .semibold))
+
+                    if isEmailAuthenticationActive {
+                        ProgressView()
+                            .tint(T3Colors.primaryActionForeground)
+                    }
+                }
+                .foregroundStyle(T3Colors.primaryActionForeground)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(T3Colors.primaryAction)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(normalizedEmailAddress == nil || clerk.environment == nil || isAuthenticating)
+            .opacity(normalizedEmailAddress == nil || clerk.environment == nil ? 0.55 : 1)
+            .accessibilityIdentifier("t3-connect-auth-email")
         }
-        .buttonStyle(.plain)
-        .disabled(activeProvider != nil)
-        .accessibilityIdentifier("t3-connect-auth-email")
     }
 
     private var availableProviders: [OAuthProvider] {
@@ -585,6 +618,15 @@ private struct T3ConnectAuthenticationView: View {
                 .map(\.strategy)
         )
         return preferredProviders.filter { enabledStrategies.contains($0.strategy) }
+    }
+
+    private var normalizedEmailAddress: String? {
+        let value = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private var isAuthenticating: Bool {
+        activeProvider != nil || isEmailAuthenticationActive
     }
 
     private func signIn(with provider: OAuthProvider) async {
@@ -599,15 +641,36 @@ private struct T3ConnectAuthenticationView: View {
             }
 
             if !(await onAuthenticationChanged()) {
-                isEmailPresented = true
+                errorMessage = "Sign-in did not produce an active session. Please try again."
             }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func authenticationDidFinish() {
-        Task { _ = await onAuthenticationChanged() }
+    private func startEmailAuthentication() {
+        guard clerk.environment != nil,
+              normalizedEmailAddress != nil,
+              !isAuthenticating else { return }
+        Task { await signInWithEmail() }
+    }
+
+    private func signInWithEmail() async {
+        guard let emailAddress = normalizedEmailAddress else { return }
+        isEmailAuthenticationActive = true
+        defer { isEmailAuthenticationActive = false }
+
+        do {
+            try await clerk.auth.startHostedAuth(
+                mode: .signIn,
+                initialEmailAddress: emailAddress
+            )
+            if !(await onAuthenticationChanged()) {
+                errorMessage = "Sign-in did not produce an active session. Please try again."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -643,28 +706,4 @@ private struct T3ConnectAuthProviderIcon: View {
                 .foregroundStyle(T3Colors.textPrimary)
         }
     }
-}
-
-@MainActor
-private enum T3ConnectClerkAppearance {
-    static let theme = ClerkTheme(
-        colors: .init(
-            primary: T3Colors.primaryAction,
-            background: T3Colors.background,
-            input: T3Colors.input,
-            danger: T3Colors.danger,
-            success: T3Colors.success,
-            warning: T3Colors.warning,
-            foreground: T3Colors.textPrimary,
-            mutedForeground: T3Colors.textSecondary,
-            primaryForeground: T3Colors.primaryActionForeground,
-            inputForeground: T3Colors.textPrimary,
-            neutral: T3Colors.textPrimary,
-            ring: T3Colors.textPrimary,
-            muted: T3Colors.surfaceRaised,
-            shadow: T3Colors.border,
-            border: T3Colors.border
-        ),
-        design: .init(borderRadius: 12)
-    )
 }
