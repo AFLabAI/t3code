@@ -22,6 +22,7 @@ name: Mobile EAS Production
 #      it too. When native drift means no binary could install the update,
 #      it is skipped and flagged in the job summary instead of published
 #      into the void.
+# Scheduled runs retry skipped updates after asynchronous builds finish.
 # workflow_dispatch remains as a manual override for both modes (e.g. to
 # retry an errored build or force an OTA).
 on:
@@ -65,6 +66,8 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - .github/workflows/mobile-eas-production.yml
+  schedule:
+    - cron: "17,47 * * * *"
 
 # Serialize runs so OTAs publish in merge order. GitHub keeps at most one
 # queued run per group, so a burst of merges collapses into one run of the
@@ -75,7 +78,7 @@ concurrency:
 
 jobs:
   production:
-    name: EAS Production ${{ github.event_name == 'push' && 'auto' || inputs.mode }}
+    name: EAS Production ${{ github.event_name != 'workflow_dispatch' && 'auto' || inputs.mode }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -261,7 +264,7 @@ jobs:
           exit "$failed"
 
       - name: Publish fingerprint-gated OTA
-        if: steps.expo-token.outputs.present == 'true' && github.event_name == 'push'
+        if: steps.expo-token.outputs.present == 'true' && (github.event_name == 'push' || github.event_name == 'schedule')
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -273,6 +276,29 @@ jobs:
             hash="$(eas fingerprint:generate --platform "$platform" --environment production --json --non-interactive | sed -n '/^{/,$p' | jq -er '.hash | select(type == "string" and length > 0)')"
             matching="$(eas build:list --platform "$platform" --build-profile production --status finished --fingerprint-hash "$hash" --limit 1 --json --non-interactive | jq 'length')"
             if [ "$matching" -gt 0 ]; then
+              if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+                group="$(eas update:list --branch production --platform "$platform" --runtime-version "$hash" --limit 1 --json --non-interactive | jq -r '.currentPage[0].group // empty')"
+                if [ -n "$group" ]; then
+                  published_commit="$(eas update:view "$group" --json | jq -r --arg platform "$platform" '.[] | select(.platform == $platform) | .gitCommitHash // empty')"
+                  if [ -n "$published_commit" ] &&
+                    git cat-file -e "$published_commit^{commit}" 2>/dev/null &&
+                    git -C "$(git rev-parse --show-toplevel)" diff --quiet "$published_commit" HEAD -- \
+                      apps/mobile \
+                      packages/client-runtime \
+                      packages/contracts \
+                      packages/shared \
+                      assets \
+                      scripts \
+                      patches \
+                      pnpm-lock.yaml \
+                      pnpm-workspace.yaml \
+                      .github/workflows/mobile-eas-production.yml; then
+                    echo "$platform: production OTA already contains the latest mobile changes"
+                    continue
+                  fi
+                fi
+              fi
+
               eas update \
                 --channel production \
                 --environment production \
