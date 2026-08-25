@@ -1,5 +1,15 @@
 type WorkspaceMode = "local" | "worktree";
 
+export function resolveNewTaskSkillsCwd(input: {
+  readonly workspaceMode: WorkspaceMode;
+  readonly projectCwd: string | null | undefined;
+  readonly selectedWorktreePath: string | null;
+}): string | null {
+  return input.workspaceMode === "local"
+    ? (input.selectedWorktreePath ?? input.projectCwd ?? null)
+    : (input.projectCwd ?? null);
+}
+
 export function resolveNewTaskWorkspaceLabel(input: {
   readonly workspaceMode: WorkspaceMode;
   readonly worktreePath: string | null;

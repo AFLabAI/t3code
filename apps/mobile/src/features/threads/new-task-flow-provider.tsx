@@ -82,6 +82,7 @@ import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveNewTaskSkillsCwd,
 } from "./new-task-context-presentation";
 
 type WorkspaceMode = "local" | "worktree";
@@ -445,22 +446,17 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         option.selection.instanceId === selectedModel.instanceId &&
         option.selection.model === selectedModel.model,
     ) ?? null;
+  const selectedSkillsCwd = resolveNewTaskSkillsCwd({
+    workspaceMode,
+    projectCwd: selectedProject?.workspaceRoot,
+    selectedWorktreePath,
+  });
   const selectedProviderSkills = useMemo(() => {
     const provider = selectedEnvironmentServerConfig?.providers.find(
       (provider) => provider.instanceId === selectedModel?.instanceId,
     );
-    return provider
-      ? resolveProviderSkillsForCwd(
-          provider,
-          selectedWorktreePath ?? selectedProject?.workspaceRoot ?? null,
-        )
-      : [];
-  }, [
-    selectedEnvironmentServerConfig,
-    selectedModel?.instanceId,
-    selectedProject?.workspaceRoot,
-    selectedWorktreePath,
-  ]);
+    return provider ? resolveProviderSkillsForCwd(provider, selectedSkillsCwd) : [];
+  }, [selectedEnvironmentServerConfig, selectedModel?.instanceId, selectedSkillsCwd]);
   const setSelectedModelKey = useCallback(
     // Options ride along in the same write: a follow-up setSelectedModelOptions
     // call would rebuild the selection from the stale pre-switch model.
@@ -662,7 +658,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         workspaceSelection: {
           mode,
           branch: mode === "local" ? localSelection.branch : selectedBranchName,
-          worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
+          worktreePath: mode === "local" ? localSelection.worktreePath : null,
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
         },
       });
@@ -673,7 +669,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedBranchName,
       selectedProject,
       selectedProjectDraftKey,
-      selectedWorktreePath,
     ],
   );
 

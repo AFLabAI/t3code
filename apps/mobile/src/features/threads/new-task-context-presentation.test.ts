@@ -4,7 +4,30 @@ import {
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskBranchLabel,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveNewTaskSkillsCwd,
 } from "./new-task-context-presentation";
+
+describe("resolveNewTaskSkillsCwd", () => {
+  it("uses an existing worktree only for Current checkout mode", () => {
+    expect(
+      resolveNewTaskSkillsCwd({
+        workspaceMode: "local",
+        projectCwd: "/repo",
+        selectedWorktreePath: "/repo/.t3/worktrees/feature",
+      }),
+    ).toBe("/repo/.t3/worktrees/feature");
+  });
+
+  it("ignores a stale worktree path while creating a new worktree", () => {
+    expect(
+      resolveNewTaskSkillsCwd({
+        workspaceMode: "worktree",
+        projectCwd: "/repo",
+        selectedWorktreePath: "/repo/.t3/worktrees/stale",
+      }),
+    ).toBe("/repo");
+  });
+});
 
 describe("resolveNewTaskLocalWorkspaceSelection", () => {
   it("waits for refs instead of carrying a worktree base into Current checkout", () => {
