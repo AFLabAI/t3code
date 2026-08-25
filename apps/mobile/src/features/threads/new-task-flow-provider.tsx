@@ -450,9 +450,17 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       (provider) => provider.instanceId === selectedModel?.instanceId,
     );
     return provider
-      ? resolveProviderSkillsForCwd(provider, selectedProject?.workspaceRoot ?? null)
+      ? resolveProviderSkillsForCwd(
+          provider,
+          selectedWorktreePath ?? selectedProject?.workspaceRoot ?? null,
+        )
       : [];
-  }, [selectedEnvironmentServerConfig, selectedModel?.instanceId, selectedProject?.workspaceRoot]);
+  }, [
+    selectedEnvironmentServerConfig,
+    selectedModel?.instanceId,
+    selectedProject?.workspaceRoot,
+    selectedWorktreePath,
+  ]);
   const setSelectedModelKey = useCallback(
     // Options ride along in the same write: a follow-up setSelectedModelOptions
     // call would rebuild the selection from the stale pre-switch model.
