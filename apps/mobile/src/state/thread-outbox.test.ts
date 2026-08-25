@@ -508,6 +508,49 @@ describe("thread outbox", () => {
     registry.dispose();
   });
 
+  it("does not publish a stale attachment update after a replacement appears during its write", async () => {
+    const registry = AtomRegistry.make();
+    let resumeWrite: () => void = () => {};
+    let signalWriteStarted: () => void = () => {};
+    const writeStarted = new Promise<void>((resolve) => {
+      signalWriteStarted = resolve;
+    });
+    const writeBarrier = new Promise<void>((resolve) => {
+      resumeWrite = resolve;
+    });
+    const manager = createThreadOutboxManager({
+      registry,
+      storage: {
+        load: async () => [],
+        write: async (message) => {
+          if (message.text === "stale upload") {
+            signalWriteStarted();
+            await writeBarrier;
+          }
+        },
+        remove: async () => undefined,
+      },
+    });
+    const original = queuedMessage({
+      messageId: "message-write-race",
+      createdAt: "2026-06-08T10:00:01.000Z",
+    });
+    const replacement = { ...original, text: "newer edit" };
+
+    await manager.enqueue(original);
+    const update = manager.update({ ...original, text: "stale upload" }, original);
+    await writeStarted;
+    const enqueue = manager.enqueue(replacement);
+    resumeWrite();
+
+    await expect(update).resolves.toBe(false);
+    await enqueue;
+    expect(registry.get(manager.queuedMessagesByThreadKeyAtom)).toEqual({
+      "environment-1:thread-1": [replacement],
+    });
+    registry.dispose();
+  });
+
   it("only removes a missing-thread message after shell synchronization is live", () => {
     expect(
       resolveThreadOutboxDeliveryAction({

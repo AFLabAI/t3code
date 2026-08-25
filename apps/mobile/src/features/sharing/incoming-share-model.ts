@@ -211,7 +211,11 @@ export async function buildIncomingShareDraft(input: {
       (payload.shareType === "image" ? "image/png" : "application/octet-stream")
     ).toLowerCase();
     if (payload.shareType !== "image") {
-      const name = resolved?.originalName ?? fallbackName(uri, index, mimeType);
+      const sharedFileName =
+        "originalName" in payload && typeof payload.originalName === "string"
+          ? payload.originalName
+          : undefined;
+      const name = resolved?.originalName ?? sharedFileName ?? fallbackName(uri, index, mimeType);
       if (!uri) {
         warnings.push("One shared file could not be read.");
         continue;

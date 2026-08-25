@@ -5577,7 +5577,13 @@ function ChatViewContent(props: ChatViewProps) {
       );
       return;
     }
-    if (!directAnnotation && showPlanFollowUpPrompt && activeProposedPlan) {
+    if (
+      !directAnnotation &&
+      showPlanFollowUpPrompt &&
+      activeProposedPlan &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0
+    ) {
       const followUp = resolvePlanFollowUpSubmission({
         draftText: trimmed,
         planMarkdown: activeProposedPlan.planMarkdown,

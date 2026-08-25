@@ -1,31 +1,98 @@
+diff --git a/android/src/main/java/expo/modules/sharing/SharingRecords.kt b/android/src/main/java/expo/modules/sharing/SharingRecords.kt
+index 5ce42a0..fb609d2 100644
+--- a/android/src/main/java/expo/modules/sharing/SharingRecords.kt
++++ b/android/src/main/java/expo/modules/sharing/SharingRecords.kt
+@@ -52,5 +52,6 @@
+-internal data class SharePayload(
+-  @Field var value: String = "",
+-  @Field var shareType: ShareType = ShareType.Text,
+-  @Field var mimeType: String = "text/plain"
+-) : Record
++internal data class SharePayload(
++  @Field var value: String = "",
++  @Field var shareType: ShareType = ShareType.Text,
++  @Field var mimeType: String = "text/plain",
++  @Field var originalName: String? = null
++) : Record
 diff --git a/android/src/main/java/expo/modules/sharing/dataParsers/SimpleShareIntentDataParser.kt b/android/src/main/java/expo/modules/sharing/dataParsers/SimpleShareIntentDataParser.kt
-index 4f17a41..d54dc49 100644
+index 4f17a41..b471de3 100644
 --- a/android/src/main/java/expo/modules/sharing/dataParsers/SimpleShareIntentDataParser.kt
 +++ b/android/src/main/java/expo/modules/sharing/dataParsers/SimpleShareIntentDataParser.kt
-@@ -19,3 +19,4 @@ internal class SimpleShareIntentDataParser {
-     private fun handleSendAction(context: Context, intent: Intent, type: String): List<SharePayload> {
+@@ -3,3 +3,4 @@
+-import android.content.Context
+-import android.content.Intent
+-import android.net.Uri
++import android.content.Context
++import android.content.Intent
++import android.net.Uri
++import android.provider.OpenableColumns
+@@ -19,17 +20,22 @@ internal class SimpleShareIntentDataParser {
+-    private fun handleSendAction(context: Context, intent: Intent, type: String): List<SharePayload> {
 -      return if (type == "text/plain") {
-+      val stream = intent.getParcelableExtraCompat<Uri>(Intent.EXTRA_STREAM)
-+      return if (type.startsWith("text/") && stream == null) {
-         val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return emptyList()
-@@ -26,10 +27,9 @@ internal class SimpleShareIntentDataParser {
-             value = text
-             shareType = if (isUrl) ShareType.Url else ShareType.Text
+-        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return emptyList()
+-        val isUrl = android.util.Patterns.WEB_URL.matcher(text).matches()
+-
+-        listOf(
+-          SharePayload().apply {
+-            value = text
+-            shareType = if (isUrl) ShareType.Url else ShareType.Text
 -            mimeType = "text/plain"
-+            mimeType = type
-           }
-         )
-       } else {
+-          }
+-        )
+-      } else {
 -        val uri = intent.getParcelableExtraCompat<Uri>(Intent.EXTRA_STREAM)
 -        listOfNotNull(uri?.let { createUriPayload(context, it, type) })
-+        listOfNotNull(stream?.let { createUriPayload(context, it, type) })
-       }
-     }
-@@ -44,6 +44,6 @@ internal class SimpleShareIntentDataParser {
-       return SharePayload().apply {
-         value = uri.toString()
+-      }
+-    }
++    private fun handleSendAction(context: Context, intent: Intent, type: String): List<SharePayload> {
++      val stream = intent.getParcelableExtraCompat<Uri>(Intent.EXTRA_STREAM)
++      val text = intent.getStringExtra(Intent.EXTRA_TEXT)
++      if (stream == null) {
++        if (!type.startsWith("text/") || text == null) return emptyList()
++        return listOf(
++          SharePayload().apply {
++            value = text
++            shareType = if (android.util.Patterns.WEB_URL.matcher(text).matches()) ShareType.Url else ShareType.Text
++            mimeType = type
++          }
++        )
++      }
++      val filePayload = createUriPayload(context, stream, type)
++      if (text.isNullOrBlank()) return listOf(filePayload)
++      val textPayload = SharePayload().apply {
++        value = text
++        shareType = if (android.util.Patterns.WEB_URL.matcher(text).matches()) ShareType.Url else ShareType.Text
++        mimeType = "text/plain"
++      }
++      return listOf(textPayload, filePayload)
++    }
+@@ -42,8 +48,21 @@ internal class SimpleShareIntentDataParser {
+-    private fun createUriPayload(context: Context, uri: Uri, defaultType: String): SharePayload {
+-      val specificType = context.contentResolver.getType(uri) ?: defaultType
+-      return SharePayload().apply {
+-        value = uri.toString()
 -        shareType = ShareType.fromMimeType(specificType)
+-        mimeType = specificType
+-      }
+-    }
++    private fun createUriPayload(context: Context, uri: Uri, defaultType: String): SharePayload {
++      val specificType = context.contentResolver.getType(uri) ?: defaultType
++      val displayName = runCatching {
++        context.contentResolver.query(
++          uri,
++          arrayOf(OpenableColumns.DISPLAY_NAME),
++          null,
++          null,
++          null
++        )?.use { cursor ->
++          val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
++          if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
++        }
++      }.getOrNull()
++      return SharePayload().apply {
++        value = uri.toString()
 +        shareType = if (specificType.startsWith("text/")) ShareType.File else ShareType.fromMimeType(specificType)
-         mimeType = specificType
-       }
-     }
++        mimeType = specificType
++        originalName = displayName
++      }
++    }

@@ -150,6 +150,12 @@ export function createThreadOutboxManager(options: ThreadOutboxManagerOptions) {
           cause,
         });
       }
+      if (
+        expectedMessage !== undefined &&
+        !currentMessages().some((candidate) => candidate === expectedMessage)
+      ) {
+        return false;
+      }
       setMessages([
         ...currentMessages().filter((candidate) => candidate.messageId !== message.messageId),
         message,

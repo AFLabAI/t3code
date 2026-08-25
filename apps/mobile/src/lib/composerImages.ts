@@ -172,16 +172,23 @@ export async function pickComposerFiles(input: {
       continue;
     }
     try {
+      const fileUri = await persistComposerAttachmentFile(file.uri, file.name, maxBytes);
+      const storedSizeBytes = new File(fileUri).size ?? sizeBytes;
+      if (storedSizeBytes > maxBytes) {
+        await removePersistedComposerAttachmentFile(fileUri);
+        error = `'${file.name}' exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB attachment limit.`;
+        continue;
+      }
       attachments.push({
         id: uuidv4(),
         type: "file",
         name: file.name,
         mimeType: file.type || "application/octet-stream",
-        sizeBytes,
-        fileUri: await persistComposerAttachmentFile(file.uri, file.name),
+        sizeBytes: storedSizeBytes,
+        fileUri,
       });
-    } catch {
-      error = `Could not read '${file.name}'.`;
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : `Could not read '${file.name}'.`;
     }
   }
   if (exceededAttachmentLimit) {

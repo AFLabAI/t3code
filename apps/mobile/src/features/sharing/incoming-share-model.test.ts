@@ -240,6 +240,39 @@ describe("incoming native shares", () => {
     ]);
   });
 
+  it("keeps the Android display name without copying the file into the Expo cache", async () => {
+    const file = {
+      shareType: "file" as const,
+      value: "content://shared/12345",
+      mimeType: "application/pdf",
+      originalName: "quarterly-report.pdf",
+    };
+
+    const result = await buildIncomingShareDraft({
+      id: "share-named-report",
+      createdAt: "2026-07-15T10:00:00.000Z",
+      payloads: [file],
+      resolvedPayloads: [],
+      fileReader: {
+        readBase64: async () => "unused",
+        readSize: async () => 42,
+        persistFile: async (_uri, name) => `file:///documents/${name}`,
+        removeOwnedFile: async () => undefined,
+      },
+    });
+
+    expect(result.attachments).toEqual([
+      {
+        id: "share-named-report:file:0",
+        type: "file",
+        name: "quarterly-report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 42,
+        fileUri: "file:///documents/quarterly-report.pdf",
+      },
+    ]);
+  });
+
   it("keeps images and rejects shared files on servers without file support", () => {
     const image = {
       id: "image-1",

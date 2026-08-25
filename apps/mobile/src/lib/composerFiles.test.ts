@@ -74,6 +74,7 @@ describe("pickComposerFiles", () => {
     mocks.delete.mockReset();
     mocks.open.mockReset();
     mocks.size.mockReset();
+    mocks.size.mockImplementation((uri: string) => (uri.startsWith("content:") ? null : 42));
   });
 
   it("copies picked files into app-owned storage without loading their contents", async () => {
@@ -147,6 +148,27 @@ describe("pickComposerFiles", () => {
       files: [],
       error: "'archive.zip' exceeds the 50 MB attachment limit.",
     });
+  });
+
+  it("rejects a file that grew after the picker reported its size", async () => {
+    mocks.pickFile.mockResolvedValue({
+      canceled: false,
+      result: [
+        {
+          uri: "file:///downloads/archive.zip",
+          name: "archive.zip",
+          type: "application/zip",
+          size: 42,
+        },
+      ],
+    });
+    mocks.size.mockReturnValue(2 * 1024 * 1024);
+
+    await expect(pickComposerFiles({ existingCount: 0, maxBytes: 1024 * 1024 })).resolves.toEqual({
+      files: [],
+      error: "'archive.zip' exceeds the 1 MB attachment limit.",
+    });
+    expect(mocks.copy).not.toHaveBeenCalled();
   });
 
   it("stops copying an unknown-size content URI when it exceeds the attachment limit", async () => {

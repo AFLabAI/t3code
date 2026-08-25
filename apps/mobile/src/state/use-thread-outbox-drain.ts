@@ -47,10 +47,13 @@ import {
 } from "./thread-outbox-model";
 import { threadEnvironment } from "./threads";
 import {
+  composerDraftsAtom,
   flushComposerDrafts,
   getComposerDraftSnapshot,
   mergeComposerDraftContent,
+  replaceComposerDraftAttachments,
   releaseUnusedComposerAttachmentFiles,
+  restoreComposerDraftSnapshot,
   updateComposerDraftSettings,
 } from "./use-composer-drafts";
 import { useAtomCommand } from "./use-atom-command";
@@ -149,21 +152,20 @@ async function persistQueuedAttachmentUploads(
 async function restoreRejectedQueuedMessage(
   queuedMessage: QueuedThreadMessage,
   message: string,
-): Promise<boolean> {
-  const draftKey = queuedMessage.creation
-    ? `new-task:${scopedProjectKey(queuedMessage.environmentId, queuedMessage.creation.projectId)}`
-    : scopedThreadKey(queuedMessage.environmentId, queuedMessage.threadId);
+): Promise<"restored" | "deferred" | "blocked" | "retry"> {
+  const draftKey = recoveryDraftKey(queuedMessage);
   try {
     if (
       appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId] ||
       !(await confirmThreadOutboxMessageQueued(queuedMessage)) ||
       appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId]
     ) {
-      return true;
+      return "deferred";
     }
 
+    const originalDraft = getComposerDraftSnapshot(draftKey);
     const existingAttachmentIds = new Set(
-      getComposerDraftSnapshot(draftKey).attachments.map((attachment) => attachment.id),
+      originalDraft.attachments.map((attachment) => attachment.id),
     );
     const addedAttachmentCount = queuedMessage.attachments.filter(
       (attachment) => !existingAttachmentIds.has(attachment.id),
@@ -172,7 +174,7 @@ async function restoreRejectedQueuedMessage(
       setPendingConnectionError(
         `Remove attachments from the draft before restoring this message. Messages can contain at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments.`,
       );
-      return false;
+      return "blocked";
     }
 
     await mergeComposerDraftContent(draftKey, {
@@ -180,7 +182,8 @@ async function restoreRejectedQueuedMessage(
       attachments: queuedMessage.attachments,
     });
     if (appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId]) {
-      return true;
+      await restoreComposerDraftSnapshot(draftKey, originalDraft);
+      return "deferred";
     }
     updateComposerDraftSettings(draftKey, {
       ...(queuedMessage.modelSelection ? { modelSelection: queuedMessage.modelSelection } : {}),
@@ -205,17 +208,66 @@ async function restoreRejectedQueuedMessage(
       !(await confirmThreadOutboxMessageQueued(queuedMessage)) ||
       appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId]
     ) {
-      return true;
+      await restoreComposerDraftSnapshot(draftKey, originalDraft);
+      return "deferred";
     }
     await removeThreadOutboxMessage(queuedMessage);
     setPendingConnectionError(message);
-    return true;
+    return "restored";
   } catch (error) {
     console.warn("[thread-outbox] failed to restore an undeliverable message", error);
     setPendingConnectionError(
       error instanceof Error ? error.message : "The unsent message could not be restored.",
     );
-    return false;
+    return "retry";
+  }
+}
+
+function recoveryDraftKey(queuedMessage: QueuedThreadMessage): string {
+  return queuedMessage.creation
+    ? `new-task:${scopedProjectKey(queuedMessage.environmentId, queuedMessage.creation.projectId)}`
+    : scopedThreadKey(queuedMessage.environmentId, queuedMessage.threadId);
+}
+
+async function preserveUploadedAttachmentsForEditor(
+  originalMessage: QueuedThreadMessage,
+  uploadedMessage: QueuedThreadMessage,
+): Promise<void> {
+  if (!originalMessage.creation) {
+    return;
+  }
+
+  const draftKey = `pending-task:${originalMessage.messageId}`;
+  const draft = getComposerDraftSnapshot(draftKey);
+  const uploadedById = new Map(
+    uploadedMessage.attachments
+      .filter((attachment) => attachment.type === "file")
+      .map((attachment) => [attachment.id, attachment] as const),
+  );
+  let changed = false;
+  const nextAttachments = draft.attachments.map((attachment) => {
+    if (attachment.type !== "file") {
+      return attachment;
+    }
+    const uploaded = uploadedById.get(attachment.id);
+    if (
+      !uploaded?.uploadedAttachmentId ||
+      uploaded.uploadEnvironmentId !== originalMessage.environmentId ||
+      (attachment.uploadedAttachmentId === uploaded.uploadedAttachmentId &&
+        attachment.uploadEnvironmentId === uploaded.uploadEnvironmentId)
+    ) {
+      return attachment;
+    }
+    changed = true;
+    return {
+      ...attachment,
+      uploadedAttachmentId: uploaded.uploadedAttachmentId,
+      uploadEnvironmentId: uploaded.uploadEnvironmentId,
+    };
+  });
+  if (changed) {
+    replaceComposerDraftAttachments(draftKey, nextAttachments);
+    await flushComposerDrafts();
   }
 }
 
@@ -242,6 +294,52 @@ export function useThreadOutboxDrain(): void {
   const retryAttemptRef = useRef(new Map<MessageId, number>());
   const retryNotBeforeRef = useRef(new Map<MessageId, number>());
   const retryTimersRef = useRef(new Map<MessageId, ReturnType<typeof setTimeout>>());
+  const blockedRecoverySubscriptionsRef = useRef(new Map<MessageId, () => void>());
+
+  const scheduleQueuedMessageRetry = useCallback((messageId: MessageId) => {
+    const retryAttempt = (retryAttemptRef.current.get(messageId) ?? 0) + 1;
+    retryAttemptRef.current.set(messageId, retryAttempt);
+    const retryDelayMs = threadOutboxRetryDelayMs(retryAttempt);
+    retryNotBeforeRef.current.set(messageId, Date.now() + retryDelayMs);
+    const pendingTimer = retryTimersRef.current.get(messageId);
+    if (pendingTimer !== undefined) {
+      clearTimeout(pendingTimer);
+    }
+    const retryTimer = setTimeout(() => {
+      retryTimersRef.current.delete(messageId);
+      setRetryTick((current) => current + 1);
+    }, retryDelayMs);
+    retryTimersRef.current.set(messageId, retryTimer);
+  }, []);
+
+  const restoreQueuedMessage = useCallback(
+    async (queuedMessage: QueuedThreadMessage, message: string): Promise<boolean> => {
+      const result = await restoreRejectedQueuedMessage(queuedMessage, message);
+      if (result !== "blocked") {
+        return result !== "retry";
+      }
+
+      if (!blockedRecoverySubscriptionsRef.current.has(queuedMessage.messageId)) {
+        const draftKey = recoveryDraftKey(queuedMessage);
+        const blockedAttachments = appAtomRegistry.get(composerDraftsAtom)[draftKey]?.attachments;
+        const unsubscribe = appAtomRegistry.subscribe(composerDraftsAtom, (drafts) => {
+          if (drafts[draftKey]?.attachments === blockedAttachments) {
+            return;
+          }
+          const active = blockedRecoverySubscriptionsRef.current.get(queuedMessage.messageId);
+          if (!active) {
+            return;
+          }
+          blockedRecoverySubscriptionsRef.current.delete(queuedMessage.messageId);
+          active();
+          setRetryTick((current) => current + 1);
+        });
+        blockedRecoverySubscriptionsRef.current.set(queuedMessage.messageId, unsubscribe);
+      }
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     ensureThreadOutboxLoaded();
@@ -250,6 +348,10 @@ export function useThreadOutboxDrain(): void {
         clearTimeout(timer);
       }
       retryTimersRef.current.clear();
+      for (const unsubscribe of blockedRecoverySubscriptionsRef.current.values()) {
+        unsubscribe();
+      }
+      blockedRecoverySubscriptionsRef.current.clear();
     };
   }, []);
 
@@ -359,16 +461,18 @@ export function useThreadOutboxDrain(): void {
           environmentId: queuedMessage.environmentId,
           attachments: queuedMessage.attachments,
         });
-        if ((await persistQueuedAttachmentUploads(queuedMessage, uploaded)) === null) {
+        const persistedMessage = await persistQueuedAttachmentUploads(queuedMessage, uploaded);
+        if (persistedMessage === null) {
           return true;
         }
         if (appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId]) {
+          await preserveUploadedAttachmentsForEditor(queuedMessage, persistedMessage);
           return true;
         }
       } catch (error) {
         console.warn("[thread-outbox] failed to upload attachments", error);
         if (!shouldRetryThreadOutboxDelivery(error)) {
-          return restoreRejectedQueuedMessage(
+          return restoreQueuedMessage(
             queuedMessage,
             error instanceof Error ? error.message : "An attachment could not upload.",
           );
@@ -407,6 +511,7 @@ export function useThreadOutboxDrain(): void {
       setThreadRuntimeMode,
       startTurn,
       updateThreadMetadata,
+      restoreQueuedMessage,
     ],
   );
 
@@ -427,16 +532,18 @@ export function useThreadOutboxDrain(): void {
           environmentId: queuedMessage.environmentId,
           attachments: queuedMessage.attachments,
         });
-        if ((await persistQueuedAttachmentUploads(queuedMessage, uploaded)) === null) {
+        const persistedMessage = await persistQueuedAttachmentUploads(queuedMessage, uploaded);
+        if (persistedMessage === null) {
           return true;
         }
         if (appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId]) {
+          await preserveUploadedAttachmentsForEditor(queuedMessage, persistedMessage);
           return true;
         }
       } catch (error) {
         console.warn("[thread-outbox] failed to upload attachments", error);
         if (!shouldRetryThreadOutboxDelivery(error)) {
-          return restoreRejectedQueuedMessage(
+          return restoreQueuedMessage(
             queuedMessage,
             error instanceof Error ? error.message : "An attachment could not upload.",
           );
@@ -474,7 +581,7 @@ export function useThreadOutboxDrain(): void {
       }
       return delivered;
     },
-    [makeDeliveryHelpers, startTurn],
+    [makeDeliveryHelpers, restoreQueuedMessage, startTurn],
   );
 
   useEffect(() => {
@@ -488,6 +595,9 @@ export function useThreadOutboxDrain(): void {
         continue;
       }
       if (editingQueuedMessageIds[nextQueuedMessage.messageId]) {
+        continue;
+      }
+      if (blockedRecoverySubscriptionsRef.current.has(nextQueuedMessage.messageId)) {
         continue;
       }
       if ((retryNotBeforeRef.current.get(nextQueuedMessage.messageId) ?? 0) > Date.now()) {
@@ -526,7 +636,12 @@ export function useThreadOutboxDrain(): void {
             ) {
               return true;
             }
-            return restoreRejectedQueuedMessage(nextQueuedMessage, attachmentError);
+            return restoreQueuedMessage(nextQueuedMessage, attachmentError);
+          })
+          .then((restored) => {
+            if (!restored) {
+              scheduleQueuedMessageRetry(nextQueuedMessage.messageId);
+            }
           })
           .finally(() => finishDispatchingQueuedMessage(nextQueuedMessage.messageId));
         return;
@@ -624,19 +739,7 @@ export function useThreadOutboxDrain(): void {
             return;
           }
 
-          const retryAttempt = (retryAttemptRef.current.get(nextQueuedMessage.messageId) ?? 0) + 1;
-          retryAttemptRef.current.set(nextQueuedMessage.messageId, retryAttempt);
-          const retryDelayMs = threadOutboxRetryDelayMs(retryAttempt);
-          retryNotBeforeRef.current.set(nextQueuedMessage.messageId, Date.now() + retryDelayMs);
-          const pendingTimer = retryTimersRef.current.get(nextQueuedMessage.messageId);
-          if (pendingTimer !== undefined) {
-            clearTimeout(pendingTimer);
-          }
-          const retryTimer = setTimeout(() => {
-            retryTimersRef.current.delete(nextQueuedMessage.messageId);
-            setRetryTick((current) => current + 1);
-          }, retryDelayMs);
-          retryTimersRef.current.set(nextQueuedMessage.messageId, retryTimer);
+          scheduleQueuedMessageRetry(nextQueuedMessage.messageId);
         })
         .finally(() => {
           finishDispatchingQueuedMessage(nextQueuedMessage.messageId);
@@ -650,6 +753,8 @@ export function useThreadOutboxDrain(): void {
     projects,
     queuedMessagesByThreadKey,
     retryTick,
+    restoreQueuedMessage,
+    scheduleQueuedMessageRetry,
     sendQueuedCreation,
     sendQueuedMessage,
     serverConfigs,
