@@ -69,11 +69,10 @@ on:
   schedule:
     - cron: "17,47 * * * *"
 
-# Serialize runs so OTAs publish in merge order. GitHub keeps at most one
-# queued run per group, so a burst of merges collapses into one run of the
-# newest commit — intermediate commits don't need their own OTA.
+# Serialize push releases so OTAs publish in merge order. Scheduled retries
+# use a separate group and cannot replace a queued push that must start builds.
 concurrency:
-  group: mobile-eas-production
+  group: mobile-eas-production-${{ github.event_name == 'schedule' && 'scheduled' || 'release' }}
   cancel-in-progress: false
 
 jobs:
@@ -277,9 +276,16 @@ jobs:
             matching="$(eas build:list --platform "$platform" --build-profile production --status finished --fingerprint-hash "$hash" --limit 1 --json --non-interactive | jq 'length')"
             if [ "$matching" -gt 0 ]; then
               if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-                group="$(eas update:list --branch production --platform "$platform" --runtime-version "$hash" --limit 1 --json --non-interactive | jq -r '.currentPage[0].group // empty')"
+                updates="$(eas update:list --branch production --platform "$platform" --runtime-version "$hash" --limit 2 --json --non-interactive)"
+                group="$(jq -r '.currentPage[0].group // empty' <<< "$updates")"
                 if [ -n "$group" ]; then
-                  published_commit="$(eas update:view "$group" --json | jq -r --arg platform "$platform" '.[] | select(.platform == $platform) | .gitCommitHash // empty')"
+                  update="$(eas update:view "$group" --json | jq -c --arg platform "$platform" 'map(select(.platform == $platform)) | .[0] // {}')"
+                  if [ "$(jq -r '.isRollBackToEmbedded // false' <<< "$update")" = "true" ]; then
+                    echo "$platform: preserving production rollback to the embedded update"
+                    continue
+                  fi
+
+                  published_commit="$(jq -r '.gitCommitHash // empty' <<< "$update")"
                   if [ -n "$published_commit" ] &&
                     git cat-file -e "$published_commit^{commit}" 2>/dev/null &&
                     git -C "$(git rev-parse --show-toplevel)" diff --quiet "$published_commit" HEAD -- \
@@ -295,6 +301,18 @@ jobs:
                       .github/workflows/mobile-eas-production.yml; then
                     echo "$platform: production OTA already contains the latest mobile changes"
                     continue
+                  fi
+
+                  previous_group="$(jq -r '.currentPage[1].group // empty' <<< "$updates")"
+                  if [ -n "$published_commit" ] && [ -n "$previous_group" ]; then
+                    previous_commit="$(eas update:view "$previous_group" --json | jq -r --arg platform "$platform" '.[] | select(.platform == $platform) | .gitCommitHash // empty')"
+                    if [ -n "$previous_commit" ] &&
+                      [ "$published_commit" != "$previous_commit" ] &&
+                      git cat-file -e "$previous_commit^{commit}" 2>/dev/null &&
+                      git merge-base --is-ancestor "$published_commit" "$previous_commit"; then
+                      echo "$platform: preserving production rollback to an earlier update"
+                      continue
+                    fi
                   fi
                 fi
               fi

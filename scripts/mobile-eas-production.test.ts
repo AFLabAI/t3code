@@ -10,6 +10,7 @@ const Workflow = Schema.Struct({
   on: Schema.Struct({
     schedule: Schema.optional(Schema.Array(Schema.Struct({ cron: Schema.String }))),
   }),
+  concurrency: Schema.Struct({ group: Schema.String }),
   jobs: Schema.Struct({
     production: Schema.Struct({
       steps: Schema.Array(
@@ -42,7 +43,10 @@ function workflowStep(name: string) {
 function runPublishStep(options: {
   readonly finishedPlatforms: ReadonlyArray<"ios" | "android">;
   readonly publishedCommit?: string;
+  readonly previousCommit?: string;
   readonly mobileFilesChanged?: boolean;
+  readonly rollbackToEmbedded?: boolean;
+  readonly rollbackToPrevious?: boolean;
 }) {
   const step = workflowStep("Publish fingerprint-gated OTA");
   const fixture = `
@@ -50,7 +54,10 @@ function runPublishStep(options: {
     export GITHUB_STEP_SUMMARY=/dev/null
     MOCK_FINISHED_PLATFORMS='${options.finishedPlatforms.join(" ")}'
     MOCK_PUBLISHED_COMMIT='${options.publishedCommit ?? ""}'
+    MOCK_PREVIOUS_COMMIT='${options.previousCommit ?? ""}'
     MOCK_MOBILE_FILES_CHANGED='${options.mobileFilesChanged ? "true" : "false"}'
+    MOCK_ROLLBACK_TO_EMBEDDED='${options.rollbackToEmbedded ? "true" : "false"}'
+    MOCK_ROLLBACK_TO_PREVIOUS='${options.rollbackToPrevious ? "true" : "false"}'
 
     eas() {
       local command="$1"
@@ -76,15 +83,23 @@ function runPublishStep(options: {
           fi
           ;;
         update:list)
-          if [ -n "$MOCK_PUBLISHED_COMMIT" ]; then
+          if [ -n "$MOCK_PREVIOUS_COMMIT" ]; then
+            printf '{"currentPage":[{"group":"published-group"},{"group":"previous-group"}]}\\n'
+          elif [ -n "$MOCK_PUBLISHED_COMMIT" ] || [ "$MOCK_ROLLBACK_TO_EMBEDDED" = "true" ]; then
             printf '{"currentPage":[{"group":"published-group"}]}\\n'
           else
             printf '{"currentPage":[]}\\n'
           fi
           ;;
         update:view)
-          printf '[{"platform":"ios","gitCommitHash":"%s"},{"platform":"android","gitCommitHash":"%s"}]\\n' \\
-            "$MOCK_PUBLISHED_COMMIT" "$MOCK_PUBLISHED_COMMIT"
+          local commit="$MOCK_PUBLISHED_COMMIT"
+          local rollback="$MOCK_ROLLBACK_TO_EMBEDDED"
+          if [ "$1" = "previous-group" ]; then
+            commit="$MOCK_PREVIOUS_COMMIT"
+            rollback=false
+          fi
+          printf '[{"platform":"ios","gitCommitHash":"%s","isRollBackToEmbedded":%s},{"platform":"android","gitCommitHash":"%s","isRollBackToEmbedded":%s}]\\n' \\
+            "$commit" "$rollback" "$commit" "$rollback"
           ;;
         update)
           printf 'published:%s\\n' "$platform"
@@ -113,6 +128,12 @@ function runPublishStep(options: {
         cat-file)
           return 0
           ;;
+        merge-base)
+          if [ "$MOCK_ROLLBACK_TO_PREVIOUS" = "true" ]; then
+            return 0
+          fi
+          return 1
+          ;;
         -C)
           if [ "$MOCK_MOBILE_FILES_CHANGED" = "true" ]; then
             return 1
@@ -137,6 +158,7 @@ function runPublishStep(options: {
 describe("mobile EAS production workflow", () => {
   it("retries finished native builds on a schedule without scheduling store builds", () => {
     expect(workflow.on.schedule).toEqual([{ cron: "17,47 * * * *" }]);
+    expect(workflow.concurrency.group).toContain("github.event_name == 'schedule'");
     expect(workflowStep("Publish fingerprint-gated OTA").if).toContain(
       "github.event_name == 'schedule'",
     );
@@ -167,5 +189,26 @@ describe("mobile EAS production workflow", () => {
         mobileFilesChanged: true,
       }),
     ).toContain("published:ios");
+  });
+
+  it("preserves an intentional rollback to the embedded update", () => {
+    expect(
+      runPublishStep({
+        finishedPlatforms: ["ios"],
+        rollbackToEmbedded: true,
+      }),
+    ).not.toContain("published:");
+  });
+
+  it("preserves an intentional rollback to an earlier update", () => {
+    expect(
+      runPublishStep({
+        finishedPlatforms: ["ios"],
+        publishedCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        previousCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        mobileFilesChanged: true,
+        rollbackToPrevious: true,
+      }),
+    ).not.toContain("published:");
   });
 });
