@@ -211,20 +211,23 @@ export function getLoadedProjectFavicon(projectKey: string): LoadedProjectFavico
   return loadedFavicons.get(projectKey) ?? null;
 }
 
+function evictInactiveProjectFavicons(): void {
+  while (loadedFavicons.size > MAX_LOADED_FAVICONS) {
+    const inactiveProjectKey = [...loadedFavicons.keys()].find(
+      (projectKey) => !faviconListeners.has(projectKey),
+    );
+    if (inactiveProjectKey === undefined) return;
+    loadedFavicons.delete(inactiveProjectKey);
+  }
+}
+
 export function rememberProjectFavicon(projectKey: string, favicon: LoadedProjectFavicon): void {
   const existing = loadedFavicons.get(projectKey);
   if (existing?.cacheKey === favicon.cacheKey && existing.src === favicon.src) return;
 
   loadedFavicons.delete(projectKey);
   loadedFavicons.set(projectKey, favicon);
-  if (loadedFavicons.size > MAX_LOADED_FAVICONS) {
-    const oldestProjectKey = loadedFavicons.keys().next().value;
-    if (oldestProjectKey !== undefined) {
-      loadedFavicons.delete(oldestProjectKey);
-      notifyFaviconListeners(oldestProjectKey);
-    }
-  }
-
+  evictInactiveProjectFavicons();
   notifyFaviconListeners(projectKey);
 }
 
@@ -246,6 +249,9 @@ export function subscribeProjectFavicons(projectKey: string, listener: () => voi
 
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) faviconListeners.delete(projectKey);
+    if (listeners.size === 0) {
+      faviconListeners.delete(projectKey);
+      evictInactiveProjectFavicons();
+    }
   };
 }

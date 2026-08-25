@@ -165,7 +165,7 @@ function ProjectFaviconImage(props: {
         const isReplacement = index === 1;
         return (
           <Image
-            key={isReplacement ? faviconRequest.faviconUrl : props.projectKey}
+            key={faviconRequest.faviconUrl}
             source={{
               uri: faviconRequest.faviconUrl,
               cacheKey: faviconRequest.cacheKey,

@@ -343,7 +343,7 @@ describe("loaded project favicons", () => {
     forgetProjectFavicon("unrelated-project");
   });
 
-  it("evicts the oldest favicon after the cache reaches its limit", () => {
+  it("keeps visible favicons while evicting the oldest inactive favicon", () => {
     const oldestProjectKey = "bounded-project-0";
     const oldestProjectListener = vi.fn();
     const unsubscribe = subscribeProjectFavicons(oldestProjectKey, oldestProjectListener);
@@ -355,12 +355,16 @@ describe("loaded project favicons", () => {
       });
     }
 
-    expect(getLoadedProjectFavicon(oldestProjectKey)).toBeNull();
+    expect(getLoadedProjectFavicon(oldestProjectKey)).toEqual({
+      cacheKey: "revision-0",
+      src: "/icons/0.svg",
+    });
+    expect(getLoadedProjectFavicon("bounded-project-1")).toBeNull();
     expect(getLoadedProjectFavicon("bounded-project-256")).toEqual({
       cacheKey: "revision-256",
       src: "/icons/256.svg",
     });
-    expect(oldestProjectListener).toHaveBeenCalledTimes(2);
+    expect(oldestProjectListener).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
 });

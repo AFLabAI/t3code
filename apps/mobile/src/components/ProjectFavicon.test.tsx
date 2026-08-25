@@ -188,6 +188,24 @@ describe("ProjectFavicon", () => {
     expect(testState.rejectedSourceKeys.size).toBe(1);
   });
 
+  it("does not let a previous image error clear a newer group icon", () => {
+    loadGroupFavicon();
+    const previousImage = renderImage(renderFavicon(SOURCE_ENVIRONMENT, SOURCE_ROOT)).props
+      .children[1][0];
+
+    testState.faviconUrl = "https://environment.test/api/assets/token-b/v2-favicon.svg";
+    const refreshing = renderImage(renderFavicon(SOURCE_ENVIRONMENT, SOURCE_ROOT));
+    refreshing.props.children[1][1]?.props.onLoad();
+
+    const currentImage = renderImage(renderFavicon(SOURCE_ENVIRONMENT, SOURCE_ROOT)).props
+      .children[1][0];
+    expect(previousImage?.key).not.toBe(currentImage?.key);
+
+    previousImage?.props.onError();
+
+    expect(getLoadedProjectFavicon(GROUP_KEY)?.src).toBe(testState.faviconUrl);
+  });
+
   it("scopes a missing project selection to the current account", () => {
     testState.accountId = "account-current";
 
