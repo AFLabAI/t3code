@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   type AttachmentCreateUploadUrlInput,
   type AttachmentCreateUploadUrlResult,
@@ -19,8 +20,9 @@ type TurnAttachment = ChatAttachment | UploadChatAttachment;
 
 interface MobileAttachmentUploadInput {
   readonly environmentId: EnvironmentId;
+  readonly commandId?: string;
   readonly httpBaseUrl: string | null;
-  readonly supportsUploads: boolean;
+  readonly supportsUploads: boolean | null;
   readonly attachments: ReadonlyArray<TurnAttachment>;
   readonly createUploadUrl: (
     input: AttachmentCreateUploadUrlInput,
@@ -32,6 +34,8 @@ interface PreparedMobileTurnAttachments {
   readonly attachments: ReadonlyArray<TurnAttachment>;
   readonly release: () => Promise<void>;
 }
+
+const preparedAttachmentsByCommand = new Map<string, PreparedMobileTurnAttachments>();
 
 function transientUploadError(name: string, cause: unknown): ConnectionTransientError {
   console.warn("Image attachment upload failed.", { attachmentName: name, cause });
@@ -48,6 +52,12 @@ export async function prepareMobileTurnAttachments(
   if (input.attachments.length === 0) {
     return { attachments: input.attachments, release: async () => undefined };
   }
+  if (input.supportsUploads === null) {
+    throw new ConnectionTransientError({
+      reason: "endpoint-unavailable",
+      detail: "Environment upload capabilities are still loading.",
+    });
+  }
   if (!input.supportsUploads) {
     throw new ConnectionBlockedError({
       reason: "unsupported",
@@ -55,9 +65,19 @@ export async function prepareMobileTurnAttachments(
     });
   }
 
+  const commandKey =
+    input.commandId === undefined ? null : `${input.environmentId}:${input.commandId}`;
+  const existing = commandKey === null ? undefined : preparedAttachmentsByCommand.get(commandKey);
+  if (existing) {
+    return existing;
+  }
+
   const { File: ExpoFile, Paths } = await import("expo-file-system");
   const pendingAttachmentIds = new Set<string>();
   const release = async (): Promise<void> => {
+    if (commandKey !== null) {
+      preparedAttachmentsByCommand.delete(commandKey);
+    }
     const attachmentIds = [...pendingAttachmentIds];
     pendingAttachmentIds.clear();
     await Promise.allSettled(attachmentIds.map((attachmentId) => input.deleteUpload(attachmentId)));
@@ -89,10 +109,12 @@ export async function prepareMobileTurnAttachments(
       }
       const separatorIndex = attachment.dataUrl.indexOf(",");
       const base64 = attachment.dataUrl.slice(separatorIndex + 1);
+      const sizeBytes = estimateBase64ByteSize(base64);
       if (
         separatorIndex < 0 ||
         !attachment.dataUrl.slice(0, separatorIndex).endsWith(";base64") ||
-        estimateBase64ByteSize(base64) !== attachment.sizeBytes
+        sizeBytes <= 0 ||
+        sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
       ) {
         throw new ConnectionBlockedError({
           reason: "configuration",
@@ -103,7 +125,7 @@ export async function prepareMobileTurnAttachments(
       const upload = await input.createUploadUrl({
         name: attachment.name,
         mimeType,
-        sizeBytes: attachment.sizeBytes,
+        sizeBytes,
       });
       pendingAttachmentIds.add(upload.attachmentId);
 
@@ -137,7 +159,7 @@ export async function prepareMobileTurnAttachments(
         id: upload.attachmentId,
         name: attachment.name,
         mimeType,
-        sizeBytes: attachment.sizeBytes,
+        sizeBytes,
       });
     } catch (cause) {
       await release();
@@ -155,5 +177,9 @@ export async function prepareMobileTurnAttachments(
     }
   }
 
-  return { attachments: uploadedAttachments, release };
+  const prepared = { attachments: uploadedAttachments, release };
+  if (commandKey !== null) {
+    preparedAttachmentsByCommand.set(commandKey, prepared);
+  }
+  return prepared;
 }

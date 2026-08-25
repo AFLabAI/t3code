@@ -119,6 +119,25 @@ describe("prepareMobileTurnAttachments", () => {
     expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-2");
   });
 
+  it("uses the encoded image size when picker metadata reports a different size", async () => {
+    const dependencies = uploadDependencies();
+
+    const prepared = await prepareMobileTurnAttachments({
+      environmentId,
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [{ ...image("picked.png"), sizeBytes: 12 }],
+      ...dependencies,
+    });
+
+    expect(dependencies.createUploadUrl).toHaveBeenCalledWith({
+      name: "picked.png",
+      mimeType: "image/png",
+      sizeBytes: 3,
+    });
+    expect(prepared.attachments).toMatchObject([{ sizeBytes: 3 }]);
+  });
+
   it("requires an updated environment instead of sending inline attachments", async () => {
     const dependencies = uploadDependencies();
     const images = [image("legacy.png")];
@@ -137,6 +156,24 @@ describe("prepareMobileTurnAttachments", () => {
     });
     expect(dependencies.createUploadUrl).not.toHaveBeenCalled();
     expect(mocks.upload).not.toHaveBeenCalled();
+  });
+
+  it("retries while environment upload capabilities are still loading", async () => {
+    const dependencies = uploadDependencies();
+
+    await expect(
+      prepareMobileTurnAttachments({
+        environmentId,
+        httpBaseUrl: "https://remote.example.test/",
+        supportsUploads: null,
+        attachments: [image("waiting.png")],
+        ...dependencies,
+      }),
+    ).rejects.toMatchObject({
+      _tag: "ConnectionTransientError",
+      message: "Environment upload capabilities are still loading.",
+    });
+    expect(dependencies.createUploadUrl).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -207,6 +244,28 @@ describe("prepareMobileTurnAttachments", () => {
       message: "Could not upload 'rejected.png': upload rejected (400).",
     });
     expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
+  });
+
+  it("reuses uploaded attachment IDs when the same turn is retried", async () => {
+    const dependencies = uploadDependencies();
+    const input = {
+      environmentId,
+      commandId: "retryable-turn",
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [image("retry.png")],
+      ...dependencies,
+    };
+
+    const first = await prepareMobileTurnAttachments(input);
+    const retry = await prepareMobileTurnAttachments(input);
+
+    expect(retry.attachments).toEqual(first.attachments);
+    expect(dependencies.createUploadUrl).toHaveBeenCalledTimes(1);
+    expect(mocks.upload).toHaveBeenCalledTimes(1);
+
+    await retry.release();
+    expect(dependencies.deleteUpload).toHaveBeenCalledTimes(1);
   });
 
   it("removes pending uploads after a failed request and can retry the original images", async () => {

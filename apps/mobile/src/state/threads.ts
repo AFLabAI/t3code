@@ -20,6 +20,7 @@ import { attachmentEnvironment } from "./attachments";
 import { environmentSession } from "./session";
 import { serverEnvironment } from "./server";
 import { environmentSnapshotAtom } from "./shell";
+import { shouldRetryThreadOutboxDelivery } from "./thread-outbox-model";
 
 const threadCommands = createThreadEnvironmentAtoms(connectionAtomRuntime);
 
@@ -27,13 +28,13 @@ async function startMobileThreadTurn(
   registry: AtomRegistry.AtomRegistry,
   target: Parameters<typeof threadCommands.startTurn.run>[1],
 ) {
-  const supportsUploads =
-    registry.get(serverEnvironment.configValueAtom(target.environmentId))?.environment.capabilities
-      .attachmentUploads === true;
   if (target.input.message.attachments.length === 0) {
     return threadCommands.startTurn.run(registry, target);
   }
 
+  const serverConfig = registry.get(serverEnvironment.configValueAtom(target.environmentId));
+  const supportsUploads =
+    serverConfig === null ? null : serverConfig.environment.capabilities.attachmentUploads === true;
   const connection = Option.getOrNull(
     registry.get(environmentSession.preparedConnectionValueAtom(target.environmentId)),
   );
@@ -41,6 +42,7 @@ async function startMobileThreadTurn(
   try {
     prepared = await prepareMobileTurnAttachments({
       environmentId: target.environmentId,
+      ...(target.input.commandId === undefined ? {} : { commandId: target.input.commandId }),
       httpBaseUrl: connection?.httpBaseUrl ?? null,
       supportsUploads,
       attachments: target.input.message.attachments,
@@ -69,17 +71,21 @@ async function startMobileThreadTurn(
     return AsyncResult.failure(Cause.fail(error));
   }
 
-  try {
-    return await threadCommands.startTurn.run(registry, {
-      ...target,
-      input: {
-        ...target.input,
-        message: { ...target.input.message, attachments: prepared.attachments },
-      },
-    });
-  } finally {
+  const result = await threadCommands.startTurn.run(registry, {
+    ...target,
+    input: {
+      ...target.input,
+      message: { ...target.input.message, attachments: prepared.attachments },
+    },
+  });
+  const retryable =
+    result._tag === "Failure" &&
+    (Cause.hasInterruptsOnly(result.cause) ||
+      shouldRetryThreadOutboxDelivery(Cause.squash(result.cause)));
+  if (target.input.commandId === undefined || !retryable) {
     void prepared.release();
   }
+  return result;
 }
 
 export const threadEnvironment = {
