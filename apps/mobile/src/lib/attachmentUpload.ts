@@ -1,4 +1,7 @@
-import { ConnectionTransientError } from "@t3tools/client-runtime/connection";
+import {
+  ConnectionBlockedError,
+  ConnectionTransientError,
+} from "@t3tools/client-runtime/connection";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
@@ -9,6 +12,8 @@ import {
   type UploadChatAttachment,
 } from "@t3tools/contracts";
 import type { File } from "expo-file-system";
+
+import { estimateBase64ByteSize } from "./base64";
 
 type TurnAttachment = ChatAttachment | UploadChatAttachment;
 
@@ -29,19 +34,25 @@ interface PreparedMobileTurnAttachments {
 }
 
 function transientUploadError(name: string, cause: unknown): ConnectionTransientError {
-  const reason = cause instanceof Error ? cause.message : "upload failed";
+  console.warn("Image attachment upload failed.", { attachmentName: name, cause });
   return new ConnectionTransientError({
     reason: "network",
-    detail: `Could not upload '${name}': ${reason.replace(/\.$/, "")}.`,
+    detail: `Could not upload '${name}'.`,
   });
 }
 
-/** Uploads mobile images as native binary requests and keeps old servers on the inline format. */
+/** Uploads mobile images as native binary requests before their turn is sent. */
 export async function prepareMobileTurnAttachments(
   input: MobileAttachmentUploadInput,
 ): Promise<PreparedMobileTurnAttachments> {
-  if (!input.supportsUploads || input.attachments.length === 0) {
+  if (input.attachments.length === 0) {
     return { attachments: input.attachments, release: async () => undefined };
+  }
+  if (!input.supportsUploads) {
+    throw new ConnectionBlockedError({
+      reason: "unsupported",
+      detail: "Image attachments require an updated environment.",
+    });
   }
 
   const { File: ExpoFile, Paths } = await import("expo-file-system");
@@ -62,13 +73,31 @@ export async function prepareMobileTurnAttachments(
     let temporaryFile: File | null = null;
     try {
       if (input.httpBaseUrl === null) {
-        throw new Error("environment is not connected");
+        throw new ConnectionTransientError({
+          reason: "endpoint-unavailable",
+          detail: `Could not upload '${attachment.name}': environment is not connected.`,
+        });
       }
       const mimeType = PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.find(
         (supportedMimeType) => supportedMimeType === attachment.mimeType.toLowerCase(),
       );
       if (!mimeType) {
-        throw new Error("image type is not supported");
+        throw new ConnectionBlockedError({
+          reason: "unsupported",
+          detail: `Could not upload '${attachment.name}': image type is not supported.`,
+        });
+      }
+      const separatorIndex = attachment.dataUrl.indexOf(",");
+      const base64 = attachment.dataUrl.slice(separatorIndex + 1);
+      if (
+        separatorIndex < 0 ||
+        !attachment.dataUrl.slice(0, separatorIndex).endsWith(";base64") ||
+        estimateBase64ByteSize(base64) !== attachment.sizeBytes
+      ) {
+        throw new ConnectionBlockedError({
+          reason: "configuration",
+          detail: `Could not upload '${attachment.name}': image data is invalid.`,
+        });
       }
 
       const upload = await input.createUploadUrl({
@@ -80,22 +109,27 @@ export async function prepareMobileTurnAttachments(
 
       const url = resolveAssetUrl(input.httpBaseUrl, upload.relativeUrl);
       if (url === null) {
-        throw new Error("upload URL is invalid");
-      }
-
-      const separatorIndex = attachment.dataUrl.indexOf(",");
-      if (separatorIndex < 0) {
-        throw new Error("image data is invalid");
+        throw new ConnectionBlockedError({
+          reason: "configuration",
+          detail: `Could not upload '${attachment.name}': upload URL is invalid.`,
+        });
       }
       temporaryFile = new ExpoFile(Paths.cache, `t3-attachment-${upload.attachmentId}`);
-      temporaryFile.write(attachment.dataUrl.slice(separatorIndex + 1), { encoding: "base64" });
+      temporaryFile.write(base64, { encoding: "base64" });
 
       const result = await temporaryFile.upload(url, {
         httpMethod: "POST",
         headers: { "Content-Type": mimeType },
       });
       if (result.status < 200 || result.status >= 300) {
-        throw new Error(`upload rejected (${result.status})`);
+        const detail = `Could not upload '${attachment.name}': upload rejected (${result.status}).`;
+        if (result.status >= 400 && result.status < 500 && ![408, 429].includes(result.status)) {
+          throw new ConnectionBlockedError({
+            reason: result.status === 401 || result.status === 403 ? "permission" : "configuration",
+            detail,
+          });
+        }
+        throw new ConnectionTransientError({ reason: "network", detail });
       }
 
       uploadedAttachments.push({
@@ -107,7 +141,9 @@ export async function prepareMobileTurnAttachments(
       });
     } catch (cause) {
       await release();
-      throw transientUploadError(attachment.name, cause);
+      throw cause instanceof ConnectionBlockedError || cause instanceof ConnectionTransientError
+        ? cause
+        : transientUploadError(attachment.name, cause);
     } finally {
       if (temporaryFile?.exists) {
         try {

@@ -30,7 +30,7 @@ async function startMobileThreadTurn(
   const supportsUploads =
     registry.get(serverEnvironment.configValueAtom(target.environmentId))?.environment.capabilities
       .attachmentUploads === true;
-  if (!supportsUploads || target.input.message.attachments.length === 0) {
+  if (target.input.message.attachments.length === 0) {
     return threadCommands.startTurn.run(registry, target);
   }
 

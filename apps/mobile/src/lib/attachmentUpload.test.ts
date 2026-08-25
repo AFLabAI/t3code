@@ -119,21 +119,94 @@ describe("prepareMobileTurnAttachments", () => {
     expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-2");
   });
 
-  it("keeps inline attachments for environments without HTTP upload support", async () => {
+  it("requires an updated environment instead of sending inline attachments", async () => {
     const dependencies = uploadDependencies();
     const images = [image("legacy.png")];
 
-    const prepared = await prepareMobileTurnAttachments({
-      environmentId,
-      httpBaseUrl: "https://older.example.test/",
-      supportsUploads: false,
-      attachments: images,
-      ...dependencies,
+    await expect(
+      prepareMobileTurnAttachments({
+        environmentId,
+        httpBaseUrl: "https://older.example.test/",
+        supportsUploads: false,
+        attachments: images,
+        ...dependencies,
+      }),
+    ).rejects.toMatchObject({
+      _tag: "ConnectionBlockedError",
+      message: "Image attachments require an updated environment.",
     });
-
-    expect(prepared.attachments).toEqual(images);
     expect(dependencies.createUploadUrl).not.toHaveBeenCalled();
     expect(mocks.upload).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      attachment: { ...image("unsupported.png"), mimeType: "image/tiff" },
+      message: "Could not upload 'unsupported.png': image type is not supported.",
+    },
+    {
+      attachment: { ...image("invalid.png"), dataUrl: "not-a-data-url" },
+      message: "Could not upload 'invalid.png': image data is invalid.",
+    },
+  ])("does not retry invalid image attachments", async ({ attachment, message }) => {
+    const dependencies = uploadDependencies();
+
+    await expect(
+      prepareMobileTurnAttachments({
+        environmentId,
+        httpBaseUrl: "https://remote.example.test/",
+        supportsUploads: true,
+        attachments: [attachment],
+        ...dependencies,
+      }),
+    ).rejects.toMatchObject({ _tag: "ConnectionBlockedError", message });
+    expect(dependencies.createUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("keeps underlying upload errors out of caller-visible messages", async () => {
+    const dependencies = uploadDependencies();
+    dependencies.createUploadUrl.mockRejectedValueOnce(new Error("private remote error details"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(
+      prepareMobileTurnAttachments({
+        environmentId,
+        httpBaseUrl: "https://remote.example.test/",
+        supportsUploads: true,
+        attachments: [image("private.png")],
+        ...dependencies,
+      }),
+    ).rejects.toMatchObject({
+      _tag: "ConnectionTransientError",
+      message: "Could not upload 'private.png'.",
+    });
+    expect(warning).toHaveBeenCalledWith(
+      "Image attachment upload failed.",
+      expect.objectContaining({
+        attachmentName: "private.png",
+        cause: expect.objectContaining({ message: "private remote error details" }),
+      }),
+    );
+    warning.mockRestore();
+  });
+
+  it("does not retry an upload rejected by a permanent HTTP error", async () => {
+    const dependencies = uploadDependencies();
+    mocks.upload.mockResolvedValueOnce({ status: 400 });
+
+    await expect(
+      prepareMobileTurnAttachments({
+        environmentId,
+        httpBaseUrl: "https://remote.example.test/",
+        supportsUploads: true,
+        attachments: [image("rejected.png")],
+        ...dependencies,
+      }),
+    ).rejects.toMatchObject({
+      _tag: "ConnectionBlockedError",
+      message: "Could not upload 'rejected.png': upload rejected (400).",
+    });
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
   });
 
   it("removes pending uploads after a failed request and can retry the original images", async () => {
