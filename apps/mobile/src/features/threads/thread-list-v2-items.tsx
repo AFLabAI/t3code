@@ -22,6 +22,7 @@ import { useThreadPr } from "../../state/use-thread-pr";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
+import { buildThreadPullRequestMenuItems, openThreadPullRequest } from "./thread-pull-request-menu";
 import {
   resolveThreadListV2ChangeRequestState,
   resolveThreadListV2SnoozeMenuSelection,
@@ -574,8 +575,35 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     () => [LEGACY_MENU_ACTIONS[0]!, ...titleRegenerationMenuItems, LEGACY_MENU_ACTIONS[1]!],
     [titleRegenerationMenuItems],
   );
+  const menuActions = useMemo<MenuAction[]>(
+    () => [
+      ...buildThreadPullRequestMenuItems(pr),
+      ...(snoozedRow
+        ? snoozedMenuActions
+        : !props.settlementSupported
+          ? legacyMenuActions
+          : canUnsettle
+            ? slimMenuActions
+            : swipeActions.secondary === "snooze"
+              ? snoozableCardMenuActions
+              : cardMenuActions),
+    ],
+    [
+      canUnsettle,
+      cardMenuActions,
+      legacyMenuActions,
+      pr,
+      props.settlementSupported,
+      slimMenuActions,
+      snoozableCardMenuActions,
+      snoozedMenuActions,
+      snoozedRow,
+      swipeActions.secondary,
+    ],
+  );
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      if (nativeEvent.event === "open-pull-request") void openThreadPullRequest(pr);
       if (nativeEvent.event === "settle") handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
@@ -609,6 +637,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnpin,
       handleUnsettle,
       handleUnsnooze,
+      pr,
       snoozePresets,
     ],
   );
@@ -942,17 +971,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       >
         {(close) => (
           <ControlPillMenu
-            actions={
-              snoozedRow
-                ? snoozedMenuActions
-                : !props.settlementSupported
-                  ? legacyMenuActions
-                  : canUnsettle
-                    ? slimMenuActions
-                    : swipeActions.secondary === "snooze"
-                      ? snoozableCardMenuActions
-                      : cardMenuActions
-            }
+            actions={menuActions}
             onPressAction={handleMenuAction}
             shouldOpenOnLongPress
           >

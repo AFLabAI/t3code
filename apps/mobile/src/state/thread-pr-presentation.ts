@@ -11,6 +11,7 @@ export interface ThreadPrPresentation {
   readonly url: string;
   /** Compact pull request number label, e.g. "3774". */
   readonly label: string;
+  readonly longName: string;
   /** Full, provider-aware label for assistive technologies. */
   readonly accessibilityLabel: string;
   readonly textClassName: string;
@@ -33,6 +34,7 @@ export function presentThreadPr(
     updatedAt: pr.updatedAt ?? null,
     url: pr.url,
     label: String(pr.number),
+    longName: presentation.longName,
     accessibilityLabel: `#${pr.number} ${presentation.longName} ${pr.state}`,
     textClassName: PR_STATE_TEXT_CLASS[pr.state],
   };

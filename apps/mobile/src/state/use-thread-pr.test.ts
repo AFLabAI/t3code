@@ -16,6 +16,7 @@ describe("presentThreadPr", () => {
   it("uses the compact pull request number label without a hash prefix", () => {
     expect(presentThreadPr(pullRequest, undefined)).toMatchObject({
       label: "3774",
+      longName: "pull request",
       accessibilityLabel: "#3774 pull request merged",
       textClassName: "text-violet-600 dark:text-violet-400",
     });
@@ -30,6 +31,7 @@ describe("presentThreadPr", () => {
       }),
     ).toMatchObject({
       label: "3774",
+      longName: "merge request",
       accessibilityLabel: "#3774 merge request merged",
     });
   });
