@@ -42,7 +42,7 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 
-import { prepareMobileTurnAttachments } from "./attachmentUpload";
+import { prepareMobileTurnAttachments, releaseMobileTurnAttachments } from "./attachmentUpload";
 
 const environmentId = EnvironmentId.make("environment-1");
 
@@ -266,6 +266,65 @@ describe("prepareMobileTurnAttachments", () => {
 
     await retry.release();
     expect(dependencies.deleteUpload).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces cached uploads when a queued turn is edited", async () => {
+    const dependencies = uploadDependencies();
+    const input = {
+      environmentId,
+      commandId: "edited-turn",
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [image("before.png")],
+      ...dependencies,
+    };
+
+    await prepareMobileTurnAttachments(input);
+    const edited = await prepareMobileTurnAttachments({
+      ...input,
+      attachments: [{ ...image("after.png"), dataUrl: "data:image/png;base64,ZGVm" }],
+    });
+
+    expect(edited.attachments).toMatchObject([{ id: "pending-2", name: "after.png" }]);
+    expect(dependencies.createUploadUrl).toHaveBeenCalledTimes(2);
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
+
+    await edited.release();
+  });
+
+  it("releases cached uploads when a queued turn is deleted", async () => {
+    const dependencies = uploadDependencies();
+    await prepareMobileTurnAttachments({
+      environmentId,
+      commandId: "deleted-turn",
+      httpBaseUrl: "https://remote.example.test/",
+      supportsUploads: true,
+      attachments: [image("deleted.png")],
+      ...dependencies,
+    });
+
+    await releaseMobileTurnAttachments({ environmentId, commandId: "deleted-turn" });
+
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
+  });
+
+  it("releases every cached upload when an environment is removed", async () => {
+    const dependencies = uploadDependencies();
+    for (const commandId of ["removed-first", "removed-second"]) {
+      await prepareMobileTurnAttachments({
+        environmentId,
+        commandId,
+        httpBaseUrl: "https://remote.example.test/",
+        supportsUploads: true,
+        attachments: [image(`${commandId}.png`)],
+        ...dependencies,
+      });
+    }
+
+    await releaseMobileTurnAttachments({ environmentId });
+
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-1");
+    expect(dependencies.deleteUpload).toHaveBeenCalledWith("pending-2");
   });
 
   it("removes pending uploads after a failed request and can retry the original images", async () => {

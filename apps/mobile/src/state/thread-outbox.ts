@@ -1,5 +1,6 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 
+import { releaseMobileTurnAttachments } from "../lib/attachmentUpload";
 import { appAtomRegistry } from "./atom-registry";
 import { createThreadOutboxManager } from "./thread-outbox-manager";
 import type { QueuedThreadMessage } from "./thread-outbox-model";
@@ -41,10 +42,15 @@ export function updateThreadOutboxMessage(message: QueuedThreadMessage): Promise
   return threadOutboxManager.update(message);
 }
 
-export function removeThreadOutboxMessage(message: QueuedThreadMessage): Promise<void> {
-  return threadOutboxManager.remove(message);
+export async function removeThreadOutboxMessage(message: QueuedThreadMessage): Promise<void> {
+  await threadOutboxManager.remove(message);
+  await releaseMobileTurnAttachments({
+    environmentId: message.environmentId,
+    commandId: message.commandId,
+  });
 }
 
-export function clearThreadOutboxEnvironment(environmentId: EnvironmentId): Promise<void> {
-  return threadOutboxManager.clearEnvironment(environmentId);
+export async function clearThreadOutboxEnvironment(environmentId: EnvironmentId): Promise<void> {
+  await threadOutboxManager.clearEnvironment(environmentId);
+  await releaseMobileTurnAttachments({ environmentId });
 }

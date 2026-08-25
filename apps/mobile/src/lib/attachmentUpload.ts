@@ -35,7 +35,51 @@ interface PreparedMobileTurnAttachments {
   readonly release: () => Promise<void>;
 }
 
-const preparedAttachmentsByCommand = new Map<string, PreparedMobileTurnAttachments>();
+const preparedAttachmentsByCommand = new Map<
+  string,
+  {
+    readonly sourceAttachments: ReadonlyArray<TurnAttachment>;
+    readonly prepared: PreparedMobileTurnAttachments;
+  }
+>();
+
+/** Releases uploads retained for one queued turn or for every turn in an environment. */
+export async function releaseMobileTurnAttachments(input: {
+  readonly environmentId: EnvironmentId;
+  readonly commandId?: string;
+}): Promise<void> {
+  const keyPrefix = `${input.environmentId}:`;
+  const matching =
+    input.commandId === undefined
+      ? [...preparedAttachmentsByCommand.entries()]
+          .filter(([key]) => key.startsWith(keyPrefix))
+          .map(([, entry]) => entry.prepared)
+      : [preparedAttachmentsByCommand.get(`${keyPrefix}${input.commandId}`)?.prepared].filter(
+          (prepared): prepared is PreparedMobileTurnAttachments => prepared !== undefined,
+        );
+  await Promise.allSettled(matching.map((prepared) => prepared.release()));
+}
+
+function sameAttachments(
+  left: ReadonlyArray<TurnAttachment>,
+  right: ReadonlyArray<TurnAttachment>,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((attachment, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        attachment.name === other.name &&
+        attachment.mimeType === other.mimeType &&
+        attachment.sizeBytes === other.sizeBytes &&
+        ("dataUrl" in attachment
+          ? "dataUrl" in other && attachment.dataUrl === other.dataUrl
+          : "id" in other && attachment.id === other.id)
+      );
+    })
+  );
+}
 
 function transientUploadError(name: string, cause: unknown): ConnectionTransientError {
   console.warn("Image attachment upload failed.", { attachmentName: name, cause });
@@ -69,7 +113,10 @@ export async function prepareMobileTurnAttachments(
     input.commandId === undefined ? null : `${input.environmentId}:${input.commandId}`;
   const existing = commandKey === null ? undefined : preparedAttachmentsByCommand.get(commandKey);
   if (existing) {
-    return existing;
+    if (sameAttachments(existing.sourceAttachments, input.attachments)) {
+      return existing.prepared;
+    }
+    await existing.prepared.release();
   }
 
   const { File: ExpoFile, Paths } = await import("expo-file-system");
@@ -179,7 +226,10 @@ export async function prepareMobileTurnAttachments(
 
   const prepared = { attachments: uploadedAttachments, release };
   if (commandKey !== null) {
-    preparedAttachmentsByCommand.set(commandKey, prepared);
+    preparedAttachmentsByCommand.set(commandKey, {
+      sourceAttachments: input.attachments,
+      prepared,
+    });
   }
   return prepared;
 }
