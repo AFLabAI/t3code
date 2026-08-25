@@ -11,6 +11,9 @@ On SwiftUI mobile, paste an image from the message field's edit menu or drag an 
 composer to attach it. You can attach up to eight images to one message. The composer grows to
 12 lines, then scrolls within the message field.
 
+On web and desktop, HEIC and HEIF photos are automatically converted to JPEG when you drag them into
+the composer or paste them into a message.
+
 ## Commands and skills
 
 Type `/` to open the command menu. Type `$` to find and add a skill. Skill rows show their source,
