@@ -842,6 +842,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       binaryPath: input.binaryPath,
       args: ["debug", "skill"],
       cwd: input.cwd,
+      maxOutputBytes: OPENCODE_SKILL_DISCOVERY_MAX_OUTPUT_BYTES,
       ...(input.environment !== undefined ? { environment: input.environment } : {}),
     }).pipe(
       Effect.flatMap((result) =>

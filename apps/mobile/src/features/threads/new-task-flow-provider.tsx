@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 
 import type {
   EnvironmentId,
@@ -444,13 +445,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         option.selection.instanceId === selectedModel.instanceId &&
         option.selection.model === selectedModel.model,
     ) ?? null;
-  const selectedProviderSkills = useMemo(
-    () =>
-      selectedEnvironmentServerConfig?.providers.find(
-        (provider) => provider.instanceId === selectedModel?.instanceId,
-      )?.skills ?? [],
-    [selectedEnvironmentServerConfig, selectedModel?.instanceId],
-  );
+  const selectedProviderSkills = useMemo(() => {
+    const provider = selectedEnvironmentServerConfig?.providers.find(
+      (provider) => provider.instanceId === selectedModel?.instanceId,
+    );
+    return provider
+      ? resolveProviderSkillsForCwd(provider, selectedProject?.workspaceRoot ?? null)
+      : [];
+  }, [selectedEnvironmentServerConfig, selectedModel?.instanceId, selectedProject?.workspaceRoot]);
   const setSelectedModelKey = useCallback(
     // Options ride along in the same write: a follow-up setSelectedModelOptions
     // call would rebuild the selection from the stale pre-switch model.

@@ -155,6 +155,16 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
 
       NodeAssert.deepEqual(inventory.providerList.connected, ["openai"]);
       NodeAssert.equal(inventory.skills.length, 0);
+      const directSkills = yield* runtime.loadSkillsFromCli({
+        binaryPath,
+        cwd: tempDir,
+        environment: {
+          ...hostEnvironment,
+          T3_TEST_NODE_BINARY: executablePath,
+          T3_TEST_OPENCODE_SCRIPT: scriptPath,
+        },
+      });
+      NodeAssert.deepEqual(directSkills, []);
     }),
   );
 

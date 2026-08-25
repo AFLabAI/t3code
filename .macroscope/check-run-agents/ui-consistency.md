@@ -79,7 +79,7 @@ The goal is not to minimize CSS or class counts at any cost. The goal is to put 
 
 ## Change discipline
 
-- When a provider skill catalog becomes workspace-scoped, trace every renderer that resolves `$skill` tokens, including composer menus/editors and sent-message timelines on web and mobile. The same token must not render as a chip before send and raw text afterward.
+- When a provider skill catalog becomes workspace-scoped, trace every renderer that resolves `$skill` tokens, including existing-thread composers, new-task drafts, and sent-message timelines on web and mobile. Reuse a matching cwd snapshot in drafts when it already exists; the same token must not render as a chip on one surface and raw text on another.
 - Review the pull request's changed scope and directly affected consumers. Do not turn a focused PR into a demand for unrelated legacy cleanup.
 - Prefer the smallest durable contract over a component-specific workaround or a broad abstraction with one consumer.
 - Preserve intentional exceptions and comments that explain browser, virtualizer, theme, or Electron constraints.
