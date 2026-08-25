@@ -294,7 +294,12 @@ export function useThreadOutboxDrain(): void {
   const retryAttemptRef = useRef(new Map<MessageId, number>());
   const retryNotBeforeRef = useRef(new Map<MessageId, number>());
   const retryTimersRef = useRef(new Map<MessageId, ReturnType<typeof setTimeout>>());
-  const blockedRecoverySubscriptionsRef = useRef(new Map<MessageId, () => void>());
+  const blockedRecoverySubscriptionsRef = useRef(
+    new Map<
+      MessageId,
+      { readonly message: QueuedThreadMessage; readonly unsubscribe: () => void }
+    >(),
+  );
 
   const scheduleQueuedMessageRetry = useCallback((messageId: MessageId) => {
     const retryAttempt = (retryAttemptRef.current.get(messageId) ?? 0) + 1;
@@ -321,9 +326,18 @@ export function useThreadOutboxDrain(): void {
 
       if (!blockedRecoverySubscriptionsRef.current.has(queuedMessage.messageId)) {
         const draftKey = recoveryDraftKey(queuedMessage);
-        const blockedAttachments = appAtomRegistry.get(composerDraftsAtom)[draftKey]?.attachments;
+        const editorDraftKey = queuedMessage.creation
+          ? `pending-task:${queuedMessage.messageId}`
+          : null;
+        const currentDrafts = appAtomRegistry.get(composerDraftsAtom);
+        const blockedAttachments = currentDrafts[draftKey]?.attachments;
+        const editorAttachments =
+          editorDraftKey === null ? undefined : currentDrafts[editorDraftKey]?.attachments;
         const unsubscribe = appAtomRegistry.subscribe(composerDraftsAtom, (drafts) => {
-          if (drafts[draftKey]?.attachments === blockedAttachments) {
+          if (
+            drafts[draftKey]?.attachments === blockedAttachments &&
+            (editorDraftKey === null || drafts[editorDraftKey]?.attachments === editorAttachments)
+          ) {
             return;
           }
           const active = blockedRecoverySubscriptionsRef.current.get(queuedMessage.messageId);
@@ -331,10 +345,13 @@ export function useThreadOutboxDrain(): void {
             return;
           }
           blockedRecoverySubscriptionsRef.current.delete(queuedMessage.messageId);
-          active();
+          active.unsubscribe();
           setRetryTick((current) => current + 1);
         });
-        blockedRecoverySubscriptionsRef.current.set(queuedMessage.messageId, unsubscribe);
+        blockedRecoverySubscriptionsRef.current.set(queuedMessage.messageId, {
+          message: queuedMessage,
+          unsubscribe,
+        });
       }
       return true;
     },
@@ -348,8 +365,8 @@ export function useThreadOutboxDrain(): void {
         clearTimeout(timer);
       }
       retryTimersRef.current.clear();
-      for (const unsubscribe of blockedRecoverySubscriptionsRef.current.values()) {
-        unsubscribe();
+      for (const blocked of blockedRecoverySubscriptionsRef.current.values()) {
+        blocked.unsubscribe();
       }
       blockedRecoverySubscriptionsRef.current.clear();
     };
@@ -597,8 +614,15 @@ export function useThreadOutboxDrain(): void {
       if (editingQueuedMessageIds[nextQueuedMessage.messageId]) {
         continue;
       }
-      if (blockedRecoverySubscriptionsRef.current.has(nextQueuedMessage.messageId)) {
-        continue;
+      const blockedRecovery = blockedRecoverySubscriptionsRef.current.get(
+        nextQueuedMessage.messageId,
+      );
+      if (blockedRecovery) {
+        if (blockedRecovery.message === nextQueuedMessage) {
+          continue;
+        }
+        blockedRecoverySubscriptionsRef.current.delete(nextQueuedMessage.messageId);
+        blockedRecovery.unsubscribe();
       }
       if ((retryNotBeforeRef.current.get(nextQueuedMessage.messageId) ?? 0) > Date.now()) {
         continue;
