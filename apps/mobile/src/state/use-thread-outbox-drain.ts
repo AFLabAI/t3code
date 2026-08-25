@@ -55,6 +55,7 @@ import {
   releaseUnusedComposerAttachmentFiles,
   restoreComposerDraftSnapshot,
   updateComposerDraftSettings,
+  waitForComposerDraftsLoaded,
 } from "./use-composer-drafts";
 import { useAtomCommand } from "./use-atom-command";
 import {
@@ -163,6 +164,10 @@ async function restoreRejectedQueuedMessage(
       return "deferred";
     }
 
+    await waitForComposerDraftsLoaded();
+    if (appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId]) {
+      return "deferred";
+    }
     const originalDraft = getComposerDraftSnapshot(draftKey);
     const existingAttachmentIds = new Set(
       originalDraft.attachments.map((attachment) => attachment.id),

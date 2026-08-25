@@ -223,7 +223,10 @@ export async function buildIncomingShareDraft(input: {
       let persistedFileUri: string | undefined;
       try {
         let sizeBytes = resolved?.contentSize ?? (await input.fileReader.readSize?.(uri)) ?? null;
-        if (sizeBytes === null && input.fileReader.persistFile) {
+        if (
+          (sizeBytes === null || (sizeBytes === 0 && uri.startsWith("content:"))) &&
+          input.fileReader.persistFile
+        ) {
           persistedFileUri = await input.fileReader.persistFile(uri, name);
           sizeBytes = (await input.fileReader.readSize?.(persistedFileUri)) ?? null;
         }

@@ -200,6 +200,7 @@ describe("pickComposerFiles", () => {
   });
 
   it("reports an empty file without calling it oversized", async () => {
+    mocks.size.mockReturnValue(0);
     mocks.pickFile.mockResolvedValue({
       canceled: false,
       result: [
@@ -215,6 +216,44 @@ describe("pickComposerFiles", () => {
     await expect(pickComposerFiles({ existingCount: 0 })).resolves.toEqual({
       files: [],
       error: "'empty.txt' is empty or could not be read.",
+    });
+  });
+
+  it("copies an Android SAF file when the picker reports an unknown zero size", async () => {
+    const reader = {
+      readBytes: vi
+        .fn()
+        .mockReturnValueOnce(new Uint8Array(42))
+        .mockReturnValueOnce(new Uint8Array()),
+      close: vi.fn(),
+    };
+    const writer = { writeBytes: vi.fn(), close: vi.fn() };
+    mocks.size.mockImplementation((uri: string) => (uri.startsWith("content:") ? 0 : 42));
+    mocks.open.mockImplementation((uri: string) => (uri.startsWith("content:") ? reader : writer));
+    mocks.pickFile.mockResolvedValue({
+      canceled: false,
+      result: [
+        {
+          uri: "content://shared/report",
+          name: "report.pdf",
+          type: "application/pdf",
+          size: 0,
+        },
+      ],
+    });
+
+    await expect(pickComposerFiles({ existingCount: 0 })).resolves.toEqual({
+      files: [
+        {
+          id: "attachment-id",
+          type: "file",
+          name: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 42,
+          fileUri: "file:///documents/t3-composer-attachments/attachment-id-report.pdf",
+        },
+      ],
+      error: null,
     });
   });
 

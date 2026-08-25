@@ -240,6 +240,30 @@ describe("incoming native shares", () => {
     ]);
   });
 
+  it("treats a zero-length Android content URI as unknown until its copy is measured", async () => {
+    const file: SharePayload = {
+      shareType: "file",
+      value: "content://shared/report",
+      mimeType: "application/pdf",
+    };
+
+    const result = await buildIncomingShareDraft({
+      id: "share-zero-metadata",
+      createdAt: "2026-07-15T10:00:00.000Z",
+      payloads: [file],
+      resolvedPayloads: [],
+      fileReader: {
+        readBase64: async () => "unused",
+        persistFile: async () => "file:///documents/report.pdf",
+        readSize: async (uri) => (uri.startsWith("content:") ? 0 : 42),
+        removeOwnedFile: async () => undefined,
+      },
+    });
+
+    expect(result.attachments[0]?.sizeBytes).toBe(42);
+    expect(result.warnings).toEqual([]);
+  });
+
   it("keeps the Android display name without copying the file into the Expo cache", async () => {
     const file = {
       shareType: "file" as const,

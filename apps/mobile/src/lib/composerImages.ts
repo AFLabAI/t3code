@@ -60,7 +60,11 @@ export async function persistComposerAttachmentFile(
     ).join("") || "file";
   const destination = new File(directory, `${uuidv4()}-${safeName}`);
   const source = new File(uri);
-  if (maxBytes !== undefined && source.size === null) {
+  const sourceSize = source.size;
+  if (
+    maxBytes !== undefined &&
+    (sourceSize === null || (sourceSize === 0 && uri.startsWith("content:")))
+  ) {
     destination.create();
     try {
       const reader = source.open(FileMode.ReadOnly);
@@ -98,7 +102,7 @@ export async function persistComposerAttachmentFile(
     return destination.uri;
   }
 
-  if (maxBytes !== undefined && source.size !== null && source.size > maxBytes) {
+  if (maxBytes !== undefined && sourceSize !== null && sourceSize > maxBytes) {
     throw new Error(
       `'${name}' exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB attachment limit.`,
     );
@@ -162,18 +166,19 @@ export async function pickComposerFiles(input: {
       exceededAttachmentLimit = true;
       break;
     }
-    const sizeBytes = file.size ?? 0;
-    if (sizeBytes <= 0) {
-      error = `'${file.name}' is empty or could not be read.`;
-      continue;
-    }
-    if (sizeBytes > maxBytes) {
+    const sizeBytes = file.size ?? null;
+    if (sizeBytes !== null && sizeBytes > maxBytes) {
       error = `'${file.name}' exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB attachment limit.`;
       continue;
     }
     try {
       const fileUri = await persistComposerAttachmentFile(file.uri, file.name, maxBytes);
-      const storedSizeBytes = new File(fileUri).size ?? sizeBytes;
+      const storedSizeBytes = new File(fileUri).size ?? sizeBytes ?? 0;
+      if (storedSizeBytes <= 0) {
+        await removePersistedComposerAttachmentFile(fileUri);
+        error = `'${file.name}' is empty or could not be read.`;
+        continue;
+      }
       if (storedSizeBytes > maxBytes) {
         await removePersistedComposerAttachmentFile(fileUri);
         error = `'${file.name}' exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB attachment limit.`;

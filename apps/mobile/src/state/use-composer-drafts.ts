@@ -314,6 +314,14 @@ export function ensureComposerDraftsLoaded(): void {
     });
 }
 
+/** Wait until persisted drafts have been merged into the in-memory composer state. */
+export async function waitForComposerDraftsLoaded(): Promise<void> {
+  ensureComposerDraftsLoaded();
+  if (loadPromise !== null) {
+    await loadPromise;
+  }
+}
+
 function updateComposerDrafts(
   update: (current: Record<string, ComposerDraft>) => Record<string, ComposerDraft>,
 ): void {
