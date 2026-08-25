@@ -383,7 +383,7 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A30000000000000000000002 /* Products */;
 			packageReferences = (
-				B20000000000000000000001 /* XCLocalSwiftPackageReference "t3-clerk-ios16" */,
+				B20000000000000000000001 /* XCRemoteSwiftPackageReference "clerk-ios" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -933,17 +933,21 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		B20000000000000000000001 /* XCLocalSwiftPackageReference "t3-clerk-ios16" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../.t3/t3-clerk-ios16";
+/* Begin XCRemoteSwiftPackageReference section */
+		B20000000000000000000001 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yash-Singh1/clerk-ios.git";
+			requirement = {
+				kind = revision;
+				revision = fa88aa4a22229c904db0fb1fd3f700989e42cf46;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		B30000000000000000000001 /* ClerkKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = B20000000000000000000001 /* XCLocalSwiftPackageReference "t3-clerk-ios16" */;
+			package = B20000000000000000000001 /* XCRemoteSwiftPackageReference "clerk-ios" */;
 			productName = ClerkKit;
 		};
 /* End XCSwiftPackageProductDependency section */
