@@ -1,8 +1,10 @@
 import {
   EventId,
   ProviderDriverKind,
+  RuntimeItemId,
   RuntimeTaskId,
   ThreadId,
+  TurnId,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -82,6 +84,57 @@ describe("runtimeEventToActivities task progress", () => {
     expect(usagePayload).not.toHaveProperty("status");
   });
 });
+
+describe("runtimeEventToActivities context compaction", () => {
+  it("updates one activity as Codex compaction starts and finishes", () => {
+    const started = {
+      ...base,
+      type: "item.started",
+      eventId: EventId.make("evt-compaction-started"),
+      itemId: RuntimeItemId.make("compaction-1"),
+      turnId: TurnId.make("turn-1"),
+      payload: {
+        itemType: "context_compaction",
+        status: "inProgress",
+      },
+    } satisfies ProviderRuntimeEvent;
+    const completed = {
+      ...base,
+      type: "item.completed",
+      eventId: EventId.make("evt-compaction-completed"),
+      itemId: RuntimeItemId.make("compaction-1"),
+      turnId: TurnId.make("turn-1"),
+      payload: {
+        itemType: "context_compaction",
+        status: "completed",
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    expect(runtimeEventToActivities(started)).toEqual([
+      {
+        id: "context-compaction:thread-1:compaction-1",
+        createdAt: base.createdAt,
+        tone: "info",
+        kind: "context-compaction",
+        summary: "Compacting context",
+        payload: { status: "inProgress", itemId: "compaction-1" },
+        turnId: "turn-1",
+      },
+    ]);
+    expect(runtimeEventToActivities(completed)).toEqual([
+      {
+        id: "context-compaction:thread-1:compaction-1",
+        createdAt: base.createdAt,
+        tone: "info",
+        kind: "context-compaction",
+        summary: "Context compacted",
+        payload: { status: "completed", itemId: "compaction-1" },
+        turnId: "turn-1",
+      },
+    ]);
+  });
+});
+
 describe("runtimeEventToActivities tool streaming persistence", () => {
   const accumulatedStdout = [
     "first line of output",

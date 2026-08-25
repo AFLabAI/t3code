@@ -57,6 +57,7 @@ import {
   MousePointerClickIcon,
   PaintbrushIcon,
   SearchIcon,
+  ShrinkIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -1313,11 +1314,25 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
   const { workingStepLabel } = use(TimelineRowActivityCtx);
+  const compactionStartedAt = row.compactionStartedAt;
+  const compacting = compactionStartedAt !== undefined;
+
   return (
     <div>
       <div className="border-b border-border/60 pb-2 pt-1">
-        <div className="px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
-          {row.createdAt ? (
+        <div
+          className={cn(
+            "flex items-center gap-1.5 px-1 text-sm leading-relaxed tabular-nums",
+            compacting ? "text-foreground" : "text-muted-foreground",
+          )}
+          aria-live={compacting ? "polite" : undefined}
+        >
+          {compacting ? <ShrinkIcon className="size-4 shrink-0 text-sky-400" aria-hidden /> : null}
+          {compacting ? (
+            <>
+              Compacting context for <WorkingTimer createdAt={compactionStartedAt} />
+            </>
+          ) : row.createdAt ? (
             <>
               Working for <WorkingTimer createdAt={row.createdAt} />
             </>
@@ -2150,6 +2165,7 @@ type WorkEntryIconName =
   | "hammer"
   | "message-circle"
   | "search"
+  | "shrink"
   | "square-pen"
   | "terminal"
   | "wrench"
@@ -2174,6 +2190,8 @@ function WorkEntryIconSvg({ name, className }: { name: WorkEntryIconName; classN
       return <MessageCircleIcon className={className} aria-hidden />;
     case "search":
       return <SearchIcon className={className} aria-hidden />;
+    case "shrink":
+      return <ShrinkIcon className={className} aria-hidden />;
     case "square-pen":
       return <SquarePenIcon className={className} aria-hidden />;
     case "terminal":
@@ -2458,6 +2476,10 @@ const toolCallExpandedBodyClassName =
   "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[length:var(--font-size-code,0.6875rem)] leading-relaxed select-text";
 
 function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
+  if (workEntry.sourceActivityKind === "context-compaction") {
+    return "shrink";
+  }
+
   if (
     workEntry.sourceActivityKind === "user-input.requested" ||
     workEntry.sourceActivityKind === "user-input.resolved"

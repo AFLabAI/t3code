@@ -65,6 +65,7 @@ export interface ThreadFeedActivity {
     | "zap";
   readonly toolLike: boolean;
   readonly status: "success" | "failure" | "neutral" | null;
+  readonly compacting?: boolean;
 }
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
@@ -116,6 +117,7 @@ export type ThreadFeedEntry =
       readonly type: "working";
       readonly id: string;
       readonly createdAt: string;
+      readonly compactionStartedAt?: string;
     }
   | {
       readonly type: "activity-group";
@@ -635,6 +637,7 @@ function workEntryStatus(entry: WorkLogEntry): ThreadFeedActivity["status"] {
 }
 
 function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
+  if (entry.activityKind === "context-compaction") return "agent";
   if (
     entry.activityKind === "user-input.requested" ||
     entry.activityKind === "user-input.resolved"
@@ -1278,6 +1281,16 @@ export function deriveThreadFeedPresentation(
     (entry) =>
       entry.type !== "turn-fold" && entry.type !== "work-toggle" && entry.type !== "working",
   );
+  const activeCompaction =
+    activeWorkStartedAt === null
+      ? undefined
+      : sourceFeed
+          .flatMap((entry) => (entry.type === "activity-group" ? entry.activities : []))
+          .findLast(
+            (activity) =>
+              activity.compacting === true &&
+              (latestTurn === null || activity.turnId === latestTurn.turnId),
+          );
   const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorId.values()) {
@@ -1302,7 +1315,16 @@ export function deriveThreadFeedPresentation(
       });
     }
     if (!collapsedEntryIds.has(entry.id)) {
-      appendPresentedFeedEntry(result, entry, expandedWorkGroupIds);
+      if (entry.type === "activity-group" && activeCompaction !== undefined) {
+        const activities = entry.activities.filter(
+          (activity) => activity.id !== activeCompaction.id,
+        );
+        if (activities.length > 0) {
+          appendPresentedFeedEntry(result, { ...entry, activities }, expandedWorkGroupIds);
+        }
+      } else {
+        appendPresentedFeedEntry(result, entry, expandedWorkGroupIds);
+      }
     }
   }
   if (activeWorkStartedAt !== null) {
@@ -1310,6 +1332,7 @@ export function deriveThreadFeedPresentation(
       type: "working",
       id: "working-indicator-row",
       createdAt: activeWorkStartedAt,
+      ...(activeCompaction ? { compactionStartedAt: activeCompaction.createdAt } : {}),
     });
   }
   return result;
@@ -1597,6 +1620,10 @@ export function buildThreadFeed(
               icon: workEntryIcon(entry),
               toolLike: workLogEntryIsToolLike(entry),
               status: workEntryStatus(entry),
+              ...(entry.activityKind === "context-compaction" &&
+              entry.toolLifecycleStatus === "inProgress"
+                ? { compacting: true }
+                : {}),
             },
           };
         }),

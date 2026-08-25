@@ -371,6 +371,32 @@ export function runtimeEventToActivities(
       ? { sequence: eventWithSequence.sessionSequence }
       : {};
   })();
+
+  if (
+    (event.type === "item.started" || event.type === "item.completed") &&
+    event.payload.itemType === "context_compaction"
+  ) {
+    const completed = event.type === "item.completed";
+
+    return [
+      {
+        id: event.itemId
+          ? EventId.make(`context-compaction:${event.threadId}:${event.itemId}`)
+          : event.eventId,
+        createdAt: event.createdAt,
+        tone: "info",
+        kind: "context-compaction",
+        summary: completed ? "Context compacted" : "Compacting context",
+        payload: {
+          status: event.payload.status ?? (completed ? "completed" : "inProgress"),
+          ...(event.itemId ? { itemId: event.itemId } : {}),
+        },
+        turnId: toTurnId(event.turnId) ?? null,
+        ...maybeSequence,
+      },
+    ];
+  }
+
   switch (event.type) {
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {

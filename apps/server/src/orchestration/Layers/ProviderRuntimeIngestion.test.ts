@@ -3215,6 +3215,60 @@ describe("ProviderRuntimeIngestion", () => {
     expect(activity?.tone).toBe("info");
   });
 
+  it("replaces an active Codex compaction activity when compaction finishes", async () => {
+    const harness = await createHarness();
+    const itemId = asItemId("compaction-1");
+    const turnId = asTurnId("turn-1");
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-compaction-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { itemType: "context_compaction", status: "inProgress" },
+    });
+    await harness.drain();
+
+    const startedThread = (await harness.readModel()).threads.find(
+      (thread) => thread.id === "thread-1",
+    );
+    expect(startedThread?.activities).toEqual([
+      expect.objectContaining({
+        id: "context-compaction:thread-1:compaction-1",
+        kind: "context-compaction",
+        summary: "Compacting context",
+        payload: { status: "inProgress", itemId: "compaction-1" },
+      }),
+    ]);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-compaction-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:01:35.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { itemType: "context_compaction", status: "completed" },
+    });
+    await harness.drain();
+
+    const completedThread = (await harness.readModel()).threads.find(
+      (thread) => thread.id === "thread-1",
+    );
+    expect(completedThread?.activities).toEqual([
+      expect.objectContaining({
+        id: "context-compaction:thread-1:compaction-1",
+        kind: "context-compaction",
+        summary: "Context compacted",
+        payload: { status: "completed", itemId: "compaction-1" },
+      }),
+    ]);
+  });
+
   it("projects Codex task lifecycle chunks into thread activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

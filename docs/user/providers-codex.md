@@ -34,6 +34,12 @@ In an existing Codex thread, send `/feedback` or `/feedback` followed by a descr
 issue. T3 Code uploads the thread and Codex logs to OpenAI and shows a thread ID that you can copy
 and share with OpenAI employees.
 
+## Automatic context compaction
+
+Codex compacts long conversations automatically when it needs more context space. While this runs,
+the thread shows "Compacting context" and the elapsed time. When it finishes, the work log shows
+"Context compacted" and the agent continues the same turn.
+
 ## Approve access to other apps
 
 When a Codex tool needs access to an app such as Safari, T3 Code shows the app name and asks for

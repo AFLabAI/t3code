@@ -1218,6 +1218,83 @@ describe("deriveMessagesTimelineRows", () => {
     });
   });
 
+  it("shows active context compaction in the working row without a duplicate work entry", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "compaction-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:12Z",
+          entry: {
+            id: "compaction-1",
+            createdAt: "2026-01-01T00:00:12Z",
+            turnId: "turn-1" as never,
+            label: "Compacting context",
+            tone: "info",
+            sourceActivityKind: "context-compaction",
+            toolLifecycleStatus: "inProgress",
+          },
+        },
+      ],
+      latestTurn: {
+        turnId: "turn-1" as never,
+        state: "running",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: null,
+      },
+      isWorking: true,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows).toEqual([
+      {
+        kind: "working",
+        id: "working-indicator-row",
+        createdAt: "2026-01-01T00:00:00Z",
+        showThinking: false,
+        compactionStartedAt: "2026-01-01T00:00:12Z",
+      },
+    ]);
+  });
+
+  it("keeps completed context compaction in the work log", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "compaction-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:01:12Z",
+          entry: {
+            id: "compaction-1",
+            createdAt: "2026-01-01T00:01:12Z",
+            turnId: "turn-1" as never,
+            label: "Context compacted",
+            tone: "info",
+            sourceActivityKind: "context-compaction",
+            toolLifecycleStatus: "completed",
+          },
+        },
+      ],
+      latestTurn: {
+        turnId: "turn-1" as never,
+        state: "running",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: null,
+      },
+      isWorking: true,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows.find((row) => row.kind === "working")).not.toHaveProperty("compactionStartedAt");
+    expect(rows.find((row) => row.kind === "work")).toMatchObject({
+      groupedEntries: [{ label: "Context compacted" }],
+    });
+  });
+
   it("does not fold the session's running turn when latestTurn regresses", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [

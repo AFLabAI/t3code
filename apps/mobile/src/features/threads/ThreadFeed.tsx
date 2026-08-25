@@ -998,7 +998,12 @@ function renderFeedEntry(
   const { markdownStyles, iconSubtleColor, userBubbleColor } = props;
 
   if (entry.type === "working") {
-    return <WorkingTimelineRow startedAt={entry.createdAt} />;
+    return (
+      <WorkingTimelineRow
+        startedAt={entry.createdAt}
+        compactionStartedAt={entry.compactionStartedAt}
+      />
+    );
   }
 
   if (entry.type === "turn-fold") {
@@ -1190,7 +1195,10 @@ function renderFeedEntry(
   );
 }
 
-const WorkingTimelineRow = memo(function WorkingTimelineRow(props: { readonly startedAt: string }) {
+const WorkingTimelineRow = memo(function WorkingTimelineRow(props: {
+  readonly startedAt: string;
+  readonly compactionStartedAt?: string;
+}) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -1198,9 +1206,11 @@ const WorkingTimelineRow = memo(function WorkingTimelineRow(props: { readonly st
       setNowMs(Date.now());
     }, 1_000);
     return () => clearInterval(intervalId);
-  }, [props.startedAt]);
+  }, [props.startedAt, props.compactionStartedAt]);
 
-  const durationLabel = formatElapsed(props.startedAt, new Date(nowMs).toISOString()) ?? "0s";
+  const durationLabel =
+    formatElapsed(props.compactionStartedAt ?? props.startedAt, new Date(nowMs).toISOString()) ??
+    "0s";
 
   return (
     <View className="mb-4 flex-row items-center gap-2 px-1.5 py-1">
@@ -1210,7 +1220,7 @@ const WorkingTimelineRow = memo(function WorkingTimelineRow(props: { readonly st
         <View className="h-1 w-1 rounded-full bg-neutral-400/60 dark:bg-neutral-500/60" />
       </View>
       <Text className="font-t3-medium text-xs tabular-nums text-neutral-600 dark:text-neutral-400">
-        Working for {durationLabel}
+        {props.compactionStartedAt ? "Compacting context for" : "Working for"} {durationLabel}
       </Text>
     </View>
   );

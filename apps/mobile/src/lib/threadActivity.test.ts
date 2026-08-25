@@ -752,6 +752,76 @@ describe("buildThreadFeed", () => {
     expect(deriveThreadFeedPresentation(presented, null, new Set())).toEqual([]);
   });
 
+  it("moves active context compaction into the working row", () => {
+    const turnId = TurnId.make("turn-compaction");
+    const startedAt = "2026-04-01T00:00:01.000Z";
+    const compactionStartedAt = "2026-04-01T00:00:12.000Z";
+    const thread = makeThread({
+      id: ThreadId.make("thread-compaction"),
+      projectId: ProjectId.make("project-1"),
+      title: "Context compaction",
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: startedAt,
+        startedAt,
+        completedAt: null,
+        assistantMessageId: null,
+      },
+      activities: [
+        makeActivity({
+          id: EventId.make("context-compaction:thread-compaction:item-1"),
+          kind: "context-compaction",
+          summary: "Compacting context",
+          createdAt: compactionStartedAt,
+          turnId,
+          payload: { status: "inProgress", itemId: "item-1" },
+        }),
+      ],
+    });
+
+    const feed = buildThreadFeed(thread);
+
+    expect(feed[0]).toMatchObject({
+      type: "activity-group",
+      activities: [{ summary: "Compacting context", icon: "agent", compacting: true }],
+    });
+    expect(
+      deriveThreadFeedPresentation(feed, thread.latestTurn, new Set(), new Set(), startedAt),
+    ).toEqual([
+      {
+        type: "working",
+        id: "working-indicator-row",
+        createdAt: startedAt,
+        compactionStartedAt,
+      },
+    ]);
+  });
+
+  it("keeps completed context compaction in the work log", () => {
+    const turnId = TurnId.make("turn-compaction-completed");
+    const thread = makeThread({
+      id: ThreadId.make("thread-compaction-completed"),
+      projectId: ProjectId.make("project-1"),
+      title: "Completed context compaction",
+      activities: [
+        makeActivity({
+          id: EventId.make("context-compaction:thread-compaction:item-1"),
+          kind: "context-compaction",
+          summary: "Context compacted",
+          createdAt: "2026-04-01T00:01:12.000Z",
+          turnId,
+          payload: { status: "completed", itemId: "item-1" },
+        }),
+      ],
+    });
+
+    expect(buildThreadFeed(thread)[0]).toMatchObject({
+      type: "activity-group",
+      activities: [{ summary: "Context compacted", icon: "agent" }],
+    });
+  });
+
   it("models work-log overflow as list rows", () => {
     const activity = (
       id: string,

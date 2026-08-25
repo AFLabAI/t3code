@@ -244,6 +244,7 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string | null;
       showThinking: boolean;
+      compactionStartedAt?: string;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -719,6 +720,12 @@ export function deriveMessagesTimelineRows(input: {
   const activeEntries = input.isWorking
     ? input.timelineEntries.filter((entry, index) => entryBelongsToActiveTurn(entry, index))
     : [];
+  const activeCompactionEntry = activeEntries.findLast(
+    (entry) =>
+      entry.kind === "work" &&
+      entry.entry.sourceActivityKind === "context-compaction" &&
+      entry.entry.toolLifecycleStatus === "inProgress",
+  );
   const activeTurnHasVisibleContent = activeEntries.some((entry) => {
     if (entry.kind === "message") {
       return entry.message.role === "assistant" && (entry.message.text?.trim().length ?? 0) > 0;
@@ -776,7 +783,11 @@ export function deriveMessagesTimelineRows(input: {
       kind: "working",
       id: "working-indicator-row",
       createdAt: input.activeTurnStartedAt,
-      showThinking: activeWorkRow === null && !activeTurnHasVisibleContent,
+      showThinking:
+        activeCompactionEntry === undefined &&
+        activeWorkRow === null &&
+        !activeTurnHasVisibleContent,
+      ...(activeCompactionEntry ? { compactionStartedAt: activeCompactionEntry.createdAt } : {}),
     });
   };
   const appendActiveWorkRows = () => {
@@ -825,6 +836,10 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.id === activeCompactionEntry?.id) {
+      continue;
+    }
+
     if (activeWorkEntryIds.has(timelineEntry.id)) {
       continue;
     }
@@ -837,6 +852,7 @@ export function deriveMessagesTimelineRows(input: {
         if (
           !nextEntry ||
           nextEntry.kind !== "work" ||
+          nextEntry.id === activeCompactionEntry?.id ||
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
           foldsByAnchorEntryId.has(nextEntry.id)
@@ -1067,7 +1083,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   switch (a.kind) {
     case "working":
       return (
-        a.createdAt === (b as typeof a).createdAt && a.showThinking === (b as typeof a).showThinking
+        a.createdAt === (b as typeof a).createdAt &&
+        a.showThinking === (b as typeof a).showThinking &&
+        a.compactionStartedAt === (b as typeof a).compactionStartedAt
       );
 
     case "turn-fold": {

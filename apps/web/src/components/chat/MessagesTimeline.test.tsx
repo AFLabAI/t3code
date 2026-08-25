@@ -908,6 +908,46 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work Log");
   });
 
+  it("shows an active context compaction with its own timer and icon", () => {
+    const turnId = TurnId.make("turn-compaction");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnStartedAt="2026-03-17T19:12:00.000Z"
+        latestTurn={{
+          turnId,
+          state: "running",
+          startedAt: "2026-03-17T19:12:00.000Z",
+          completedAt: null,
+        }}
+        runningTurnId={turnId}
+        timelineEntries={[
+          {
+            id: "entry-compaction",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-compaction",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              label: "Compacting context",
+              tone: "info",
+              sourceActivityKind: "context-compaction",
+              toolLifecycleStatus: "inProgress",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Compacting context for");
+    expect(markup).toContain("lucide-shrink");
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).not.toContain("Working for");
+    expect(markup).not.toContain("Thinking");
+  });
+
   it("summarizes changed files in one line", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
