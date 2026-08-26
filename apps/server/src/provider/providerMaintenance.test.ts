@@ -321,11 +321,11 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
       provider: driver("packageTool"),
       packageName: "@example/package-tool",
       update: {
-        command: "brew upgrade package-tool",
+        command: "brew upgrade --no-quarantine package-tool",
 
         executable: "brew",
 
-        args: ["upgrade", "package-tool"],
+        args: ["upgrade", "--no-quarantine", "package-tool"],
 
         lockKey: "homebrew",
       },
@@ -418,11 +418,11 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
       provider: driver("nativePackageTool"),
       packageName: "@example/native-package-tool",
       update: {
-        command: "brew upgrade native-package-tool",
+        command: "brew upgrade --no-quarantine native-package-tool",
 
         executable: "brew",
 
-        args: ["upgrade", "native-package-tool"],
+        args: ["upgrade", "--no-quarantine", "native-package-tool"],
 
         lockKey: "homebrew",
       },
@@ -441,11 +441,11 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
       provider: driver("scopedPackageTool"),
       packageName: "@example/scoped-package-tool",
       update: {
-        command: "brew upgrade example/tap/scoped-package-tool",
+        command: "brew upgrade --no-quarantine example/tap/scoped-package-tool",
 
         executable: "brew",
 
-        args: ["upgrade", "example/tap/scoped-package-tool"],
+        args: ["upgrade", "--no-quarantine", "example/tap/scoped-package-tool"],
 
         lockKey: "homebrew",
       },

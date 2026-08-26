@@ -202,7 +202,11 @@ function makeHomebrewProviderMaintenanceCapabilities(
     provider: definition.provider,
     packageName: definition.npmPackageName,
     updateExecutable: "brew",
-    updateArgs: ["upgrade", definition.homebrewFormula],
+    // Cask upgrades quarantine the new binary by default. macOS then blocks
+    // the next exec behind a Gatekeeper approval prompt, which the T3 server
+    // cannot answer, so the provider probe hangs until a human approves the
+    // binary. --no-quarantine skips that and is a no-op for formulae.
+    updateArgs: ["upgrade", "--no-quarantine", definition.homebrewFormula],
     updateLockKey: "homebrew",
   });
 }
