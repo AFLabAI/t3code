@@ -84,7 +84,9 @@ that sends a `DPoP` header has its proof verified by `verifyRequestDpopProof`;
 the resulting JWK thumbprint is stored on the session, which is then issued with
 method `dpop-access-token` and a one-hour TTL instead of the bearer default. An
 invalid proof gets a DPoP challenge header and a credential error rather than a
-bearer token.
+bearer token. Time-window failures retain the existing `invalid_credential`
+reason for wire compatibility and add `clockSkewSeconds`, allowing newer
+clients to explain that the client and environment clocks need synchronization.
 
 `dpop-access-token` is advertised alongside `browser-session-cookie` and
 `bearer-access-token` in the descriptor's `sessionMethods`

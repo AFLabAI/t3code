@@ -136,7 +136,9 @@ function relayProtectedErrorMessage(error: RelayProtectedErrorType): string {
         case "invalid_bearer":
           return "Relay rejected the cloud session token.";
         case "invalid_dpop":
-          return "Relay rejected the DPoP proof.";
+          return error.clockSkewSeconds === undefined
+            ? "Relay rejected the DPoP proof."
+            : "This device's clock appears to be out of sync. Enable automatic date and time, then try again.";
         case "not_authorized":
           return "Relay rejected the authenticated request.";
       }

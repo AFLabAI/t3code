@@ -52,6 +52,7 @@ export type DpopVerificationResult =
   | {
       readonly ok: false;
       readonly reason: string;
+      readonly clockSkewSeconds?: number;
     };
 
 function base64UrlToBytes(value: string): Uint8Array {
@@ -143,11 +144,13 @@ export function verifyDpopProof(input: {
     }
 
     const maxAgeSeconds = input.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
-    if (
-      payload.value.iat > input.nowEpochSeconds + 5 ||
-      input.nowEpochSeconds - payload.value.iat > maxAgeSeconds
-    ) {
-      return { ok: false, reason: "DPoP proof is outside the allowed time window." };
+    const clockSkewSeconds = payload.value.iat - input.nowEpochSeconds;
+    if (clockSkewSeconds > 5 || clockSkewSeconds < -maxAgeSeconds) {
+      return {
+        ok: false,
+        reason: "DPoP proof is outside the allowed time window.",
+        clockSkewSeconds,
+      };
     }
 
     const signature = base64UrlToBytes(parts[2]);

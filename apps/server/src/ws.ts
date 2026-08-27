@@ -2472,7 +2472,10 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         const analytics = yield* AnalyticsService.AnalyticsService;
         const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
-            failEnvironmentAuthInvalid(EnvironmentAuth.serverAuthCredentialReason(error)),
+            failEnvironmentAuthInvalid(
+              EnvironmentAuth.serverAuthCredentialReason(error),
+              EnvironmentAuth.serverAuthCredentialClockSkewSeconds(error),
+            ),
           ),
           Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
             failEnvironmentInternal("internal_error", error),

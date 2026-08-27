@@ -1,4 +1,4 @@
-import { verifyDpopProof } from "@t3tools/shared/dpop";
+import { type DpopVerificationResult, verifyDpopProof } from "@t3tools/shared/dpop";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -26,6 +26,14 @@ export const mapDpopReplayStoreError = (
         cause: error,
       });
 
+export const mapDpopVerificationFailure = (
+  result: Extract<DpopVerificationResult, { readonly ok: false }>,
+) =>
+  new ServerAuthInvalidCredentialError({
+    diagnostic: result.reason,
+    ...(result.clockSkewSeconds === undefined ? {} : { clockSkewSeconds: result.clockSkewSeconds }),
+  });
+
 export const verifyRequestDpopProof = (input: {
   readonly request: HttpServerRequest.HttpServerRequest;
   readonly expectedThumbprint?: string;
@@ -49,9 +57,7 @@ export const verifyRequestDpopProof = (input: {
       ...(input.expectedAccessToken ? { expectedAccessToken: input.expectedAccessToken } : {}),
     });
     if (!result.ok) {
-      return yield* new ServerAuthInvalidCredentialError({
-        diagnostic: result.reason,
-      });
+      return yield* mapDpopVerificationFailure(result);
     }
     const secretStore = yield* ServerSecretStore.ServerSecretStore;
     const replayKey = yield* Crypto.Crypto.pipe(

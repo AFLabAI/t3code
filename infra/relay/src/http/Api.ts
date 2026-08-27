@@ -1030,8 +1030,13 @@ type RelayCommonPersistenceError = typeof RelayCommonPersistenceError.Type;
 const isRelayCommonPersistenceError = Schema.is(RelayCommonPersistenceError);
 
 type MapRelayCommonApiError<E> =
-  | Exclude<E, HttpApiError.Unauthorized | RelayCommonPersistenceError>
-  | (Extract<E, HttpApiError.Unauthorized> extends never ? never : RelayAuthInvalidError)
+  | Exclude<
+      E,
+      HttpApiError.Unauthorized | DpopProofs.DpopProofClockSkewError | RelayCommonPersistenceError
+    >
+  | (Extract<E, HttpApiError.Unauthorized | DpopProofs.DpopProofClockSkewError> extends never
+      ? never
+      : RelayAuthInvalidError)
   | (Extract<E, RelayCommonPersistenceError> extends never ? never : RelayInternalError);
 
 function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
@@ -1045,12 +1050,15 @@ function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
 function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
   const mapError = Effect.fnUntraced(function* <E>(error: E) {
     const traceId = yield* currentTraceId;
-    if (isHttpUnauthorized(error)) {
+    if (isHttpUnauthorized(error) || DpopProofs.isDpopProofClockSkewError(error)) {
       return yield* Effect.fail(
         new RelayAuthInvalidError({
           code: "auth_invalid",
           reason: authReason,
           traceId,
+          ...(DpopProofs.isDpopProofClockSkewError(error)
+            ? { clockSkewSeconds: error.clockSkewSeconds }
+            : {}),
         }) as MapRelayCommonApiError<E>,
       );
     }

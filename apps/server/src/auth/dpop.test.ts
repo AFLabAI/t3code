@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as PlatformError from "effect/PlatformError";
 
 import { SecretStorePersistError } from "./ServerSecretStore.ts";
-import { mapDpopReplayStoreError } from "./dpop.ts";
+import { mapDpopReplayStoreError, mapDpopVerificationFailure } from "./dpop.ts";
 
 const storeFailure = (tag: "AlreadyExists" | "PermissionDenied") =>
   new SecretStorePersistError({
@@ -33,5 +33,18 @@ describe("mapDpopReplayStoreError", () => {
     if (error._tag === "ServerAuthDpopReplayStateRecordError") {
       expect(error.message).toBe("Failed to record DPoP proof replay state.");
     }
+  });
+});
+
+describe("mapDpopVerificationFailure", () => {
+  it("preserves a detected clock offset for the HTTP boundary", () => {
+    const error = mapDpopVerificationFailure({
+      ok: false,
+      reason: "DPoP proof is outside the allowed time window.",
+      clockSkewSeconds: 25,
+    });
+
+    expect(error.clockSkewSeconds).toBe(25);
+    expect(error.diagnostic).toBe("DPoP proof is outside the allowed time window.");
   });
 });

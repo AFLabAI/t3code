@@ -423,6 +423,34 @@ describe("remote environment authorization", () => {
     }),
   );
 
+  it.effect("revives the server-reported clock offset from remote auth failures", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json(
+          {
+            _tag: "EnvironmentAuthInvalidError",
+            code: "auth_invalid",
+            reason: "invalid_credential",
+            traceId: "trace-clock-skew",
+            clockSkewSeconds: 25,
+          },
+          { status: 401 },
+        ),
+      );
+
+      const error = yield* issueRemoteDpopWebSocketTicket({
+        httpBaseUrl: "https://remote.example.com/",
+        accessToken: "dpop-access-token",
+        dpopProof: "dpop-proof",
+      }).pipe(provideRemoteHttp(fetch.fetchFn), Effect.flip);
+
+      expect(isEnvironmentAuthInvalidError(error)).toBe(true);
+      if (isEnvironmentAuthInvalidError(error)) {
+        expect(error.clockSkewSeconds).toBe(25);
+      }
+    }),
+  );
+
   it.effect("classifies malformed successful remote auth responses as invalid responses", () =>
     Effect.gen(function* () {
       const fetch = recordedFetch(

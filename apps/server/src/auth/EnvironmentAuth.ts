@@ -347,6 +347,7 @@ export class ServerAuthInvalidCredentialError extends Schema.TaggedErrorClass<Se
   "ServerAuthInvalidCredentialError",
   {
     diagnostic: Schema.optional(Schema.String),
+    clockSkewSeconds: Schema.optional(Schema.Int),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -365,6 +366,10 @@ export const serverAuthCredentialReason = (
   error: ServerAuthCredentialError,
 ): "missing_credential" | "invalid_credential" =>
   error._tag === "ServerAuthMissingCredentialError" ? "missing_credential" : "invalid_credential";
+export const serverAuthCredentialClockSkewSeconds = (
+  error: ServerAuthCredentialError,
+): number | undefined =>
+  error._tag === "ServerAuthInvalidCredentialError" ? error.clockSkewSeconds : undefined;
 
 export class ServerAuthInvalidScopeError extends Schema.TaggedErrorClass<ServerAuthInvalidScopeError>()(
   "ServerAuthInvalidScopeError",

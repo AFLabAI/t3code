@@ -336,10 +336,15 @@ export class RelayAuthInvalidError extends Schema.TaggedErrorClass<RelayAuthInva
     code: Schema.Literal("auth_invalid"),
     reason: RelayAuthInvalidReason,
     traceId: TrimmedNonEmptyString,
+    // DPoP `iat` minus verifier time. Positive means the proof-producing clock appears ahead.
+    clockSkewSeconds: Schema.optional(Schema.Int),
   },
   { httpApiStatus: 401 },
 ) {
   override get message(): string {
+    if (this.clockSkewSeconds !== undefined) {
+      return "This device's clock appears to be out of sync. Enable automatic date and time, then try again.";
+    }
     return `Relay authentication failed: ${this.reason}`;
   }
 }

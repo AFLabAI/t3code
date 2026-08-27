@@ -59,4 +59,16 @@ describe("environment HTTP errors", () => {
       expect(error.message).toContain(details[index]);
     });
   });
+
+  it("gives clock-skew failures an actionable message", () => {
+    const error = new EnvironmentAuthInvalidError({
+      code: "auth_invalid",
+      reason: "invalid_credential",
+      traceId,
+      clockSkewSeconds: 25,
+    });
+
+    expect(error.message).toContain("clocks");
+    expect(error.message).toContain("automatic date and time");
+  });
 });

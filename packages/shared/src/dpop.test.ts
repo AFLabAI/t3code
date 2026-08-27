@@ -133,16 +133,33 @@ describe("verifyDpopProof", () => {
       }).ok,
       false,
     );
-    assert.equal(
-      verifyDpopProof({
-        proof,
-        method: "POST",
-        url: "https://example.com/oauth/token",
-        nowEpochSeconds: 1_000,
-        expectedThumbprint: thumbprint,
-      }).ok,
-      false,
-    );
+    const stale = verifyDpopProof({
+      proof,
+      method: "POST",
+      url: "https://example.com/oauth/token",
+      nowEpochSeconds: 1_000,
+      expectedThumbprint: thumbprint,
+    });
+    assert.deepEqual(stale, {
+      ok: false,
+      reason: "DPoP proof is outside the allowed time window.",
+      clockSkewSeconds: -900,
+    });
+  });
+
+  it("reports the clock offset when a proof was issued in the future", () => {
+    const result = verifyDpopProof({
+      proof,
+      method: "POST",
+      url: "https://example.com/oauth/token",
+      nowEpochSeconds: 75,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      reason: "DPoP proof is outside the allowed time window.",
+      clockSkewSeconds: 25,
+    });
   });
 
   it("requires the RFC 9449 access token hash when an access token is expected", () => {

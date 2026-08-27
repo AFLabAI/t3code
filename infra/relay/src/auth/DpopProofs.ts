@@ -26,6 +26,18 @@ export class DpopProofReplayPersistenceError extends Schema.TaggedErrorClass<Dpo
   }
 }
 
+export class DpopProofClockSkewError extends Schema.TaggedErrorClass<DpopProofClockSkewError>()(
+  "DpopProofClockSkewError",
+  {
+    clockSkewSeconds: Schema.Int,
+  },
+) {
+  override get message(): string {
+    return "DPoP proof is outside the allowed time window.";
+  }
+}
+export const isDpopProofClockSkewError = Schema.is(DpopProofClockSkewError);
+
 export class DpopProofReplay extends Context.Service<
   DpopProofReplay,
   {
@@ -36,7 +48,10 @@ export class DpopProofReplay extends Context.Service<
       readonly expectedThumbprint?: string;
       readonly expectedAccessToken?: string;
       readonly now: DateTime.DateTime;
-    }) => Effect.Effect<string, HttpApiError.Unauthorized | DpopProofReplayPersistenceError>;
+    }) => Effect.Effect<
+      string,
+      HttpApiError.Unauthorized | DpopProofClockSkewError | DpopProofReplayPersistenceError
+    >;
     readonly consume: (input: {
       readonly thumbprint: string;
       readonly jti: string;
@@ -104,6 +119,11 @@ const make = Effect.gen(function* () {
         expectedThumbprintPresent: input.expectedThumbprint !== undefined,
         expectedAccessTokenPresent: input.expectedAccessToken !== undefined,
       });
+      if (result.clockSkewSeconds !== undefined) {
+        return yield* new DpopProofClockSkewError({
+          clockSkewSeconds: result.clockSkewSeconds,
+        });
+      }
       return yield* new HttpApiError.Unauthorized({});
     }
     const consumed = yield* consume({

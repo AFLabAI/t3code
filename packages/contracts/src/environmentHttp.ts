@@ -118,6 +118,8 @@ export class EnvironmentAuthInvalidError extends Schema.TaggedErrorClass<Environ
     code: Schema.Literal("auth_invalid"),
     reason: EnvironmentAuthInvalidReason,
     traceId: TrimmedNonEmptyString,
+    // DPoP `iat` minus verifier time. Positive means the proof-producing clock appears ahead.
+    clockSkewSeconds: Schema.optional(Schema.Int),
   },
   { httpApiStatus: 401 },
 ) {
@@ -126,6 +128,9 @@ export class EnvironmentAuthInvalidError extends Schema.TaggedErrorClass<Environ
   }
 
   override get message(): string {
+    if (this.clockSkewSeconds !== undefined) {
+      return "The clocks on this device and the environment host are out of sync. Enable automatic date and time on both, then try again.";
+    }
     return `The environment rejected this client's credentials (${this.reason}).`;
   }
 }

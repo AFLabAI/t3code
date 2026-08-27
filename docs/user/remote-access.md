@@ -180,6 +180,13 @@ see [Keeping T3 Code in Sync](./updating.md).
 On a Linux host, you can keep the server running after logout and manage it independently of the
 connection method. See [Running T3 Code in the Background](./background-service.md).
 
+### Clock Sync Errors
+
+Secure T3 Connect sessions use short-lived proofs that depend on accurate time. If T3 Code reports
+that the device and environment host clocks are out of sync, enable automatic date and time on both
+machines, force a time sync if the operating system offers one, and then retry the connection. You
+do not need to relink the environment or regenerate its credential after the clocks synchronize.
+
 ## How Pairing Works
 
 The remote device does not need a long-lived secret up front.

@@ -1043,7 +1043,7 @@ describe("mobile cloud link environment client", () => {
     }),
   );
 
-  it.effect("preserves relay DPoP auth failures while connecting environments", () =>
+  it.effect("explains relay DPoP clock-skew failures while connecting environments", () =>
     Effect.gen(function* () {
       vi.stubGlobal(
         "fetch",
@@ -1057,6 +1057,7 @@ describe("mobile cloud link environment client", () => {
                     code: "auth_invalid",
                     reason: "invalid_dpop",
                     traceId: "trace-connect",
+                    clockSkewSeconds: 25,
                   },
                   { status: 401 },
                 ),
@@ -1082,7 +1083,7 @@ describe("mobile cloud link environment client", () => {
       expect(error).toMatchObject({
         _tag: "CloudEnvironmentLinkError",
         message:
-          "https://relay.example.test/v1/environments/env-1/connect failed: Relay rejected the DPoP proof.",
+          "https://relay.example.test/v1/environments/env-1/connect failed: This device's clock appears to be out of sync. Enable automatic date and time, then try again.",
         traceId: "trace-connect",
       });
     }),

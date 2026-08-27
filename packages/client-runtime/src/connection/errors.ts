@@ -117,7 +117,10 @@ export function mapRemoteEnvironmentError(
     case "EnvironmentAuthInvalidError":
       return new ConnectionBlockedError({
         reason: "authentication",
-        detail: "The environment credential is invalid.",
+        detail:
+          error.clockSkewSeconds === undefined
+            ? "The environment credential is invalid."
+            : "The clocks on this device and the environment host are out of sync. Enable automatic date and time on both, then try again.",
         traceId: error.traceId,
       });
     case "EnvironmentScopeRequiredError":

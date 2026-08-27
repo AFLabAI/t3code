@@ -96,6 +96,34 @@ function consumeEachProofOnce() {
 }
 
 describe("DpopProofReplay.verifyAndConsume", () => {
+  it.effect("reports the clock offset for proofs outside the allowed time window", () => {
+    const now = DateTime.makeUnsafe("2026-05-25T12:00:00.000Z");
+    const proof = makeDpopProof({
+      method: "POST",
+      url: "https://relay.example.com/v1/environments/env/connect",
+      iat: Math.floor(now.epochMilliseconds / 1_000) + 25,
+      jti: "proof-with-clock-skew",
+    });
+
+    return Effect.gen(function* () {
+      const replay = yield* DpopProofs.DpopProofReplay;
+      const error = yield* Effect.flip(
+        replay.verifyAndConsume({
+          proof: proof.proof,
+          method: "POST",
+          url: "https://relay.example.com/v1/environments/env/connect",
+          expectedThumbprint: proof.thumbprint,
+          now,
+        }),
+      );
+
+      expect(error).toMatchObject({
+        _tag: "DpopProofClockSkewError",
+        clockSkewSeconds: 25,
+      });
+    }).pipe(Effect.provide(layer(() => Effect.die("unexpected DPoP replay persistence"))));
+  });
+
   it.effect("rejects replayed proofs after persistence consumes the jti once", () => {
     const now = DateTime.makeUnsafe("2026-05-25T12:00:00.000Z");
     const proof = makeDpopProof({
