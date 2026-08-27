@@ -22,6 +22,12 @@ If reordering is unavailable for one environment, update the T3 Code server runn
 environment. Older servers can still pin and unpin threads, but do not understand synced ordering;
 their pinned threads keep the default newest-first order below the ones you have arranged.
 
+## Refreshing saved threads
+
+SwiftUI mobile keeps saved messages visible while a thread refreshes. A status above the composer
+shows when the thread is updating or its computer is offline. If the refresh fails, choose **Retry**.
+The app also retries when that computer reconnects.
+
 ## Environment artwork
 
 Dev and Nightly environments can identify themselves with artwork at the top of the sidebar and in
