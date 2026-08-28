@@ -446,13 +446,20 @@ export async function clickVisiblePreview(
     assertRuntimeCurrentBeforeDispatch();
     const result = await awaitPreviewClickStep(
       () => {
-        const timeoutMs = Math.floor(timing.deadline - performance.now());
-        if (timeoutMs <= 0) throw makePreviewClickTimeoutError(context, timing);
+        const remainingMs = Math.floor(timing.deadline - performance.now());
+        if (remainingMs <= 0) throw makePreviewClickTimeoutError(context, timing);
+        const nativeResponseReserveMs = Math.min(
+          PREVIEW_CLICK_RESPONSE_RESERVE_MS,
+          Math.floor(remainingMs / 10),
+        );
+        const timeoutMs = remainingMs - nativeResponseReserveMs;
+        const localDeadlineAtMs = Date.now() + timeoutMs;
         return bridge.automation.click(
           runtimeTabId,
           { ...input, timeoutMs },
           capturedRegistration.webContentsId,
           capturedRegistration.attachmentId,
+          localDeadlineAtMs,
         );
       },
       context,

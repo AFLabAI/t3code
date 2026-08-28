@@ -2,6 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import type { DesktopPreviewRecordingFrame } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -3059,6 +3060,45 @@ describe("PreviewManager", () => {
           timeoutMs: 50,
         });
         yield* TestClock.adjust(200);
+        expect(
+          sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
+        ).toBe(false);
+      }),
+    ),
+  );
+
+  effectIt.effect("rejects a click received after its local IPC deadline", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const sendCommand = vi.fn(async (method: string) =>
+          method === "Runtime.evaluate"
+            ? { result: { value: { width: 800, height: 600 } } }
+            : undefined,
+        );
+        const wc = makeAutomationWebContents(sendCommand);
+        fromId.mockReturnValue(wc as never);
+
+        yield* manager.createTab("tab_click_timeout_ipc");
+        const attachmentId = yield* manager.registerWebview("tab_click_timeout_ipc", 42);
+        yield* manager.setWebviewVisibility("tab_click_timeout_ipc", 42, attachmentId, true);
+        const localDeadlineAtMs = (yield* Clock.currentTimeMillis) + 50;
+        yield* TestClock.adjust(50);
+        fromId.mockClear();
+
+        expect(
+          yield* manager.automationClick(
+            "tab_click_timeout_ipc",
+            42,
+            attachmentId,
+            { x: 120, y: 80, timeoutMs: 100 },
+            localDeadlineAtMs,
+          ),
+        ).toEqual({
+          _tag: "NotSent",
+          reason: "timeout",
+          timeoutMs: 100,
+        });
+        expect(fromId).not.toHaveBeenCalled();
         expect(
           sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
         ).toBe(false);

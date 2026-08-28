@@ -47,13 +47,26 @@ describe("DesktopPreviewAutomationClickInputSchema", () => {
     tabId: "tab-1",
     webContentsId: 42,
     attachmentId: "preview-attachment-1",
-    input: { x: 10, y: 20 },
+    input: { x: 10, y: 20, timeoutMs: 250 },
+    localDeadlineAtMs: 1_750_000_000_000,
   };
 
   it("requires the exact webview attachment identity", () => {
     expect(decode(input)).toEqual(input);
     expect(() => decode({ ...input, webContentsId: undefined })).toThrow();
     expect(() => decode({ ...input, attachmentId: undefined })).toThrow();
+  });
+
+  it("requires timeoutMs when a local IPC deadline is present", () => {
+    const legacyInput = {
+      tabId: "tab-1",
+      webContentsId: 42,
+      attachmentId: "preview-attachment-1",
+      input: { x: 10, y: 20 },
+    };
+
+    expect(decode(legacyInput)).toEqual(legacyInput);
+    expect(() => decode({ ...legacyInput, localDeadlineAtMs: 1_750_000_000_000 })).toThrow();
   });
 });
 

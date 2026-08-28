@@ -327,9 +327,16 @@ export const automationClick = DesktopIpc.makeIpcMethod({
     webContentsId,
     attachmentId,
     input,
+    localDeadlineAtMs,
   }) {
     const manager = yield* PreviewManager.PreviewManager;
-    return yield* manager.automationClick(tabId, webContentsId, attachmentId, input);
+    return yield* manager.automationClick(
+      tabId,
+      webContentsId,
+      attachmentId,
+      input,
+      localDeadlineAtMs,
+    );
   }),
 });
 

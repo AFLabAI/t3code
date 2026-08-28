@@ -1058,7 +1058,16 @@ export const DesktopPreviewAutomationClickInputSchema = Schema.Struct({
   ...DesktopPreviewRegisterWebviewInputSchema.fields,
   attachmentId: DesktopPreviewWebviewAttachmentIdSchema,
   input: PreviewAutomationClickInput,
-});
+  // This deadline crosses only same-machine Electron IPC. Server clocks are unrelated.
+  localDeadlineAtMs: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      value.localDeadlineAtMs === undefined ||
+      value.input.timeoutMs !== undefined ||
+      "localDeadlineAtMs requires input.timeoutMs.",
+  ),
+);
 
 export const DesktopPreviewAutomationClickResultSchema = Schema.Union([
   Schema.TaggedStruct("Dispatched", {}),
@@ -1273,6 +1282,7 @@ export interface DesktopPreviewBridge {
       input: PreviewAutomationClickInput,
       webContentsId: number,
       attachmentId: DesktopPreviewWebviewAttachmentId,
+      localDeadlineAtMs?: number,
     ) => Promise<DesktopPreviewAutomationClickResult | void>;
     type: (tabId: string, input: PreviewAutomationTypeInput) => Promise<void>;
     press: (tabId: string, input: PreviewAutomationPressInput) => Promise<void>;

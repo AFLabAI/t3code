@@ -136,15 +136,22 @@ describe("preview IPC methods", () => {
           webContentsId: 42,
           attachmentId: "preview-attachment-1",
           input: { x: 10, y: 20, timeoutMs: 250 },
+          localDeadlineAtMs: 1_750_000_000_250,
         })
         .pipe(Effect.provideService(PreviewManager.PreviewManager, { automationClick } as never));
 
       expect(result).toEqual({ _tag: "NotSent", reason: "timeout", timeoutMs: 250 });
-      expect(automationClick).toHaveBeenCalledWith("tab-1", 42, "preview-attachment-1", {
-        x: 10,
-        y: 20,
-        timeoutMs: 250,
-      });
+      expect(automationClick).toHaveBeenCalledWith(
+        "tab-1",
+        42,
+        "preview-attachment-1",
+        {
+          x: 10,
+          y: 20,
+          timeoutMs: 250,
+        },
+        1_750_000_000_250,
+      );
     }),
   );
 });

@@ -173,7 +173,45 @@ describe("clickVisiblePreview", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
-  it("waits for registration on the captured visible webview", async () => {
+  it("accepts a native timeout reply before the host deadline", async () => {
+    presentSurface();
+    const webview = makeWebview(42, "preview-attachment-1");
+    stubWebview(() => webview);
+    const click = vi.fn(async (...args: readonly unknown[]) => {
+      const input = args[1];
+      if (
+        typeof input !== "object" ||
+        input === null ||
+        !("timeoutMs" in input) ||
+        typeof input.timeoutMs !== "number"
+      ) {
+        throw new Error("missing native click timeout");
+      }
+      const timeoutMs = input.timeoutMs;
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, timeoutMs + 1));
+      return { _tag: "NotSent" as const, reason: "timeout" as const, timeoutMs };
+    });
+    const result = runClick(
+      makeBridge(
+        vi.fn(async () => undefined),
+        click,
+      ),
+      makeTiming(100),
+    );
+    const rejection = expect(result).rejects.toMatchObject({
+      _tag: "PreviewAutomationClickTimeoutHostError",
+      timeoutMs: 90,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(click.mock.calls[0]?.[1]).toMatchObject({ timeoutMs: 90 });
+    await vi.advanceTimersByTimeAsync(91);
+
+    await rejection;
+    expect(performance.now()).toBe(91);
+  });
+
+  it("waits for registration and forwards the remaining local deadline", async () => {
     presentSurface();
     const webview = makeWebview(null, null);
     stubWebview(() => webview);
@@ -188,9 +226,10 @@ describe("clickVisiblePreview", () => {
     await expect(result).resolves.toEqual({ _tag: "PreviewAutomationClickDispatched" });
     expect(click).toHaveBeenCalledWith(
       runtimeTabId,
-      { ...clickInput, timeoutMs: 84 },
+      { ...clickInput, timeoutMs: 76 },
       42,
       "preview-attachment-1",
+      Date.now() + 76,
     );
     expect(vi.getTimerCount()).toBe(0);
   });

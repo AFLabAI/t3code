@@ -3468,15 +3468,28 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     webContentsId: number,
     attachmentId: DesktopPreviewWebviewAttachmentId,
     input: PreviewAutomationClickInput,
+    localDeadlineAtMs?: number,
   ) {
-    const deadline =
-      input.timeoutMs === undefined
-        ? undefined
-        : {
-            expiresAtNanos:
-              (yield* Clock.monotonicTimeNanos) + BigInt(input.timeoutMs) * 1_000_000n,
-            timeoutMs: input.timeoutMs,
-          };
+    let deadline: PreviewAutomationClickDeadline | undefined;
+    if (input.timeoutMs !== undefined) {
+      const timeoutMs = input.timeoutMs;
+      const localRemainingMs =
+        localDeadlineAtMs === undefined
+          ? timeoutMs
+          : Math.floor(localDeadlineAtMs - (yield* currentMillis));
+      const remainingTimeoutMs = Math.min(timeoutMs, localRemainingMs);
+      if (remainingTimeoutMs <= 0) {
+        return {
+          _tag: "NotSent",
+          reason: "timeout",
+          timeoutMs,
+        } as const;
+      }
+      deadline = {
+        expiresAtNanos: (yield* Clock.monotonicTimeNanos) + BigInt(remainingTimeoutMs) * 1_000_000n,
+        timeoutMs,
+      };
+    }
     const wc = webContents.fromId(webContentsId);
     const attachment = (yield* Ref.get(attachedRef)).get(webContentsId);
     if (
@@ -4330,6 +4343,7 @@ export class PreviewManager extends Context.Service<
       webContentsId: number,
       attachmentId: DesktopPreviewWebviewAttachmentId,
       input: PreviewAutomationClickInput,
+      localDeadlineAtMs?: number,
     ) => Effect.Effect<DesktopPreviewAutomationClickResult, PreviewManagerError>;
     readonly automationType: (
       tabId: string,
