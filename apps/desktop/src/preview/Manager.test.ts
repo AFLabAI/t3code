@@ -3663,6 +3663,129 @@ describe("Preview automation diagnostics", () => {
     ),
   );
 
+  effectIt.effect("waits for an active recording frame before taking a snapshot", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveRecordingCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () =>
+          void 0;
+        const recordingCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveRecordingCapture = resolve;
+        });
+        let markRecordingCaptureStarted: () => void = () => void 0;
+        const recordingCaptureStarted = new Promise<void>((resolve) => {
+          markRecordingCaptureStarted = resolve;
+        });
+        let captureCount = 0;
+        const preview = makeAutomationWebContents({
+          capturePage: () => {
+            captureCount += 1;
+            if (captureCount === 1) {
+              markRecordingCaptureStarted();
+              return recordingCapture;
+            }
+            return Promise.resolve(makeAutomationImage());
+          },
+          sendCommand: async (method) =>
+            method === "Runtime.evaluate"
+              ? { result: { value: snapshotPageValue } }
+              : method === "Accessibility.getFullAXTree"
+                ? { nodes: [] }
+                : undefined,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_recording_before_snapshot");
+        yield* manager.registerWebview("tab_recording_before_snapshot", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+
+        const recording = yield* manager
+          .startRecording("tab_recording_before_snapshot")
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => recordingCaptureStarted);
+        const snapshot = yield* manager
+          .automationSnapshot(snapshotInput("tab_recording_before_snapshot"))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(([method]) => method === "Runtime.evaluate"),
+        );
+
+        expect(snapshot.pollUnsafe()).toBeUndefined();
+        expect(preview.capturePage).toHaveBeenCalledOnce();
+
+        resolveRecordingCapture(makeAutomationImage());
+        yield* settle(() => preview.capturePage.mock.calls.length === 2);
+        expect(preview.capturePage).toHaveBeenCalledTimes(2);
+        expect(Exit.isSuccess(yield* Fiber.await(snapshot))).toBe(true);
+        expect(Exit.isSuccess(yield* Fiber.await(recording))).toBe(true);
+
+        yield* manager.stopRecording("tab_recording_before_snapshot");
+      }),
+    ),
+  );
+
+  effectIt.effect("does not start a recording-blocked snapshot after its deadline", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveRecordingCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () =>
+          void 0;
+        const recordingCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveRecordingCapture = resolve;
+        });
+        let markRecordingCaptureStarted: () => void = () => void 0;
+        const recordingCaptureStarted = new Promise<void>((resolve) => {
+          markRecordingCaptureStarted = resolve;
+        });
+        const preview = makeAutomationWebContents({
+          capturePage: () => {
+            markRecordingCaptureStarted();
+            return recordingCapture;
+          },
+          sendCommand: async (method) =>
+            method === "Runtime.evaluate"
+              ? { result: { value: snapshotPageValue } }
+              : method === "Accessibility.getFullAXTree"
+                ? { nodes: [] }
+                : undefined,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_recording_snapshot_deadline");
+        yield* manager.registerWebview("tab_recording_snapshot_deadline", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+
+        const recording = yield* manager
+          .startRecording("tab_recording_snapshot_deadline")
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => recordingCaptureStarted);
+        const snapshot = yield* manager
+          .automationSnapshot(snapshotInput("tab_recording_snapshot_deadline", 100))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(([method]) => method === "Runtime.evaluate"),
+        );
+
+        expect(snapshot.pollUnsafe()).toBeUndefined();
+        expect(preview.capturePage).toHaveBeenCalledOnce();
+
+        yield* TestClock.adjust(100);
+        const snapshotExit = yield* Fiber.await(snapshot);
+        expect(Exit.isFailure(snapshotExit)).toBe(true);
+        if (Exit.isFailure(snapshotExit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(snapshotExit.cause))).toMatchObject({
+            _tag: "PreviewAutomationDeadlineExceededError",
+            stage: "execution",
+            timeoutMs: 100,
+          });
+        }
+
+        resolveRecordingCapture(makeAutomationImage());
+        expect(Exit.isSuccess(yield* Fiber.await(recording))).toBe(true);
+        yield* Effect.promise(() => Promise.resolve());
+        expect(preview.capturePage).toHaveBeenCalledOnce();
+
+        yield* manager.stopRecording("tab_recording_snapshot_deadline");
+      }),
+    ),
+  );
+
   effectIt.effect("rejects an in-flight capture after an exact guest replacement", () =>
     withManager((manager) =>
       Effect.gen(function* () {

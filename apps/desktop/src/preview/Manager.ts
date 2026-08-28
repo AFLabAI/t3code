@@ -400,7 +400,7 @@ interface BrowserControlQueue {
 
 interface BrowserCaptureQueue {
   tail: Promise<void>;
-  pending: boolean;
+  pendingKind: "ordinary" | "snapshot" | null;
   retired: boolean;
 }
 
@@ -567,6 +567,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     wc: Electron.WebContents,
     options: {
       readonly busyError?: PreviewManagerError;
+      readonly queueBehindOrdinaryCapture?: boolean;
       readonly rect?: Electron.Rectangle;
     } = {},
   ): Effect.Effect<Electron.NativeImage, PreviewManagerError> =>
@@ -574,17 +575,20 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       try: (signal) => {
         const queue = captureQueues.get(wc) ?? {
           tail: Promise.resolve(),
-          pending: false,
+          pendingKind: null,
           retired: false,
         };
         captureQueues.set(wc, queue);
         if (queue.retired) {
           throw new Error("Preview capture target is no longer active");
         }
-        if (queue.pending) {
+        const captureKind = options.queueBehindOrdinaryCapture ? "snapshot" : "ordinary";
+        const canQueueBehindPendingCapture =
+          captureKind === "snapshot" && queue.pendingKind === "ordinary";
+        if (queue.pendingKind !== null && !canQueueBehindPendingCapture) {
           throw options.busyError ?? new Error("Another preview capture is still in progress");
         }
-        queue.pending = true;
+        queue.pendingKind = captureKind;
         const capture = queue.tail.then(() => {
           if (signal.aborted) throw signal.reason;
           if (queue.retired || wc.isDestroyed()) {
@@ -602,10 +606,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         let tail: Promise<void>;
         tail = capture.then(
           () => {
-            if (queue.tail === tail) queue.pending = false;
+            if (queue.tail === tail) queue.pendingKind = null;
           },
           () => {
-            if (queue.tail === tail) queue.pending = false;
+            if (queue.tail === tail) queue.pendingKind = null;
           },
         );
         queue.tail = tail;
@@ -619,7 +623,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const retireCaptureQueue = (wc: Electron.WebContents): void => {
     const queue = captureQueues.get(wc) ?? {
       tail: Promise.resolve(),
-      pending: false,
+      pendingKind: null,
       retired: false,
     };
     queue.retired = true;
@@ -2862,7 +2866,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const captureSession = (yield* SynchronizedRef.get(frameCaptureSessionsRef)).get(tabId);
     if (!captureSession) return;
     const wc = yield* requireWebContents(tabId);
-    if (captureQueues.get(wc)?.pending) return;
+    if (captureQueues.get(wc)?.pendingKind) return;
     const image = yield* capturePage(
       {
         operation: "frameCapture.capturePage",
@@ -3522,6 +3526,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
                 timeoutMs: deadline.timeoutMs,
                 stage: "queue",
               }),
+              queueBehindOrdinaryCapture: true,
             },
           ).pipe(Effect.tapError(recordFailure)),
           Ref.get(diagnosticsRef),
