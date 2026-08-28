@@ -176,6 +176,33 @@ describe("ChatMarkdown file option chips", () => {
 
     expect(html).toContain(text);
   });
+
+  it.each([
+    "[Error:ENOENT explained](https://example.com)",
+    "[Error:ENOENT explained][docs]\n\n[docs]: https://example.com",
+  ])("preserves directive-like text inside links: %s", (text) => {
+    const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
+    const renderedText = html.replace(/<[^>]+>/g, "");
+
+    expect(renderedText).toContain("Error:ENOENT explained");
+  });
+
+  it("restores flow directives as paragraphs", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={"before\n\n::note\n\n:::note\ncontent\n:::"} />,
+    );
+
+    expect(html).toContain("<p>::note</p>");
+    expect(html).toContain("<p>:::note\ncontent\n:::</p>");
+  });
+
+  it("applies line-break rendering after restoring flow directives", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={":::note\ncontent\n:::"} lineBreaks />,
+    );
+
+    expect(html).toContain("<p>:::note<br/>\ncontent<br/>\n:::</p>");
+  });
 });
 
 describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {

@@ -298,9 +298,9 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
-  remarkBreaks,
   remarkDirective,
   remarkCodexFileCitations,
+  remarkBreaks,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
@@ -409,21 +409,28 @@ function remarkCodexFileCitations() {
     const restoreDirectiveSource = (node: MarkdownAstNode) => {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
-      node.type = "text";
-      node.value =
+      const value =
         start === undefined || end === undefined ? `:${node.name ?? ""}` : source.slice(start, end);
+      const isFlowDirective = node.type === "leafDirective" || node.type === "containerDirective";
+      node.type = isFlowDirective ? "paragraph" : "text";
       delete node.name;
       delete node.attributes;
-      delete node.children;
+      if (isFlowDirective) {
+        delete node.value;
+        node.children = [{ type: "text", value }];
+      } else {
+        node.value = value;
+        delete node.children;
+      }
     };
 
-    const visit = (node: MarkdownAstNode) => {
+    const visit = (node: MarkdownAstNode, insideLink: boolean) => {
       if (
         node.type === "textDirective" ||
         node.type === "leafDirective" ||
         node.type === "containerDirective"
       ) {
-        if (node.type === "textDirective" && node.name === "codex-file-citation") {
+        if (!insideLink && node.type === "textDirective" && node.name === "codex-file-citation") {
           const citation = resolveCodexFileCitationLink(node.attributes);
           if (citation) {
             node.type = "link";
@@ -437,13 +444,13 @@ function remarkCodexFileCitations() {
         return;
       }
 
-      if (node.type === "link") return;
+      const childInsideLink = insideLink || node.type === "link" || node.type === "linkReference";
       for (const child of node.children ?? []) {
-        visit(child);
+        visit(child, childInsideLink);
       }
     };
 
-    visit(tree);
+    visit(tree, false);
   };
 }
 
