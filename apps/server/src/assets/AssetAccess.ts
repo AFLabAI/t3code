@@ -77,6 +77,12 @@ const AssetClaimsSchema = Schema.Union([
   }),
   Schema.Struct({
     version: Schema.Literal(1),
+    kind: Schema.Literal("image-file-exact"),
+    filePath: Schema.String,
+    expiresAt: Schema.Number,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
     kind: Schema.Literal("attachment"),
     attachmentId: Schema.String,
     /** Decided at mint time. Absent tokens (from before this field) serve
@@ -215,6 +221,38 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         return yield* new AssetWorkspaceContextNotFoundError({
           resource: input.resource,
         });
+      }
+      if (
+        path.isAbsolute(input.resource.path) &&
+        isWorkspaceImagePreviewPath(input.resource.path)
+      ) {
+        const canonicalFile = yield* resolveCanonicalFile(input.resource.path).pipe(
+          Effect.mapError(
+            (cause) =>
+              new AssetWorkspaceAssetInspectionError({
+                resource: input.resource,
+                cause,
+              }),
+          ),
+        );
+        if (!canonicalFile) {
+          return yield* new AssetWorkspaceAssetNotFoundError({
+            resource: input.resource,
+          });
+        }
+        if (!isWorkspaceImagePreviewPath(canonicalFile)) {
+          return yield* new AssetPreviewTypeValidationError({
+            resource: input.resource,
+          });
+        }
+        claims = {
+          version: 1,
+          kind: "image-file-exact",
+          filePath: canonicalFile,
+          expiresAt,
+        };
+        fileName = path.basename(canonicalFile);
+        break;
       }
       const workspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.workspaceRoot).pipe(
         Effect.mapError(
@@ -521,6 +559,21 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   const decodedPath = decodeRelativePath(relativePath);
   if (decodedPath === null) return null;
   const path = yield* Path.Path;
+  if (claims.kind === "image-file-exact") {
+    if (decodedPath !== path.basename(claims.filePath)) return null;
+    const imagePath = yield* resolveCanonicalFile(claims.filePath).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to resolve canonical asset path.", {
+          filePath: claims.filePath,
+          cause,
+        }),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    return imagePath === claims.filePath
+      ? ({ kind: "file", path: imagePath } satisfies ResolvedAsset)
+      : null;
+  }
   if (claims.kind === "workspace-file-exact") {
     if (decodedPath !== path.basename(claims.relativePath)) return null;
     const exactWorkspaceFile = yield* resolveCanonicalWorkspaceFileForRequest({

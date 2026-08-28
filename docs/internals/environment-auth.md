@@ -28,6 +28,10 @@ managed relay connectivity:
 The desktop bootstrap credential and command-line administrative bootstrap
 credentials additionally grant `access:read access:write relay:write`.
 
+Asset previews use short-lived signed URLs. An absolute image path can name a file
+outside the project root. The server resolves that path and signs only the canonical
+file. The signed URL does not grant access to its directory or sibling files.
+
 ## Authentication Flows
 
 ### Browser Session

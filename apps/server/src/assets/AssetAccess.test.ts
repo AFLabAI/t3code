@@ -72,7 +72,7 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
-  it.effect("rejects workspace files outside the authorized root", () =>
+  it.effect("rejects external browser documents and relative path traversal", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -83,7 +83,9 @@ describe("AssetAccess", () => {
         prefix: "t3-asset-outside-",
       });
       const htmlPath = path.join(outside, "report.html");
+      const imagePath = path.join(outside, "preview.png");
       yield* fileSystem.writeFileString(htmlPath, "<p>outside</p>");
+      yield* fileSystem.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
 
       const error = yield* issueAssetUrl({
         resource: {
@@ -103,6 +105,19 @@ describe("AssetAccess", () => {
         },
       });
       expect(error.cause).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+
+      const traversalError = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: path.relative(root, imagePath),
+        },
+        workspaceRoot: root,
+      }).pipe(Effect.flip);
+      expect(traversalError).toMatchObject({
+        _tag: "AssetWorkspacePathValidationError",
+      });
+      expect(traversalError.cause).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
     }).pipe(Effect.provide(testLayer)),
   );
 
@@ -181,6 +196,162 @@ describe("AssetAccess", () => {
       });
       expect(yield* resolveAsset(token, "other.png")).toBeNull();
       expect(yield* resolveAsset(token, "../icon.png")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("issues exact capabilities for absolute images outside the workspace", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-image-root-",
+      });
+      const outside = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-image-",
+      });
+      const imagePath = path.join(outside, "preview.png");
+      const siblingPath = path.join(outside, "sibling.png");
+      yield* fileSystem.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
+      yield* fileSystem.writeFile(siblingPath, new Uint8Array([137, 80, 78, 71]));
+      const canonicalImagePath = yield* fileSystem.realPath(imagePath);
+
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: imagePath,
+        },
+        workspaceRoot: root,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+      const token = suffix.slice(0, separatorIndex);
+
+      expect(yield* resolveAsset(token, "preview.png")).toEqual({
+        kind: "file",
+        path: canonicalImagePath,
+      });
+      expect(yield* resolveAsset(token, "sibling.png")).toBeNull();
+      expect(yield* resolveAsset(token, "../preview.png")).toBeNull();
+      expect(yield* resolveAsset(`${token}tampered`, "preview.png")).toBeNull();
+
+      yield* TestClock.adjust("1 hour");
+      expect(yield* resolveAsset(token, "preview.png")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects an absolute image symlink whose target is not an image", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-symlink-root-",
+      });
+      const outside = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-symlink-",
+      });
+      const textPath = path.join(outside, "secret.txt");
+      const imageLink = path.join(outside, "preview.png");
+      yield* fileSystem.writeFileString(textPath, "not an image");
+      yield* fileSystem.symlink(textPath, imageLink);
+
+      const error = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: imageLink,
+        },
+        workspaceRoot: root,
+      }).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(AssetPreviewTypeValidationError);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("pins an external image capability to its canonical path", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-pin-root-",
+      });
+      const outside = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-pin-",
+      });
+      const imagePath = path.join(outside, "preview.png");
+      const replacementPath = path.join(outside, "replacement.png");
+      yield* fileSystem.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
+      yield* fileSystem.writeFile(replacementPath, new Uint8Array([71, 78, 80, 137]));
+
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: imagePath,
+        },
+        workspaceRoot: root,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+      const token = suffix.slice(0, separatorIndex);
+
+      yield* fileSystem.remove(imagePath);
+      yield* fileSystem.symlink(replacementPath, imagePath);
+
+      expect(yield* resolveAsset(token, "preview.png")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("preserves typed failures for external absolute images", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-failure-root-",
+      });
+      const outside = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-external-failure-",
+      });
+      const missingPath = path.join(outside, "missing.png");
+      const directoryPath = path.join(outside, "directory.png");
+      yield* fileSystem.makeDirectory(directoryPath);
+
+      for (const resourcePath of [missingPath, directoryPath]) {
+        const error = yield* issueAssetUrl({
+          resource: {
+            _tag: "workspace-file",
+            threadId: ThreadId.make("thread-1"),
+            path: resourcePath,
+          },
+          workspaceRoot: root,
+        }).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: "AssetWorkspaceAssetNotFoundError",
+        });
+      }
+
+      const cause = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "realPath",
+        pathOrDescriptor: missingPath,
+      });
+      const failingFileSystem = FileSystem.FileSystem.of({
+        ...fileSystem,
+        realPath: () => Effect.fail(cause),
+      });
+      const inspectionError = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: missingPath,
+        },
+        workspaceRoot: root,
+      }).pipe(Effect.provideService(FileSystem.FileSystem, failingFileSystem), Effect.flip);
+      expect(inspectionError).toMatchObject({
+        _tag: "AssetWorkspaceAssetInspectionError",
+        cause,
+      });
     }).pipe(Effect.provide(testLayer)),
   );
 

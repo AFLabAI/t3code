@@ -180,6 +180,11 @@ see [Keeping T3 Code in Sync](./updating.md).
 On a Linux host, you can keep the server running after logout and manage it independently of the
 connection method. See [Running T3 Code in the Background](./background-service.md).
 
+## Local Image Paths
+
+Local image paths in agent messages refer to files on the server machine. Images in temporary or
+artifact directories can render on remote clients while those files remain available.
+
 ## How Pairing Works
 
 The remote device does not need a long-lived secret up front.
