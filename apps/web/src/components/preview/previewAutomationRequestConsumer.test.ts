@@ -361,6 +361,39 @@ describe("previewAutomationRequestConsumer", () => {
     });
   });
 
+  it("maps native pre-dispatch timeouts to the click timeout response", () => {
+    const context = {
+      requestId: "request-click-timeout",
+      operation: "click" as const,
+      environmentId,
+      threadId,
+      tabId,
+    };
+
+    let timeoutError: unknown;
+    try {
+      confirmPreviewAutomationClickDispatched(
+        { _tag: "NotSent", reason: "timeout", timeoutMs: 45 },
+        context,
+      );
+    } catch (cause) {
+      timeoutError = cause;
+    }
+    expect(serializePreviewAutomationError(timeoutError, context)).toEqual({
+      _tag: "PreviewAutomationTimeoutError",
+      message:
+        "Preview click request request-click-timeout timed out before mouse input could be sent to tab tab-1.",
+      detail: {
+        requestId: "request-click-timeout",
+        operation: "click",
+        environmentId: "environment-1",
+        threadId: "thread-1",
+        tabId: "tab-1",
+        timeoutMs: 45,
+      },
+    });
+  });
+
   it("keeps a hidden-click cause local to the renderer", () => {
     const context = {
       requestId: "request-click-cause",

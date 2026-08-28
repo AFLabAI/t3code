@@ -1065,6 +1065,10 @@ export const DesktopPreviewAutomationClickResultSchema = Schema.Union([
   Schema.TaggedStruct("NotSent", {
     reason: Schema.Literal("tab-not-visible"),
   }),
+  Schema.TaggedStruct("NotSent", {
+    reason: Schema.Literal("timeout"),
+    timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),
+  }),
 ]);
 export type DesktopPreviewAutomationClickResult =
   typeof DesktopPreviewAutomationClickResultSchema.Type;

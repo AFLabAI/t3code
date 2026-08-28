@@ -188,6 +188,19 @@ const makeTestPreviewWebContents = (
     capturePage,
   }) as never;
 
+const makeAutomationWebContents = (
+  sendCommand: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+) => {
+  const wc = makeTestPreviewWebContents(async () => ({
+    toJPEG: () => Buffer.from("unused"),
+    getSize: () => ({ width: 800, height: 600 }),
+  })) as unknown as Electron.WebContents;
+  wc.isDevToolsOpened = () => false;
+  wc.debugger.detach = vi.fn();
+  wc.debugger.sendCommand = sendCommand;
+  return wc;
+};
+
 const TEST_FAVICON = "data:image/png;base64,cG5n";
 
 const makeSourcePng = (width = 1, height = 1): Buffer => {
@@ -3013,6 +3026,247 @@ describe("PreviewManager", () => {
         expect(
           sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
         ).toBe(false);
+      }),
+    ),
+  );
+
+  effectIt.effect("stops a timed click during cursor animation before native mouse input", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const sendCommand = vi.fn(async (method: string) =>
+          method === "Runtime.evaluate"
+            ? { result: { value: { width: 800, height: 600 } } }
+            : undefined,
+        );
+        const wc = makeAutomationWebContents(sendCommand);
+        fromId.mockReturnValue(wc as never);
+
+        yield* manager.createTab("tab_click_timeout_animation");
+        const attachmentId = yield* manager.registerWebview("tab_click_timeout_animation", 42);
+        yield* manager.setWebviewVisibility("tab_click_timeout_animation", 42, attachmentId, true);
+        const click = yield* manager
+          .automationClick("tab_click_timeout_animation", 42, attachmentId, {
+            x: 120,
+            y: 80,
+            timeoutMs: 50,
+          })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+
+        yield* TestClock.adjust(50);
+        expect(yield* Fiber.join(click)).toEqual({
+          _tag: "NotSent",
+          reason: "timeout",
+          timeoutMs: 50,
+        });
+        yield* TestClock.adjust(200);
+        expect(
+          sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
+        ).toBe(false);
+      }),
+    ),
+  );
+
+  effectIt.effect("counts control queue time against the native click budget", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let releaseControlQueue: (() => void) | undefined;
+        const sendCommand = vi.fn(
+          (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+            if (method !== "Runtime.evaluate") return Promise.resolve(undefined);
+            if (params?.expression === "hold-control-queue") {
+              return new Promise((resolve) => {
+                releaseControlQueue = () => resolve({ result: { value: null } });
+              });
+            }
+            return Promise.resolve({ result: { value: { width: 800, height: 600 } } });
+          },
+        );
+        const wc = makeAutomationWebContents(sendCommand);
+        fromId.mockReturnValue(wc as never);
+
+        yield* manager.createTab("tab_click_timeout_queue");
+        const attachmentId = yield* manager.registerWebview("tab_click_timeout_queue", 42);
+        yield* manager.setWebviewVisibility("tab_click_timeout_queue", 42, attachmentId, true);
+        const queueHolder = yield* manager
+          .automationEvaluate("tab_click_timeout_queue", { expression: "hold-control-queue" })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() => releaseControlQueue !== undefined);
+        const queued = yield* manager
+          .automationClick("tab_click_timeout_queue", 42, attachmentId, {
+            x: 220,
+            y: 180,
+            timeoutMs: 50,
+          })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() => false);
+
+        yield* TestClock.adjust(50);
+        releaseControlQueue?.();
+        yield* Fiber.join(queueHolder);
+        expect(yield* Fiber.join(queued)).toEqual({
+          _tag: "NotSent",
+          reason: "timeout",
+          timeoutMs: 50,
+        });
+        expect(
+          sendCommand.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent"),
+        ).toHaveLength(0);
+      }),
+    ),
+  );
+
+  effectIt.effect("releases the mouse after a click deadline expires during mouse-down", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let releaseMouseDown: (() => void) | undefined;
+        const sendCommand = vi.fn(
+          (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+            if (method === "Runtime.evaluate") {
+              return Promise.resolve({ result: { value: { width: 800, height: 600 } } });
+            }
+            if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") {
+              return new Promise((resolve) => {
+                releaseMouseDown = () => resolve(undefined);
+              });
+            }
+            return Promise.resolve(undefined);
+          },
+        );
+        const wc = makeAutomationWebContents(sendCommand);
+        fromId.mockReturnValue(wc as never);
+
+        yield* manager.createTab("tab_click_timeout_after_down");
+        const attachmentId = yield* manager.registerWebview("tab_click_timeout_after_down", 42);
+        yield* manager.setWebviewVisibility("tab_click_timeout_after_down", 42, attachmentId, true);
+        const click = yield* manager
+          .automationClick("tab_click_timeout_after_down", 42, attachmentId, {
+            x: 120,
+            y: 80,
+            timeoutMs: 201,
+          })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+
+        yield* TestClock.adjust(200);
+        yield* settle(() => releaseMouseDown !== undefined);
+        expect(releaseMouseDown).toBeDefined();
+        yield* TestClock.adjust(1);
+        releaseMouseDown?.();
+
+        expect(yield* Fiber.join(click)).toEqual({ _tag: "Dispatched" });
+        expect(
+          sendCommand.mock.calls
+            .filter(([method]) => method === "Input.dispatchMouseEvent")
+            .map(([, params]) => params?.type),
+        ).toEqual(["mousePressed", "mouseReleased"]);
+      }),
+    ),
+  );
+
+  effectIt.effect("keeps the latest queued visibility intent", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let releaseFirstMouseDown: (() => void) | undefined;
+        let holdMouseDown = true;
+        const sendCommand = vi.fn(
+          (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+            if (method === "Runtime.evaluate") {
+              return Promise.resolve({ result: { value: { width: 800, height: 600 } } });
+            }
+            if (
+              holdMouseDown &&
+              method === "Input.dispatchMouseEvent" &&
+              params?.type === "mousePressed"
+            ) {
+              holdMouseDown = false;
+              return new Promise((resolve) => {
+                releaseFirstMouseDown = () => resolve(undefined);
+              });
+            }
+            return Promise.resolve(undefined);
+          },
+        );
+        const wc = makeAutomationWebContents(sendCommand);
+        fromId.mockReturnValue(wc as never);
+
+        yield* manager.createTab("tab_visibility_order");
+        const attachmentId = yield* manager.registerWebview("tab_visibility_order", 42);
+        yield* manager.setWebviewVisibility("tab_visibility_order", 42, attachmentId, true);
+        const holdingClick = yield* manager
+          .automationClick("tab_visibility_order", 42, attachmentId, { x: 120, y: 80 })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* TestClock.adjust(200);
+        yield* settle(() => releaseFirstMouseDown !== undefined);
+
+        const olderHide = yield* manager
+          .setWebviewVisibility("tab_visibility_order", 42, attachmentId, false)
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        const newerShow = yield* manager
+          .setWebviewVisibility("tab_visibility_order", 42, attachmentId, true)
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        releaseFirstMouseDown?.();
+
+        yield* Fiber.join(holdingClick);
+        yield* Fiber.join(olderHide);
+        yield* Fiber.join(newerShow);
+        const verificationClick = yield* manager
+          .automationClick("tab_visibility_order", 42, attachmentId, { x: 120, y: 80 })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* TestClock.adjust(200);
+        expect(yield* Fiber.join(verificationClick)).toEqual({ _tag: "Dispatched" });
+      }),
+    ),
+  );
+
+  effectIt.effect("does not let a stale attachment cancel the current visibility intent", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let releaseMouseDown: (() => void) | undefined;
+        const sendCommand = vi.fn(
+          (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+            if (method === "Runtime.evaluate") {
+              return Promise.resolve({ result: { value: { width: 800, height: 600 } } });
+            }
+            if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") {
+              return new Promise((resolve) => {
+                releaseMouseDown = () => resolve(undefined);
+              });
+            }
+            return Promise.resolve(undefined);
+          },
+        );
+        const wc = makeAutomationWebContents(sendCommand);
+        fromId.mockReturnValue(wc as never);
+
+        yield* manager.createTab("tab_visibility_stale");
+        const attachmentId = yield* manager.registerWebview("tab_visibility_stale", 42);
+        yield* manager.setWebviewVisibility("tab_visibility_stale", 42, attachmentId, true);
+        const holdingClick = yield* manager
+          .automationClick("tab_visibility_stale", 42, attachmentId, { x: 120, y: 80 })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* TestClock.adjust(200);
+        yield* settle(() => releaseMouseDown !== undefined);
+
+        const currentHide = yield* manager
+          .setWebviewVisibility("tab_visibility_stale", 42, attachmentId, false)
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        const staleShow = yield* manager
+          .setWebviewVisibility("tab_visibility_stale", 42, "preview-attachment-stale", true)
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        const staleExit = yield* Fiber.await(staleShow);
+        expect(Exit.isFailure(staleExit)).toBe(true);
+
+        releaseMouseDown?.();
+        yield* Fiber.join(holdingClick);
+        yield* Fiber.join(currentHide);
+        expect(
+          yield* manager.automationClick("tab_visibility_stale", 42, attachmentId, {
+            x: 120,
+            y: 80,
+          }),
+        ).toEqual({ _tag: "NotSent", reason: "tab-not-visible" });
       }),
     ),
   );

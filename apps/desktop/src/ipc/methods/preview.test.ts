@@ -128,21 +128,22 @@ describe("preview IPC methods", () => {
   effectIt.effect("returns a structured result when a native click is not sent", () =>
     Effect.gen(function* () {
       const automationClick = vi.fn(() =>
-        Effect.succeed({ _tag: "NotSent", reason: "tab-not-visible" } as const),
+        Effect.succeed({ _tag: "NotSent", reason: "timeout", timeoutMs: 250 } as const),
       );
       const result = yield* PreviewIpc.automationClick
         .handler({
           tabId: "tab-1",
           webContentsId: 42,
           attachmentId: "preview-attachment-1",
-          input: { x: 10, y: 20 },
+          input: { x: 10, y: 20, timeoutMs: 250 },
         })
         .pipe(Effect.provideService(PreviewManager.PreviewManager, { automationClick } as never));
 
-      expect(result).toEqual({ _tag: "NotSent", reason: "tab-not-visible" });
+      expect(result).toEqual({ _tag: "NotSent", reason: "timeout", timeoutMs: 250 });
       expect(automationClick).toHaveBeenCalledWith("tab-1", 42, "preview-attachment-1", {
         x: 10,
         y: 20,
+        timeoutMs: 250,
       });
     }),
   );

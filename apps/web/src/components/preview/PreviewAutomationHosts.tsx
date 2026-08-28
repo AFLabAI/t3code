@@ -445,13 +445,16 @@ export async function clickVisiblePreview(
     assertPreviewClickBeforeDeadline(context, timing);
     assertRuntimeCurrentBeforeDispatch();
     const result = await awaitPreviewClickStep(
-      () =>
-        bridge.automation.click(
+      () => {
+        const timeoutMs = Math.floor(timing.deadline - performance.now());
+        if (timeoutMs <= 0) throw makePreviewClickTimeoutError(context, timing);
+        return bridge.automation.click(
           runtimeTabId,
-          input,
+          { ...input, timeoutMs },
           capturedRegistration.webContentsId,
           capturedRegistration.attachmentId,
-        ),
+        );
+      },
       context,
       timing,
       {

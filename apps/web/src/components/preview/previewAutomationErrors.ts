@@ -206,6 +206,12 @@ export function confirmPreviewAutomationClickDispatched(
     return { _tag: "PreviewAutomationClickDispatched" };
   }
   if (result?._tag === "NotSent") {
+    if (result.reason === "timeout") {
+      throw new PreviewAutomationClickTimeoutHostError({
+        ...context,
+        timeoutMs: result.timeoutMs,
+      });
+    }
     throw new PreviewAutomationTabNotVisibleHostError(context);
   }
   throw new PreviewAutomationClickDeliveryUnconfirmedHostError(context);

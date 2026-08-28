@@ -39,6 +39,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -377,6 +378,7 @@ interface ManagedListeners {
   readonly presentation: {
     active: boolean;
     readonly semaphore: Semaphore.Semaphore;
+    visibilityIntent: number;
     visible: boolean;
   };
   readonly scope: Scope.Closeable;
@@ -423,6 +425,11 @@ type PointerEventListener = (event: DesktopPreviewPointerEvent) => Effect.Effect
 interface ExpectedAgentInput {
   readonly signal: PreviewInputSignal;
   readonly expiresAt: number;
+}
+
+interface PreviewAutomationClickDeadline {
+  readonly expiresAtNanos: bigint;
+  readonly timeoutMs: number;
 }
 
 const APP_FORWARDED_SHORTCUTS: ReadonlyArray<{
@@ -1736,7 +1743,12 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           copy.set(wc.id, {
             attachmentId,
             cancelFaviconCapture,
-            presentation: { active: true, semaphore: presentationSemaphore, visible: false },
+            presentation: {
+              active: true,
+              semaphore: presentationSemaphore,
+              visibilityIntent: 0,
+              visible: false,
+            },
             scope,
             webContents: wc,
           });
@@ -2071,16 +2083,25 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     visible: boolean,
   ) {
     const attachment = (yield* Ref.get(attachedRef)).get(webContentsId);
-    if (!attachment) {
+    const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+    if (
+      !attachment ||
+      tab?.webContentsId !== webContentsId ||
+      attachment.attachmentId !== attachmentId ||
+      attachment.webContents.id !== webContentsId ||
+      !attachment.presentation.active
+    ) {
       return yield* new PreviewWebContentsNotFoundError({ tabId, webContentsId });
     }
+    const visibilityIntent = ++attachment.presentation.visibilityIntent;
     yield* attachment.presentation.semaphore.withPermit(
       Effect.gen(function* () {
-        const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+        if (attachment.presentation.visibilityIntent !== visibilityIntent) return;
+        const currentTab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
         const wc = webContents.fromId(webContentsId);
         const currentAttachment = (yield* Ref.get(attachedRef)).get(webContentsId);
         if (
-          tab?.webContentsId !== webContentsId ||
+          currentTab?.webContentsId !== webContentsId ||
           !wc ||
           wc.isDestroyed() ||
           currentAttachment !== attachment ||
@@ -2090,6 +2111,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         ) {
           return yield* new PreviewWebContentsNotFoundError({ tabId, webContentsId });
         }
+        if (attachment.presentation.visibilityIntent !== visibilityIntent) return;
         attachment.presentation.visible = visible;
       }),
     );
@@ -3330,6 +3352,41 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     },
   );
 
+  const assertAutomationClickBeforeDeadline = Effect.fn(
+    "PreviewManager.assertAutomationClickBeforeDeadline",
+  )(function* (tabId: string, deadline: PreviewAutomationClickDeadline | undefined) {
+    if (!deadline || (yield* Clock.monotonicTimeNanos) < deadline.expiresAtNanos) return;
+    return yield* new PreviewAutomationClickDeadlineExceededError({
+      tabId,
+      timeoutMs: deadline.timeoutMs,
+    });
+  });
+
+  const sleepBeforeAutomationClick = Effect.fn("PreviewManager.sleepBeforeAutomationClick")(
+    function* (
+      tabId: string,
+      durationMs: number,
+      deadline: PreviewAutomationClickDeadline | undefined,
+    ) {
+      if (!deadline) {
+        yield* Effect.sleep(durationMs);
+        return;
+      }
+      const remainingNanos = deadline.expiresAtNanos - (yield* Clock.monotonicTimeNanos);
+      if (remainingNanos <= 0n) {
+        return yield* new PreviewAutomationClickDeadlineExceededError({
+          tabId,
+          timeoutMs: deadline.timeoutMs,
+        });
+      }
+      const durationNanos = BigInt(durationMs) * 1_000_000n;
+      yield* Effect.sleep(
+        Duration.nanos(remainingNanos < durationNanos ? remainingNanos : durationNanos),
+      );
+      yield* assertAutomationClickBeforeDeadline(tabId, deadline);
+    },
+  );
+
   const performAutomationClick = Effect.fn("PreviewManager.performAutomationClick")(function* (
     tabId: string,
     wc: Electron.WebContents,
@@ -3337,9 +3394,16 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     attachment: ManagedListeners,
     attachmentId: DesktopPreviewWebviewAttachmentId,
     send: SendCommand,
+    deadline: PreviewAutomationClickDeadline | undefined,
   ) {
     yield* attachment.presentation.semaphore.withPermit(
-      assertAutomationClickVisible(tabId, wc, attachment, attachmentId),
+      Effect.all(
+        [
+          assertAutomationClickBeforeDeadline(tabId, deadline),
+          assertAutomationClickVisible(tabId, wc, attachment, attachmentId),
+        ],
+        { discard: true },
+      ),
     );
     yield* prepareAutomationInput(send, true);
     const point = yield* resolveClickPoint(tabId, send, input);
@@ -3367,7 +3431,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       sequence: moveSequence,
       createdAt: moveCreatedAt,
     });
-    yield* Effect.sleep(AGENT_CURSOR_MOVE_MS);
+    yield* sleepBeforeAutomationClick(tabId, AGENT_CURSOR_MOVE_MS, deadline);
     const clickSequence = yield* nextCounter(pointerSequenceRef);
     const clickCreatedAt = yield* currentIso;
     yield* emitPointerEvent({
@@ -3377,10 +3441,11 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       sequence: clickSequence,
       createdAt: clickCreatedAt,
     });
-    yield* Effect.sleep(AGENT_CURSOR_CLICK_LEAD_MS);
+    yield* sleepBeforeAutomationClick(tabId, AGENT_CURSOR_CLICK_LEAD_MS, deadline);
     yield* attachment.presentation.semaphore.withPermit(
       Effect.gen(function* () {
         yield* assertAutomationClickVisible(tabId, wc, attachment, attachmentId);
+        yield* assertAutomationClickBeforeDeadline(tabId, deadline);
         yield* expectAgentInput(tabId, { kind: "pointer", ...point, button: 0 });
         yield* send("Input.dispatchMouseEvent", {
           type: "mousePressed",
@@ -3404,6 +3469,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     attachmentId: DesktopPreviewWebviewAttachmentId,
     input: PreviewAutomationClickInput,
   ) {
+    const deadline =
+      input.timeoutMs === undefined
+        ? undefined
+        : {
+            expiresAtNanos:
+              (yield* Clock.monotonicTimeNanos) + BigInt(input.timeoutMs) * 1_000_000n,
+            timeoutMs: input.timeoutMs,
+          };
     const wc = webContents.fromId(webContentsId);
     const attachment = (yield* Ref.get(attachedRef)).get(webContentsId);
     if (
@@ -3419,13 +3492,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         assertAutomationClickVisible(tabId, wc, attachment, attachmentId),
       );
       yield* withControlSession(tabId, wc, "click", (send) =>
-        performAutomationClick(tabId, wc, input, attachment, attachmentId, send),
+        performAutomationClick(tabId, wc, input, attachment, attachmentId, send, deadline),
       );
       return { _tag: "Dispatched" } as const;
     }).pipe(
       Effect.catchTags({
         PreviewAutomationTabNotVisibleError: () =>
           Effect.succeed({ _tag: "NotSent", reason: "tab-not-visible" } as const),
+        PreviewAutomationClickDeadlineExceededError: (error) =>
+          Effect.succeed({
+            _tag: "NotSent",
+            reason: "timeout",
+            timeoutMs: error.timeoutMs,
+          } as const),
       }),
     );
   });
@@ -4131,6 +4210,18 @@ export class PreviewAutomationTabNotVisibleError extends Schema.TaggedErrorClass
   }
 }
 
+class PreviewAutomationClickDeadlineExceededError extends Schema.TaggedErrorClass<PreviewAutomationClickDeadlineExceededError>()(
+  "PreviewAutomationClickDeadlineExceededError",
+  {
+    tabId: Schema.String,
+    timeoutMs: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return `Preview click timed out before mouse input was sent to tab ${this.tabId}`;
+  }
+}
+
 export const PreviewManagerError = Schema.Union([
   PreviewTabNotFoundError,
   PreviewWebContentsNotFoundError,
@@ -4150,6 +4241,7 @@ export const PreviewManagerError = Schema.Union([
   PreviewAutomationTimeoutError,
   PreviewAutomationControlInterruptedError,
   PreviewAutomationTabNotVisibleError,
+  PreviewAutomationClickDeadlineExceededError,
 ]);
 export type PreviewManagerError = typeof PreviewManagerError.Type;
 

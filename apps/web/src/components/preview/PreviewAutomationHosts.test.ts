@@ -186,7 +186,12 @@ describe("clickVisiblePreview", () => {
     await vi.advanceTimersByTimeAsync(16);
 
     await expect(result).resolves.toEqual({ _tag: "PreviewAutomationClickDispatched" });
-    expect(click).toHaveBeenCalledWith(runtimeTabId, clickInput, 42, "preview-attachment-1");
+    expect(click).toHaveBeenCalledWith(
+      runtimeTabId,
+      { ...clickInput, timeoutMs: 84 },
+      42,
+      "preview-attachment-1",
+    );
     expect(vi.getTimerCount()).toBe(0);
   });
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   DesktopEnvironmentBootstrapSchema,
   DesktopPreviewAutomationClickInputSchema,
+  DesktopPreviewAutomationClickResultSchema,
 } from "./ipc.ts";
 
 describe("DesktopEnvironmentBootstrapSchema", () => {
@@ -53,5 +54,18 @@ describe("DesktopPreviewAutomationClickInputSchema", () => {
     expect(decode(input)).toEqual(input);
     expect(() => decode({ ...input, webContentsId: undefined })).toThrow();
     expect(() => decode({ ...input, attachmentId: undefined })).toThrow();
+  });
+});
+
+describe("DesktopPreviewAutomationClickResultSchema", () => {
+  const decode = Schema.decodeUnknownSync(DesktopPreviewAutomationClickResultSchema);
+
+  it("keeps the native pre-dispatch timeout budget", () => {
+    expect(decode({ _tag: "NotSent", reason: "timeout", timeoutMs: 45 })).toEqual({
+      _tag: "NotSent",
+      reason: "timeout",
+      timeoutMs: 45,
+    });
+    expect(() => decode({ _tag: "NotSent", reason: "timeout" })).toThrow();
   });
 });
