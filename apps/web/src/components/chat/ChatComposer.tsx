@@ -41,7 +41,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   replaceTextRange,
-  shouldSubmitComposerOnEnter,
+  composerSubmissionIntentForEnter,
 } from "../../composer-logic";
 import { deriveComposerSendState, readFileAsDataUrl } from "../ChatView.logic";
 import {
@@ -242,7 +242,7 @@ import {
   deriveLatestContextWindowSnapshot,
   formatProviderDisplayName,
 } from "../../lib/contextWindow";
-import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
+import { formatProviderSkillDisplayName } from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
@@ -925,6 +925,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         provider: selectedProvider,
         model: selectedModel,
         models: selectedProviderModels,
+        planModeEnabled: false,
         promptInjectionState: composerPromptInjectionState,
         modelOptions: composerModelOptions?.[selectedInstanceId],
       }),
@@ -1268,6 +1269,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    planModeEnabled: false,
   });
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
@@ -1279,6 +1281,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    planModeEnabled: false,
   });
   const pendingPrimaryAction = useMemo(
     () =>
@@ -2032,7 +2035,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     if (
       key === "Enter" &&
-      shouldSubmitComposerOnEnter({ isMobileViewport, shiftKey: event.shiftKey })
+      composerSubmissionIntentForEnter({
+        isMobileViewport,
+        shiftKey: event.shiftKey,
+        modifierKey: false,
+        isDraftThread: false,
+      }) !== null
     ) {
       submitComposer(
         undefined,
@@ -3232,10 +3240,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   resolvedTheme={resolvedTheme}
                   isLoading={isComposerMenuLoading}
                   triggerKind={composerTriggerKind}
-                  groupSlashCommandSections={
-                    composerTrigger?.kind === "slash-command" &&
-                    composerTrigger.query.trim().length === 0
-                  }
                   emptyStateText={composerMenuEmptyState}
                   activeItemId={activeComposerMenuItem?.id ?? null}
                   onHighlightedItemChange={onComposerMenuItemHighlighted}
