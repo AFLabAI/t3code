@@ -16,6 +16,7 @@ import { Argument, Flag } from "effect/unstable/cli";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 
 export const modeFlag = Flag.choice("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
@@ -106,6 +107,10 @@ const EnvServerConfig = Config.all({
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
   t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  devAuthDir: Config.string("T3CODE_DEV_AUTH_DIR").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
     Config.map((value) =>
@@ -270,6 +275,11 @@ export const resolveServerConfig = (
       resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
       () => undefined,
     );
+    const configuredDevAuthDir = env.devAuthDir;
+    const devAuthDir =
+      mode === "web" && devUrl !== undefined && configuredDevAuthDir?.trim()
+        ? path.resolve(yield* expandHomePath(configuredDevAuthDir.trim()))
+        : undefined;
     const explicitBaseDir = resolveOptionPrecedence(
       normalizedFlags.baseDir,
       Option.fromUndefinedOr(env.t3Home),
@@ -375,6 +385,7 @@ export const resolveServerConfig = (
       host,
       staticDir,
       devUrl,
+      ...(devAuthDir === undefined ? {} : { devAuthDir }),
       devAllowedOrigins: env.devAllowedOrigins,
       noBrowser,
       startupPresentation,
@@ -395,23 +406,40 @@ export const resolveCliAuthConfig = (
   flags: CliAuthLocationFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
 ) =>
-  resolveServerConfig(
-    {
-      mode: Option.none(),
-      port: Option.none(),
-      host: Option.none(),
-      baseDir: flags.baseDir,
-      cwd: Option.none(),
-      devUrl: flags.devUrl ?? Option.none(),
-      noBrowser: Option.none(),
-      bootstrapFd: Option.none(),
-      autoBootstrapProjectFromCwd: Option.none(),
-      logWebSocketEvents: Option.none(),
-      tailscaleServeEnabled: Option.none(),
-      tailscaleServePort: Option.none(),
-    },
-    cliLogLevel,
-  );
+  Effect.gen(function* () {
+    const config = yield* resolveServerConfig(
+      {
+        mode: Option.none(),
+        port: Option.none(),
+        host: Option.none(),
+        baseDir: flags.baseDir,
+        cwd: Option.none(),
+        devUrl: flags.devUrl ?? Option.none(),
+        noBrowser: Option.none(),
+        bootstrapFd: Option.none(),
+        autoBootstrapProjectFromCwd: Option.none(),
+        logWebSocketEvents: Option.none(),
+        tailscaleServeEnabled: Option.none(),
+        tailscaleServePort: Option.none(),
+      },
+      cliLogLevel,
+    );
+    const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
+    if (Option.isNone(runtimeState)) {
+      return config;
+    }
+
+    const { devAuthDir: _ambientDevAuthDir, ...configWithoutDevAuthDir } = config;
+    const targetDevUrl = runtimeState.value.devUrl ? new URL(runtimeState.value.devUrl) : undefined;
+    return {
+      ...configWithoutDevAuthDir,
+      ...(targetDevUrl === undefined ? {} : { mode: "web" as const }),
+      devUrl: targetDevUrl,
+      ...(targetDevUrl !== undefined && runtimeState.value.devAuthDir !== undefined
+        ? { devAuthDir: runtimeState.value.devAuthDir }
+        : {}),
+    } satisfies ServerConfig.ServerConfig["Service"];
+  });
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
 

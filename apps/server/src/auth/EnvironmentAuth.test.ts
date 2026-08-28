@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AuthAdministrativeScopes } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
@@ -58,6 +60,49 @@ const requestMetadata = {
 };
 
 it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
+  it.effect("accepts one dev browser session across independent HTTP auth stores", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const devAuthDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-environment-shared-auth-test-",
+      });
+      const makeLayer = (port: number) =>
+        makeEnvironmentAuthLayer({
+          mode: "web",
+          port,
+          devUrl: new URL(`http://localhost:${String(port + 1_000)}`),
+          devAuthDir,
+        });
+      const firstContext = yield* Layer.build(makeLayer(13_773));
+      const secondContext = yield* Layer.build(makeLayer(14_773));
+      const firstAuth = Context.get(firstContext, EnvironmentAuth.EnvironmentAuth);
+      const secondAuth = Context.get(secondContext, EnvironmentAuth.EnvironmentAuth);
+      const firstSessions = Context.get(firstContext, SessionStore.SessionStore);
+      const secondSessions = Context.get(secondContext, SessionStore.SessionStore);
+
+      const pairing = yield* firstAuth.issuePairingCredential();
+      const browserSession = yield* firstAuth.createBrowserSession(
+        pairing.credential,
+        requestMetadata,
+      );
+      const authenticated = yield* secondAuth.authenticateHttpRequest(
+        makeCookieRequest(secondSessions.cookieName, browserSession.sessionToken),
+      );
+      const ticket = yield* secondAuth.issueWebSocketTicket(authenticated);
+      const verifiedTicket = yield* secondSessions.verifyWebSocketToken(ticket.ticket);
+
+      expect(secondSessions.cookieName).toBe(firstSessions.cookieName);
+      expect(authenticated.subject).toBe("one-time-token");
+      expect(verifiedTicket.sessionId).toBe(authenticated.sessionId);
+
+      const localPairing = yield* firstAuth.issuePairingCredential();
+      const error = yield* secondAuth
+        .createBrowserSession(localPairing.credential, requestMetadata)
+        .pipe(Effect.flip);
+      expect(error._tag).toBe("ServerAuthInvalidCredentialError");
+    }),
+  );
+
   it.effect("classifies invalid bootstrap credential failures for the HTTP boundary", () =>
     Effect.sync(() => {
       const error = EnvironmentAuth.toBootstrapExchangeError(

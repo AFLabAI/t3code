@@ -47,11 +47,17 @@ describe("serverRuntimeState", () => {
   it.effect("records the dev web URL when the server fronts a dev server", () =>
     Effect.gen(function* () {
       const state = yield* ServerRuntimeState.makePersistedServerRuntimeState({
-        config: { host: undefined, devUrl: new URL("http://localhost:5733") },
+        config: {
+          mode: "web",
+          host: undefined,
+          devUrl: new URL("http://localhost:5733"),
+          devAuthDir: "/tmp/t3-dev-auth",
+        },
         port: 13_773,
       });
 
       assert.equal(state.devUrl, "http://localhost:5733/");
+      assert.equal(state.devAuthDir, "/tmp/t3-dev-auth");
       assert.equal(state.origin, "http://127.0.0.1:13773");
 
       const withoutDev = yield* ServerRuntimeState.makePersistedServerRuntimeState({
@@ -59,6 +65,17 @@ describe("serverRuntimeState", () => {
         port: 13_773,
       });
       assert.isFalse("devUrl" in withoutDev);
+
+      const desktop = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: {
+          mode: "desktop",
+          host: undefined,
+          devUrl: new URL("http://localhost:5733"),
+          devAuthDir: "/tmp/t3-dev-auth",
+        },
+        port: 13_773,
+      });
+      assert.isFalse("devAuthDir" in desktop);
     }),
   );
 

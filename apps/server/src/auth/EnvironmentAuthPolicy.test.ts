@@ -137,6 +137,42 @@ it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
     ),
   );
 
+  it.effect("uses the shared dev cookie only for web development", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+
+      expect(descriptor.sessionCookieName).toMatch(/^t3_session_dev_[a-f0-9]{12}$/);
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "web",
+          port: 5775,
+          devUrl: new URL("http://127.0.0.1:5736"),
+          devAuthDir: "/tmp/t3-shared-dev-auth",
+        }),
+      ),
+    ),
+  );
+
+  it.effect("ignores an inherited dev auth directory outside web development", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+
+      expect(descriptor.sessionCookieName).toBe("t3_session_3773");
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "desktop",
+          port: 3773,
+          devUrl: new URL("http://127.0.0.1:5736"),
+          devAuthDir: "/tmp/t3-shared-dev-auth",
+        }),
+      ),
+    ),
+  );
+
   it.effect("uses remote-reachable policy for non-loopback web hosts", () =>
     Effect.gen(function* () {
       const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;

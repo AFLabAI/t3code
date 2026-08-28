@@ -23,6 +23,7 @@ import * as Option from "effect/Option";
 import * as ServerConfig from "../config.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
+import { makeDevSessionStorage } from "./DevSessionStorage.ts";
 import {
   base64UrlDecodeUtf8,
   base64UrlEncode,
@@ -471,8 +472,16 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
-  const authSessions = yield* AuthSessions.AuthSessionRepository;
-  const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
+  const localAuthSessions = yield* AuthSessions.AuthSessionRepository;
+  const devAuthDir = ServerConfig.resolveActiveDevAuthDir(serverConfig);
+  const storage =
+    devAuthDir === undefined
+      ? {
+          authSessions: localAuthSessions,
+          signingSecret: yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32),
+        }
+      : yield* makeDevSessionStorage(devAuthDir);
+  const { authSessions, signingSecret } = storage;
   const connectedSessionsRef = yield* Ref.make(new Map<string, number>());
   const changesPubSub = yield* PubSub.unbounded<SessionCredentialChange>();
   const cookieName = resolveSessionCookieName({
@@ -481,6 +490,7 @@ export const make = Effect.gen(function* () {
     host: serverConfig.host,
     instanceKey: serverConfig.stateDir,
     development: serverConfig.devUrl !== undefined,
+    devAuthDir,
   });
 
   const emitUpsert = (clientSession: AuthClientSession) =>

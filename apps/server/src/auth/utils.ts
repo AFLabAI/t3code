@@ -16,12 +16,15 @@ const SESSION_COOKIE_NAME = "t3_session";
  * clobbers the first's session and both sides see "Invalid session token
  * signature" until someone clears cookies by hand.
  *
- * Two populations qualify, for the same reason but from different causes:
+ * Two populations can require scoped names, for the same reason but from
+ * different causes:
  *
- * - **Dev servers** (`devUrl` set), which run several at a time across worktrees.
+ * - **Isolated dev servers** (`devUrl` set without a shared auth directory),
+ *   which run several at a time across worktrees.
  * - **Desktop**, which scans upward from 3773 for a free port and binds
  *   127.0.0.1, so a second instance lands on a different port and the same host.
  *
+ * Dev servers with one shared auth directory use one directory-scoped name.
  * Hosted deployments keep the stable production name: their public port can
  * change between releases, and scoping it would log every user out.
  */
@@ -31,6 +34,7 @@ export function resolveSessionCookieName(input: {
   readonly host: string | undefined;
   readonly instanceKey: string;
   readonly development: boolean;
+  readonly devAuthDir?: string | undefined;
 }): string {
   if (input.mode === "desktop") {
     return `${SESSION_COOKIE_NAME}_${input.port}`;
@@ -38,6 +42,14 @@ export function resolveSessionCookieName(input: {
 
   if (!input.development && isRemoteReachableHost(input.host)) {
     return SESSION_COOKIE_NAME;
+  }
+
+  if (input.development && input.devAuthDir !== undefined) {
+    const authGroupHash = NodeCrypto.createHash("sha256")
+      .update(input.devAuthDir)
+      .digest("hex")
+      .slice(0, 12);
+    return `${SESSION_COOKIE_NAME}_dev_${authGroupHash}`;
   }
 
   // Cookies are scoped by host, not port. Loopback development servers need an

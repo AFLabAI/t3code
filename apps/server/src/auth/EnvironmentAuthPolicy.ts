@@ -15,6 +15,7 @@ export class EnvironmentAuthPolicy extends Context.Service<
 
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
+  const devAuthDir = ServerConfig.resolveActiveDevAuthDir(config);
   const isRemoteReachable = isRemoteReachableHost(config.host);
 
   const policy =
@@ -43,6 +44,7 @@ export const make = Effect.gen(function* () {
       host: config.host,
       instanceKey: config.stateDir,
       development: config.devUrl !== undefined,
+      devAuthDir,
     }),
   };
 

@@ -340,6 +340,9 @@ const makePairServerConfig = Effect.fn(function* (input: {
     ...derivedPaths,
     staticDir: undefined,
     devUrl,
+    ...(devUrl !== undefined && state.devAuthDir !== undefined
+      ? { devAuthDir: state.devAuthDir }
+      : {}),
     devAllowedOrigins: [],
     noBrowser: true,
     startupPresentation: "headless",

@@ -70,6 +70,9 @@ export function isProxiableBindHost(host: string): boolean {
 export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(NodeOS.homedir(), ".t3"),
 );
+export const DEFAULT_DEV_AUTH_DIR = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(NodeOS.homedir(), ".t3", "dev-auth"),
+);
 
 const MODE_ARGS = {
   dev: [
@@ -302,6 +305,7 @@ interface CreateDevRunnerEnvInput {
   readonly host: string | undefined;
   readonly port: number | undefined;
   readonly devUrl: URL | undefined;
+  readonly isolatedAuth?: boolean | undefined;
 }
 
 export function createDevRunnerEnv({
@@ -316,8 +320,10 @@ export function createDevRunnerEnv({
   host,
   port,
   devUrl,
+  isolatedAuth,
 }: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
   return Effect.gen(function* () {
+    const path = yield* Path.Path;
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
     // Precedence (--home-dir > worktree .t3 > ambient T3CODE_HOME) is resolved
@@ -338,6 +344,15 @@ export function createDevRunnerEnv({
       output.T3CODE_HOME = resolvedBaseDir;
     } else {
       delete output.T3CODE_HOME;
+    }
+
+    if (isDesktopMode || isolatedAuth === true) {
+      delete output.T3CODE_DEV_AUTH_DIR;
+    } else {
+      const configuredDevAuthDir = baseEnv.T3CODE_DEV_AUTH_DIR?.trim();
+      output.T3CODE_DEV_AUTH_DIR = configuredDevAuthDir
+        ? path.resolve(configuredDevAuthDir)
+        : yield* DEFAULT_DEV_AUTH_DIR;
     }
 
     // A dev-runner server is never launcher-managed. When the shell that runs
@@ -627,6 +642,7 @@ interface DevRunnerCliInput {
   readonly devUrl: URL | undefined;
   readonly dryRun: boolean;
   readonly share: boolean;
+  readonly isolatedAuth?: boolean | undefined;
   readonly runArgs: ReadonlyArray<string>;
 }
 
@@ -697,6 +713,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       host: input.host,
       port: input.port,
       devUrl: input.devUrl,
+      isolatedAuth: input.isolatedAuth,
     });
 
     const selectionSuffix =
@@ -706,7 +723,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     const baseDir = env.T3CODE_HOME ?? (yield* DEFAULT_T3_HOME);
 
     yield* Effect.logInfo(
-      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,
+      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir} devAuthDir=${env.T3CODE_DEV_AUTH_DIR ?? "isolated"}`,
     );
 
     // Before the share block: --dry-run only resolves and prints. Sharing would
@@ -904,6 +921,10 @@ const devRunnerCli = Command.make("dev-runner", {
     Flag.withDescription(
       "Publish the web dev server on this machine's tailnet over HTTPS (via `tailscale serve`) and print the pairing URL for it. Removed again on exit.",
     ),
+    Flag.withDefault(false),
+  ),
+  isolatedAuth: Flag.boolean("isolated-auth").pipe(
+    Flag.withDescription("Keep browser sessions isolated to this dev server."),
     Flag.withDefault(false),
   ),
   runArgs: Argument.string("run-arg").pipe(

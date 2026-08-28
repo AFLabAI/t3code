@@ -138,6 +138,63 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
+    it.effect("defaults browser dev modes to the shared dev auth directory", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.T3CODE_DEV_AUTH_DIR, path.join(NodeOS.homedir(), ".t3", "dev-auth"));
+      }),
+    );
+
+    it.effect("resolves a custom dev auth directory and supports isolated auth", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const shared = yield* createDevRunnerEnv({
+          mode: "dev:server",
+          baseEnv: { T3CODE_DEV_AUTH_DIR: "relative-dev-auth" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+        const isolated = yield* createDevRunnerEnv({
+          mode: "dev:server",
+          baseEnv: { T3CODE_DEV_AUTH_DIR: "/tmp/inherited-dev-auth" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+          isolatedAuth: true,
+        });
+
+        assert.equal(shared.T3CODE_DEV_AUTH_DIR, path.resolve("relative-dev-auth"));
+        assert.equal(isolated.T3CODE_DEV_AUTH_DIR, undefined);
+      }),
+    );
+
     it.effect("leaves the shared home implicit and disables browser auto-open", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
@@ -330,6 +387,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             T3CODE_HOST: "0.0.0.0",
             VITE_DEV_SERVER_URL: "http://127.0.0.1:8526",
             VITE_WS_URL: "ws://localhost:13773",
+            T3CODE_DEV_AUTH_DIR: "/tmp/inherited-dev-auth",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -352,6 +410,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.T3CODE_NO_BROWSER, undefined);
         assert.equal(env.T3CODE_HOST, undefined);
         assert.equal(env.VITE_WS_URL, "ws://127.0.0.1:4222");
+        assert.equal(env.T3CODE_DEV_AUTH_DIR, undefined);
       }),
     );
 

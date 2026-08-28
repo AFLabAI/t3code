@@ -75,6 +75,7 @@ export class ServerConfig extends Context.Service<
     readonly baseDir: string;
     readonly staticDir: string | undefined;
     readonly devUrl: URL | undefined;
+    readonly devAuthDir?: string | undefined;
     readonly devAllowedOrigins: ReadonlyArray<string>;
     readonly noBrowser: boolean;
     readonly startupPresentation: StartupPresentation;
@@ -96,6 +97,13 @@ export class ServerConfig extends Context.Service<
 }
 
 export const make = (config: ServerConfig["Service"]) => ServerConfig.of(config);
+
+export const resolveActiveDevAuthDir = (config: {
+  readonly mode: RuntimeMode;
+  readonly devUrl: URL | undefined;
+  readonly devAuthDir?: string | undefined;
+}): string | undefined =>
+  config.mode === "web" && config.devUrl !== undefined ? config.devAuthDir : undefined;
 
 export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerConfig, make(config));
 

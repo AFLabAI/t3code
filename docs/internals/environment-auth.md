@@ -37,6 +37,44 @@ browser session cookie. The cookie is an HTTP transport adapter for the same
 scoped session model; the response never exposes the session secret to browser
 JavaScript.
 
+#### Shared dev browser sessions
+
+The repository dev runner sets `T3CODE_DEV_AUTH_DIR` to `~/.t3/dev-auth` for
+`dev`, `dev:web`, and `dev:server`. Dev servers in this auth group use one
+session database and one cookie name. A browser pairs once, then sends the same
+cookie when another worktree uses the same hostname on another port or reuses
+the old port. Existing per-worktree cookies do not transfer, so each browser
+needs one initial pairing after this behavior is enabled.
+
+Cookie rules still apply. Cookies are scoped to a hostname and browser profile,
+not to a port. Hostname aliases and separate browser profiles do not share a
+session. Native clients and remote environments added in a client keep their
+per-environment pairing flow.
+
+Pass `--isolated-auth` to keep the old per-worktree session behavior. Set a
+nonempty `T3CODE_DEV_AUTH_DIR` before running the dev runner to select another
+auth group. For offline auth commands, set `T3CODE_DEV_AUTH_DIR` and pass
+`--dev-url` when `server-runtime.json` is not available. For example:
+
+```sh
+T3CODE_DEV_AUTH_DIR="$HOME/.t3/dev-auth" node apps/server/src/bin.ts auth session list \
+  --base-dir /path/to/worktree/.t3 --dev-url http://localhost:5733
+```
+
+Session records and their signing key are shared. This includes browser,
+bearer, and DPoP records, but only browser cookies get automatic reuse. Saved
+native connections stay bound to one environment ID. Each worktree keeps its
+own environment ID, data, other secrets, and one-time pairing grants. Browser
+sessions still expire after 30 days. DPoP sessions still expire after one hour.
+Revocation in one worktree applies when another worktree next authenticates
+that session. Existing WebSocket connections and process-local connection
+status do not change until those connections close or authenticate again.
+
+An open tab must reload when another worktree takes over its URL. The RPC
+reconnect check rejects a server whose environment ID differs from the tab's
+prepared connection. Reloading discovers the new environment. Desktop dev does
+not use the shared directory.
+
 ### Bearer Access Token
 
 Non-browser clients use `POST /oauth/token` with an

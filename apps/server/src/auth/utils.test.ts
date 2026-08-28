@@ -58,6 +58,39 @@ describe("deriveAuthClientMetadata", () => {
 });
 
 describe("session cookie isolation", () => {
+  it("shares one cookie name across ports and worktrees in the same dev auth group", () => {
+    const devAuthDir = "/tmp/t3-shared-dev-auth";
+    const first = resolveSessionCookieName({
+      mode: "web",
+      port: 5775,
+      host: "0.0.0.0",
+      instanceKey: "/tmp/t3-agent-one",
+      development: true,
+      devAuthDir,
+    });
+    const second = resolveSessionCookieName({
+      mode: "web",
+      port: 5888,
+      host: "0.0.0.0",
+      instanceKey: "/tmp/t3-agent-two",
+      development: true,
+      devAuthDir,
+    });
+
+    expect(first).toMatch(/^t3_session_dev_[a-f0-9]{12}$/);
+    expect(second).toBe(first);
+    expect(
+      resolveSessionCookieName({
+        mode: "web",
+        port: 5775,
+        host: "0.0.0.0",
+        instanceKey: "/tmp/t3-agent-one",
+        development: true,
+        devAuthDir: "/tmp/another-dev-auth-group",
+      }),
+    ).not.toBe(first);
+  });
+
   it("isolates loopback web servers by port and server state", () => {
     const first = resolveSessionCookieName({
       mode: "web",

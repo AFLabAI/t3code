@@ -215,6 +215,40 @@ const completeInitialConfig = Effect.fn("TestRpcSessionFactory.completeInitialCo
 });
 
 describe("RpcSessionFactory", () => {
+  it.effect("rejects a reused URL that now serves another environment", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { factory, sockets } = yield* makeFactory();
+        const session = yield* factory.connect(PREPARED);
+        const readyFiber = yield* Effect.forkChild(Effect.flip(session.ready));
+        const configFiber = yield* Effect.forkChild(Effect.flip(session.initialConfig));
+        const socket = yield* awaitSocket(sockets);
+        const actualEnvironmentId = EnvironmentId.make("environment-2");
+
+        socket.open();
+        yield* completeInitialConfig(
+          socket,
+          encodeServerConfig({
+            ...SERVER_CONFIG,
+            environment: {
+              ...SERVER_CONFIG.environment,
+              environmentId: actualEnvironmentId,
+            },
+          }),
+        );
+
+        const readyError = yield* Fiber.join(readyFiber);
+        const configError = yield* Fiber.join(configFiber);
+        for (const error of [readyError, configError]) {
+          expect(error).toMatchObject({
+            reason: "configuration",
+            detail: `Connected environment ${actualEnvironmentId} does not match ${TARGET.environmentId}.`,
+          });
+        }
+      }),
+    ),
+  );
+
   it.effect("owns one scoped websocket attempt and exposes readiness and closure", () =>
     Effect.gen(function* () {
       const { factory, sockets } = yield* makeFactory();

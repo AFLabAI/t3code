@@ -18,7 +18,8 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { persistServerRuntimeState } from "../serverRuntimeState.ts";
+import { resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -134,6 +135,182 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServePort: 443,
       });
       assert.equal(resolved.stateDir, join(baseDir, "userdata"));
+    }),
+  );
+
+  it.effect("enables shared auth only for web development config", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const baseDir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+        prefix: "t3-cli-dev-auth-config-",
+      });
+      const resolve = (mode: "web" | "desktop") =>
+        resolveServerConfig(
+          {
+            mode: Option.some(mode),
+            port: Option.some(4_111),
+            host: Option.none(),
+            baseDir: Option.some(baseDir),
+            cwd: Option.none(),
+            devUrl: Option.some(new URL("http://localhost:5733")),
+            noBrowser: Option.none(),
+            bootstrapFd: Option.none(),
+            autoBootstrapProjectFromCwd: Option.none(),
+            logWebSocketEvents: Option.none(),
+            tailscaleServeEnabled: Option.none(),
+            tailscaleServePort: Option.none(),
+          },
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({ env: { T3CODE_DEV_AUTH_DIR: "relative-auth" } }),
+              ),
+              NetService.layer,
+            ),
+          ),
+        );
+
+      const web = yield* resolve("web");
+      const desktop = yield* resolve("desktop");
+
+      expect(web.devAuthDir).toBe(path.resolve("relative-auth"));
+      expect("devAuthDir" in desktop).toBe(false);
+    }),
+  );
+
+  it.effect("uses auth metadata from the exact base-dir runtime target", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-auth-target-" });
+      const userdataPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
+      const devPaths = yield* deriveServerPaths(baseDir, new URL("http://localhost"));
+      const targetDevAuthDir = path.join(baseDir, "target-dev-auth");
+      yield* persistServerRuntimeState({
+        path: userdataPaths.serverRuntimeStatePath,
+        state: {
+          version: 1,
+          pid: process.pid,
+          port: 13_773,
+          origin: "http://127.0.0.1:13773",
+          devUrl: "http://localhost:5733/",
+          devAuthDir: targetDevAuthDir,
+          startedAt: "2026-08-28T00:00:00.000Z",
+        },
+      });
+      yield* persistServerRuntimeState({
+        path: devPaths.serverRuntimeStatePath,
+        state: {
+          version: 1,
+          pid: process.pid,
+          port: 13_774,
+          origin: "http://127.0.0.1:13774",
+          devUrl: "http://localhost:5734/",
+          devAuthDir: path.join(baseDir, "wrong-dev-auth"),
+          startedAt: "2026-08-28T00:00:00.000Z",
+        },
+      });
+
+      const resolved = yield* resolveCliAuthConfig(
+        {
+          baseDir: Option.some(baseDir),
+          devUrl: Option.some(new URL("http://localhost:9999")),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_MODE: "desktop",
+                  VITE_DEV_SERVER_URL: "http://localhost:8888",
+                  T3CODE_DEV_AUTH_DIR: path.join(baseDir, "caller-dev-auth"),
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.stateDir).toBe(userdataPaths.stateDir);
+      expect(resolved.mode).toBe("web");
+      expect(resolved.devUrl?.toString()).toBe("http://localhost:5733/");
+      expect(resolved.devAuthDir).toBe(targetDevAuthDir);
+    }),
+  );
+
+  it.effect("strips ambient shared auth for a recorded non-dev target", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-auth-nondev-" });
+      const paths = yield* deriveExplicitServerPaths(baseDir, undefined);
+      yield* persistServerRuntimeState({
+        path: paths.serverRuntimeStatePath,
+        state: {
+          version: 1,
+          pid: process.pid,
+          port: 3_773,
+          origin: "http://127.0.0.1:3773",
+          startedAt: "2026-08-28T00:00:00.000Z",
+        },
+      });
+
+      const resolved = yield* resolveCliAuthConfig(
+        { baseDir: Option.some(baseDir), devUrl: Option.none() },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  VITE_DEV_SERVER_URL: "http://localhost:8888",
+                  T3CODE_DEV_AUTH_DIR: "/tmp/caller-dev-auth",
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.devUrl).toBeUndefined();
+      expect("devAuthDir" in resolved).toBe(false);
+    }),
+  );
+
+  it.effect("supports explicit offline shared auth config without runtime metadata", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-auth-offline-" });
+      const devAuthDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-auth-offline-shared-",
+      });
+
+      const resolved = yield* resolveCliAuthConfig(
+        {
+          baseDir: Option.some(baseDir),
+          devUrl: Option.some(new URL("http://localhost:5733")),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_DEV_AUTH_DIR: devAuthDir } }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.mode).toBe("web");
+      expect(resolved.devUrl?.toString()).toBe("http://localhost:5733/");
+      expect(resolved.devAuthDir).toBe(devAuthDir);
     }),
   );
 

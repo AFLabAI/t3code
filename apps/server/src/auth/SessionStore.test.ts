@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -13,9 +15,7 @@ import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 
-const makeServerConfigLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
-) =>
+const makeServerConfigLayer = (overrides?: Partial<ServerConfig.ServerConfig["Service"]>) =>
   Layer.effect(
     ServerConfig.ServerConfig,
     Effect.gen(function* () {
@@ -27,9 +27,7 @@ const makeServerConfigLayer = (
     }),
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-session-test-" })));
 
-const makeSessionStoreLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
-) =>
+const makeSessionStoreLayer = (overrides?: Partial<ServerConfig.ServerConfig["Service"]>) =>
   SessionStore.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
     Layer.provide(ServerSecretStore.layer),
@@ -62,6 +60,105 @@ const failingSessionLookupCredentialLayer = Layer.effect(
 );
 
 it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
+  it.effect("shares dev browser sessions across independent server stores", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const devAuthDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-shared-dev-session-test-",
+      });
+      const makeSharedLayer = (port: number, authDir = devAuthDir) =>
+        makeSessionStoreLayer({
+          mode: "web",
+          port,
+          devUrl: new URL(`http://localhost:${String(port + 1_000)}`),
+          devAuthDir: authDir,
+        });
+      const firstContext = yield* Layer.build(makeSharedLayer(13_773));
+      const secondContext = yield* Layer.build(makeSharedLayer(14_773));
+      const first = Context.get(firstContext, SessionStore.SessionStore);
+      const second = Context.get(secondContext, SessionStore.SessionStore);
+
+      const issued = yield* first.issue({ subject: "shared-browser" });
+      const verified = yield* second.verify(issued.token);
+      const websocket = yield* second.issueWebSocketToken(issued.sessionId);
+      const verifiedWebSocket = yield* second.verifyWebSocketToken(websocket.token);
+
+      expect(second.cookieName).toBe(first.cookieName);
+      expect(verified.sessionId).toBe(issued.sessionId);
+      expect(verifiedWebSocket.sessionId).toBe(issued.sessionId);
+
+      const restartedContext = yield* Layer.build(makeSharedLayer(15_773));
+      const restarted = Context.get(restartedContext, SessionStore.SessionStore);
+      expect((yield* restarted.verify(issued.token)).sessionId).toBe(issued.sessionId);
+
+      const otherDevAuthDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-other-dev-session-test-",
+      });
+      const otherContext = yield* Layer.build(makeSharedLayer(16_773, otherDevAuthDir));
+      const other = Context.get(otherContext, SessionStore.SessionStore);
+      expect((yield* Effect.flip(other.verify(issued.token)))._tag).toBe(
+        "InvalidSessionTokenSignatureError",
+      );
+
+      const isolatedContext = yield* Layer.build(
+        makeSessionStoreLayer({
+          mode: "web",
+          port: 17_773,
+          devUrl: new URL("http://localhost:18773"),
+          devAuthDir: undefined,
+        }),
+      );
+      const isolated = Context.get(isolatedContext, SessionStore.SessionStore);
+      expect((yield* Effect.flip(isolated.verify(issued.token)))._tag).toBe(
+        "InvalidSessionTokenSignatureError",
+      );
+
+      const desktopContext = yield* Layer.build(
+        makeSessionStoreLayer({
+          mode: "desktop",
+          port: 18_773,
+          devUrl: new URL("http://localhost:19773"),
+          devAuthDir,
+        }),
+      );
+      const desktop = Context.get(desktopContext, SessionStore.SessionStore);
+      expect((yield* Effect.flip(desktop.verify(issued.token)))._tag).toBe(
+        "InvalidSessionTokenSignatureError",
+      );
+
+      const ordinaryWebContext = yield* Layer.build(
+        makeSessionStoreLayer({
+          mode: "web",
+          port: 19_773,
+          devUrl: undefined,
+          devAuthDir,
+        }),
+      );
+      const ordinaryWeb = Context.get(ordinaryWebContext, SessionStore.SessionStore);
+      expect((yield* Effect.flip(ordinaryWeb.verify(issued.token)))._tag).toBe(
+        "InvalidSessionTokenSignatureError",
+      );
+
+      expect(yield* second.revoke(issued.sessionId)).toBe(true);
+      expect((yield* Effect.flip(first.verify(issued.token)))._tag).toBe(
+        "SessionTokenRevokedError",
+      );
+
+      const current = yield* first.issue({ subject: "current" });
+      const revokedByOtherStore = yield* first.issue({ subject: "revoke-from-second" });
+      expect(yield* second.revokeAllExcept(current.sessionId)).toBe(1);
+      expect((yield* Effect.flip(first.verify(revokedByOtherStore.token)))._tag).toBe(
+        "SessionTokenRevokedError",
+      );
+
+      const expiring = yield* first.issue({ subject: "expiring", ttl: Duration.seconds(1) });
+      yield* TestClock.adjust(Duration.seconds(2));
+      expect((yield* Effect.flip(second.verify(expiring.token)))._tag).toBe(
+        "SessionTokenExpiredError",
+      );
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("issues and verifies signed browser session tokens", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;
