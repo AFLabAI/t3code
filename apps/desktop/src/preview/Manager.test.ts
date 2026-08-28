@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import { ELEMENT_PICKED_CHANNEL } from "./GuestProtocol.ts";
 import * as PreviewManager from "./Manager.ts";
 
 describe("fitPictureInPictureContentSize", () => {
@@ -192,6 +193,7 @@ const makeAutomationImage = (width = 800, height = 600) => {
   const image = {
     getSize: () => ({ width, height }),
     resize: vi.fn(() => image),
+    toDataURL: () => "data:image/png;base64,cG5n",
     toJPEG: () => Buffer.from("jpeg"),
     toPNG: () => Buffer.from("png"),
   };
@@ -207,6 +209,7 @@ const makeAutomationWebContents = (options: {
   let destroyed = false;
   let devToolsOpen = false;
   const listeners = new Map<string, (...args: never[]) => void>();
+  const ipcListeners = new Map<string, (...args: ReadonlyArray<unknown>) => void>();
   const attach = vi.fn(() => {
     attached = true;
   });
@@ -229,14 +232,26 @@ const makeAutomationWebContents = (options: {
     getURL: () => "https://example.com",
     getTitle: () => "Example",
     isLoading: () => false,
+    isFocused: () => true,
     getZoomFactor: () => 1,
+    focus: vi.fn(),
     setZoomFactor: vi.fn(),
     setAudioMuted: vi.fn(),
     isCurrentlyAudible: () => false,
     on,
     once: on,
     off,
-    ipc: { on: vi.fn(), off: vi.fn() },
+    ipc: {
+      on: vi.fn((channel: string, listener: (...args: ReadonlyArray<unknown>) => void) => {
+        ipcListeners.set(channel, listener);
+      }),
+      off: vi.fn(),
+      removeListener: vi.fn(
+        (channel: string, listener: (...args: ReadonlyArray<unknown>) => void) => {
+          if (ipcListeners.get(channel) === listener) ipcListeners.delete(channel);
+        },
+      ),
+    },
     send: webviewSend,
     navigationHistory: { canGoBack: () => false, canGoForward: () => false },
     setWindowOpenHandler: vi.fn(),
@@ -256,6 +271,7 @@ const makeAutomationWebContents = (options: {
     debuggerOn,
     debuggerOff,
     detach,
+    ipcListeners,
     listeners,
     sendCommand,
     setDestroyed: (value: boolean) => {
@@ -3782,6 +3798,86 @@ describe("Preview automation diagnostics", () => {
         expect(preview.capturePage).toHaveBeenCalledOnce();
 
         yield* manager.stopRecording("tab_recording_snapshot_deadline");
+      }),
+    ),
+  );
+
+  effectIt.effect("waits for an active recording frame before capturing an annotation", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveRecordingCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () =>
+          void 0;
+        const recordingCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveRecordingCapture = resolve;
+        });
+        let markRecordingCaptureStarted: () => void = () => void 0;
+        const recordingCaptureStarted = new Promise<void>((resolve) => {
+          markRecordingCaptureStarted = resolve;
+        });
+        let captureCount = 0;
+        const preview = makeAutomationWebContents({
+          capturePage: () => {
+            captureCount += 1;
+            if (captureCount === 1) {
+              markRecordingCaptureStarted();
+              return recordingCapture;
+            }
+            return Promise.resolve(makeAutomationImage());
+          },
+          sendCommand: async () => undefined,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_recording_before_annotation");
+        yield* manager.registerWebview("tab_recording_before_annotation", 42);
+
+        const recording = yield* manager
+          .startRecording("tab_recording_before_annotation")
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => recordingCaptureStarted);
+        const pick = yield* manager
+          .pickElement("tab_recording_before_annotation")
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() => preview.ipcListeners.has(ELEMENT_PICKED_CHANNEL));
+        preview.ipcListeners.get(ELEMENT_PICKED_CHANNEL)?.(
+          {},
+          {
+            id: "annotation-recording-capture",
+            pageUrl: "https://example.com",
+            pageTitle: "Example",
+            comment: "Capture this state",
+            elements: [],
+            regions: [],
+            strokes: [],
+            styleChanges: [],
+            screenshot: null,
+            createdAt: "2026-08-28T00:00:00.000Z",
+          },
+          null,
+          "attach",
+        );
+        yield* Effect.promise(() => Promise.resolve());
+
+        expect(pick.pollUnsafe()).toBeUndefined();
+        expect(preview.capturePage).toHaveBeenCalledOnce();
+
+        resolveRecordingCapture(makeAutomationImage());
+        const result = yield* Fiber.join(pick);
+        expect(result).toMatchObject({
+          submission: "attach",
+          annotation: {
+            id: "annotation-recording-capture",
+            screenshot: {
+              dataUrl: "data:image/png;base64,cG5n",
+              width: 800,
+              height: 600,
+              cropRect: { x: 0, y: 0, width: 800, height: 600 },
+            },
+          },
+        });
+        expect(Exit.isSuccess(yield* Fiber.await(recording))).toBe(true);
+        expect(preview.capturePage).toHaveBeenCalledTimes(2);
+
+        yield* manager.stopRecording("tab_recording_before_annotation");
       }),
     ),
   );

@@ -400,7 +400,7 @@ interface BrowserControlQueue {
 
 interface BrowserCaptureQueue {
   tail: Promise<void>;
-  pendingKind: "ordinary" | "snapshot" | null;
+  pendingKind: "background" | "foreground" | null;
   retired: boolean;
 }
 
@@ -566,8 +566,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     errorContext: PreviewOperationContext,
     wc: Electron.WebContents,
     options: {
+      readonly background?: boolean;
       readonly busyError?: PreviewManagerError;
-      readonly queueBehindOrdinaryCapture?: boolean;
       readonly rect?: Electron.Rectangle;
     } = {},
   ): Effect.Effect<Electron.NativeImage, PreviewManagerError> =>
@@ -582,9 +582,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         if (queue.retired) {
           throw new Error("Preview capture target is no longer active");
         }
-        const captureKind = options.queueBehindOrdinaryCapture ? "snapshot" : "ordinary";
+        const captureKind = options.background ? "background" : "foreground";
         const canQueueBehindPendingCapture =
-          captureKind === "snapshot" && queue.pendingKind === "ordinary";
+          captureKind === "foreground" && queue.pendingKind === "background";
         if (queue.pendingKind !== null && !canQueueBehindPendingCapture) {
           throw options.busyError ?? new Error("Another preview capture is still in progress");
         }
@@ -2874,6 +2874,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         webContentsId: wc.id,
       },
       wc,
+      { background: true },
     );
     const currentCaptureSession = yield* Effect.all(
       [SynchronizedRef.get(frameCaptureSessionsRef), SynchronizedRef.get(tabsRef)],
@@ -3526,7 +3527,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
                 timeoutMs: deadline.timeoutMs,
                 stage: "queue",
               }),
-              queueBehindOrdinaryCapture: true,
             },
           ).pipe(Effect.tapError(recordFailure)),
           Ref.get(diagnosticsRef),
