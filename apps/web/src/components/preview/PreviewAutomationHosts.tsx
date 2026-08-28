@@ -514,7 +514,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 request.timeoutMs,
               );
             }
-            return await runWithinHostBudget(() => currentStatus(threadRef, activeTabId));
+            return await currentStatus(threadRef, activeTabId);
           }
           case "navigate": {
             const ready = await requireReadyTab();
@@ -536,7 +536,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               input.readiness ?? "load",
               input.timeoutMs ?? request.timeoutMs,
             );
-            return await runWithinHostBudget(() => currentStatus(threadRef, ready.tabId));
+            return await currentStatus(threadRef, ready.tabId);
           }
           case "resize": {
             const ready = await requireReadyTab();
