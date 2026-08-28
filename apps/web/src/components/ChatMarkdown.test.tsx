@@ -102,6 +102,67 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain("select-text");
   });
+
+  it.each([true, false])(
+    "renders Codex file citations as file chips with parseRawHtml=%s",
+    (parseRawHtml) => {
+      const html = renderToStaticMarkup(
+        <ChatMarkdown
+          cwd="/tmp/project"
+          text={
+            'Created :codex-file-citation{path="/tmp/project/outputs/report.xlsx" purpose="output"}.'
+          }
+          lineBreaks={!parseRawHtml}
+          parseRawHtml={parseRawHtml}
+        />,
+      );
+
+      expect(html).not.toContain("codex-file-citation");
+      expect(html).toContain("chat-markdown-file-link");
+      expect(html).toContain(
+        'data-markdown-copy="[report.xlsx](/tmp/project/outputs/report.xlsx)"',
+      );
+      expect(html).toContain("report.xlsx");
+    },
+  );
+
+  it("leaves an unfinished streaming citation visible until it is complete", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={'Created :codex-file-citation{path="/tmp/project/outputs/report.xlsx"'}
+        isStreaming
+      />,
+    );
+
+    expect(html).toContain(":codex-file-citation");
+    expect(html).not.toContain("chat-markdown-file-link");
+  });
+
+  it("preserves Codex file citation examples inside code", () => {
+    const directive = ':codex-file-citation{path="/tmp/project/outputs/report.xlsx"}';
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={`Example: \`${directive}\`\n\n\`\`\`text\n${directive}\n\`\`\``}
+      />,
+    );
+
+    expect(html.match(/:codex-file-citation/g)).toHaveLength(2);
+    expect(html).not.toContain("chat-markdown-file-link");
+  });
+
+  it("preserves escaped Codex file citations as literal text", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={'Example: \\:codex-file-citation{path="/tmp/project/outputs/report.xlsx"}'}
+      />,
+    );
+
+    expect(html).toContain(":codex-file-citation");
+    expect(html).not.toContain("chat-markdown-file-link");
+  });
 });
 
 describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {

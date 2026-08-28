@@ -17,6 +17,27 @@ import type {
 
 const EMPTY_SKILLS: ReadonlyArray<SelectableMarkdownSkill> = [];
 
+function applyBeforeParsePlugins(
+  markdown: string,
+  plugins: SelectableMarkdownTextProps["plugins"],
+): string {
+  if (!plugins || plugins.length === 0) return markdown;
+
+  let transformed = markdown;
+  const sortedPlugins = [...plugins].sort(
+    (left, right) => (right.priority ?? 0) - (left.priority ?? 0),
+  );
+  for (const plugin of sortedPlugins) {
+    if (!plugin.beforeParse) continue;
+    try {
+      transformed = plugin.beforeParse(transformed);
+    } catch {
+      // Match Nitro Markdown's plugin fallback: keep the last valid source.
+    }
+  }
+  return transformed;
+}
+
 export type {
   MarkdownCodeHighlighter,
   MarkdownHighlightedToken,
@@ -33,6 +54,7 @@ export function hasNativeSelectableMarkdownText(): boolean {
 
 export function SelectableMarkdownText({
   markdown,
+  plugins,
   skills = EMPTY_SKILLS,
   textStyle,
   highlightCode,
@@ -43,7 +65,7 @@ export function SelectableMarkdownText({
   marginBottom = 0,
 }: SelectableMarkdownTextProps) {
   const chunks = useMemo(() => {
-    const parsedDocument = parseMarkdownWithOptions(markdown, {
+    const parsedDocument = parseMarkdownWithOptions(applyBeforeParsePlugins(markdown, plugins), {
       gfm: true,
       html: true,
       math: false,
@@ -59,7 +81,7 @@ export function SelectableMarkdownText({
           }
         : chunk,
     );
-  }, [markdown, preserveSoftBreaks, skills]);
+  }, [markdown, plugins, preserveSoftBreaks, skills]);
 
   return (
     <MarkdownImageRendererContext.Provider value={renderImage ?? null}>

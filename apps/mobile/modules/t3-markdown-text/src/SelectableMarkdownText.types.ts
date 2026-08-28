@@ -1,3 +1,5 @@
+import type { MarkdownPlugin } from "react-native-nitro-markdown";
+
 export interface NativeMarkdownTextStyle {
   readonly color: string;
   readonly strongColor: string;
@@ -54,6 +56,7 @@ export interface SelectableMarkdownTextProps {
   readonly markdown: string;
   readonly textStyle: NativeMarkdownTextStyle;
   readonly highlightCode: MarkdownCodeHighlighter;
+  readonly plugins?: ReadonlyArray<MarkdownPlugin>;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   readonly preserveSoftBreaks?: boolean;
   readonly onLinkPress?: (href: string) => void;

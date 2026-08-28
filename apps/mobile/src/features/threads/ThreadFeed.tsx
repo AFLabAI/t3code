@@ -111,6 +111,10 @@ import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl, useAssetUrlState } from "../../state/assets";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
 import { MARKDOWN_IMAGE_MAX_WIDTH, resolveMarkdownImageDisplaySize } from "./markdownImageSize";
+import {
+  CODEX_FILE_CITATION_MARKDOWN_PLUGINS,
+  replaceCodexFileCitationsWithMarkdownLinks,
+} from "../../lib/codexFileCitationMarkdown";
 
 const WIDE_MARKDOWN_BLOCK_OPTIONS = {
   includeOrderedLists: Platform.OS === "android",
@@ -1026,6 +1030,10 @@ function renderFeedEntry(
   if (entry.type === "message") {
     const { message } = entry;
     const isUser = message.role === "user";
+    const renderedText = message.text;
+    const copiedText = isUser
+      ? renderedText
+      : replaceCodexFileCitationsWithMarkdownLinks(renderedText);
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = (message.attachments ?? []).filter(
@@ -1037,7 +1045,7 @@ function renderFeedEntry(
     // children during the unclamped pass and never moves them once the width
     // is clamped, so the paragraphs around the block end up drawn on top of
     // each other. Pinning the width removes that pass.
-    const hasWideBlock = hasWideMarkdownBlock(message.text, WIDE_MARKDOWN_BLOCK_OPTIONS);
+    const hasWideBlock = hasWideMarkdownBlock(renderedText, WIDE_MARKDOWN_BLOCK_OPTIONS);
     const assistantTurnStillInProgress =
       message.role === "assistant" &&
       props.unsettledTurnId !== null &&
@@ -1109,7 +1117,7 @@ function renderFeedEntry(
 
     // Skip empty assistant messages (no text, no attachments) — they would
     // render as an orphaned timestamp and break adjacent activity-group merging.
-    if (message.text.trim().length === 0 && attachments.length === 0) {
+    if (renderedText.trim().length === 0 && attachments.length === 0) {
       return null;
     }
 
@@ -1119,10 +1127,11 @@ function renderFeedEntry(
         className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-2 px-1")}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
-        {message.text.trim().length > 0 ? (
+        {renderedText.trim().length > 0 ? (
           hasNativeSelectableMarkdownText() ? (
             <SelectableMarkdownText
-              markdown={message.text}
+              markdown={renderedText}
+              plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
               skills={props.skills}
               textStyle={styles.nativeTextStyle}
               onLinkPress={props.onMarkdownLinkPress}
@@ -1131,11 +1140,12 @@ function renderFeedEntry(
           ) : (
             <Markdown
               options={{ gfm: true }}
+              plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
               renderers={styles.renderers}
               styles={styles.styles}
               theme={styles.theme}
             >
-              {message.text}
+              {renderedText}
             </Markdown>
           )
         ) : null}
@@ -1154,7 +1164,7 @@ function renderFeedEntry(
           <View className="mt-1 flex-row items-center gap-1">
             <CopyTextButton
               accessibilityLabel="Copy message"
-              text={message.text}
+              text={copiedText}
               tintColor={iconSubtleColor}
               buttonSize={28}
               iconSize={13}

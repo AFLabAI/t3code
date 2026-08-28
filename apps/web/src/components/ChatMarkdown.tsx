@@ -24,6 +24,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { resolveCodexFileCitationLink } from "@t3tools/client-runtime/codex-file-citations";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -48,6 +49,7 @@ import { defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
+import remarkDirective from "remark-directive";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "../markdown-github-alerts";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
@@ -286,6 +288,8 @@ const CHAT_MARKDOWN_REMARK_PLUGINS = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
+  remarkDirective,
+  remarkCodexFileCitations,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
@@ -295,6 +299,8 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
   remarkBreaks,
+  remarkDirective,
+  remarkCodexFileCitations,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
@@ -381,13 +387,54 @@ function extractPreCodeMeta(node: unknown): string | undefined {
 
 type MarkdownAstNode = {
   type?: string;
+  name?: string;
   meta?: unknown;
   url?: string;
+  value?: string;
+  attributes?: Readonly<Record<string, string | null>>;
+  position?: {
+    start: { offset?: number };
+    end: { offset?: number };
+  };
   data?: {
     hProperties?: Record<string, unknown>;
   };
   children?: MarkdownAstNode[];
 };
+
+/** Turns Codex's private file directive into the same links agents write explicitly. */
+function remarkCodexFileCitations() {
+  return (tree: MarkdownAstNode, file: { value: unknown }) => {
+    const source = String(file.value);
+    const visit = (node: MarkdownAstNode) => {
+      if (node.type === "textDirective" && node.name === "codex-file-citation") {
+        const citation = resolveCodexFileCitationLink(node.attributes);
+        if (!citation) {
+          const start = node.position?.start.offset;
+          const end = node.position?.end.offset;
+          node.type = "text";
+          node.value =
+            start === undefined || end === undefined
+              ? ":codex-file-citation"
+              : source.slice(start, end);
+          delete node.children;
+          return;
+        }
+        node.type = "link";
+        node.url = citation.href;
+        node.children = [{ type: "text", value: citation.label }];
+        return;
+      }
+
+      if (node.type === "link") return;
+      for (const child of node.children ?? []) {
+        visit(child);
+      }
+    };
+
+    visit(tree);
+  };
+}
 
 function remarkPreserveCodeMeta() {
   return (tree: MarkdownAstNode) => {
