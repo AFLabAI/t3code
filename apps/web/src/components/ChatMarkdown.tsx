@@ -24,7 +24,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { resolveCodexFileCitationLink } from "@t3tools/client-runtime/codex-file-citations";
+import { replaceCodexFileCitationsWithMarkdownLinks } from "@t3tools/client-runtime/codex-file-citation-markdown";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -49,7 +49,6 @@ import { defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
-import remarkDirective from "remark-directive";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "../markdown-github-alerts";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
@@ -288,8 +287,6 @@ const CHAT_MARKDOWN_REMARK_PLUGINS = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
-  remarkDirective,
-  remarkCodexFileCitations,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
@@ -298,8 +295,6 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
-  remarkDirective,
-  remarkCodexFileCitations,
   remarkBreaks,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
@@ -387,72 +382,14 @@ function extractPreCodeMeta(node: unknown): string | undefined {
 
 type MarkdownAstNode = {
   type?: string;
-  name?: string;
   meta?: unknown;
   url?: string;
   value?: string;
-  attributes?: Readonly<Record<string, string | null>>;
-  position?: {
-    start: { offset?: number };
-    end: { offset?: number };
-  };
   data?: {
     hProperties?: Record<string, unknown>;
   };
   children?: MarkdownAstNode[];
 };
-
-/** Turns Codex's private file directive into the same links agents write explicitly. */
-function remarkCodexFileCitations() {
-  return (tree: MarkdownAstNode, file: { value: unknown }) => {
-    const source = String(file.value);
-    const restoreDirectiveSource = (node: MarkdownAstNode) => {
-      const start = node.position?.start.offset;
-      const end = node.position?.end.offset;
-      const value =
-        start === undefined || end === undefined ? `:${node.name ?? ""}` : source.slice(start, end);
-      const isFlowDirective = node.type === "leafDirective" || node.type === "containerDirective";
-      node.type = isFlowDirective ? "paragraph" : "text";
-      delete node.name;
-      delete node.attributes;
-      if (isFlowDirective) {
-        delete node.value;
-        node.children = [{ type: "text", value }];
-      } else {
-        node.value = value;
-        delete node.children;
-      }
-    };
-
-    const visit = (node: MarkdownAstNode, insideLink: boolean) => {
-      if (
-        node.type === "textDirective" ||
-        node.type === "leafDirective" ||
-        node.type === "containerDirective"
-      ) {
-        if (!insideLink && node.type === "textDirective" && node.name === "codex-file-citation") {
-          const citation = resolveCodexFileCitationLink(node.attributes);
-          if (citation) {
-            node.type = "link";
-            node.url = citation.href;
-            node.children = [{ type: "text", value: citation.label }];
-            return;
-          }
-        }
-
-        restoreDirectiveSource(node);
-        return;
-      }
-
-      const childInsideLink = insideLink || node.type === "link" || node.type === "linkReference";
-      for (const child of node.children ?? []) {
-        visit(child, childInsideLink);
-      }
-    };
-
-    visit(tree, false);
-  };
-}
 
 function remarkPreserveCodeMeta() {
   return (tree: MarkdownAstNode) => {
@@ -1702,6 +1639,8 @@ function ChatMarkdown({
   lineBreaks = false,
   parseRawHtml = true,
 }: ChatMarkdownProps) {
+  // Keep directive grammar isolated so ordinary chat Markdown retains its existing parse rules.
+  const markdownText = useMemo(() => replaceCodexFileCitationsWithMarkdownLinks(text), [text]);
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
@@ -1765,7 +1704,7 @@ function ChatMarkdown({
       string,
       NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
     >();
-    for (const href of extractMarkdownLinkHrefs(text)) {
+    for (const href of extractMarkdownLinkHrefs(markdownText)) {
       const normalizedHref = normalizeMarkdownLinkHrefKey(href);
       if (metaByHref.has(normalizedHref)) continue;
       const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd);
@@ -1774,10 +1713,10 @@ function ChatMarkdown({
       }
     }
     return metaByHref;
-  }, [cwd, text]);
+  }, [cwd, markdownText]);
   const inlineCodeFileLinkMetaByText = useMemo(() => {
     const metaByText = new Map<string, MarkdownFileLinkMeta>();
-    for (const span of extractInlineCodeSpans(text)) {
+    for (const span of extractInlineCodeSpans(markdownText)) {
       if (metaByText.has(span)) continue;
       const meta = resolveInlineCodeFileLinkMeta(span, cwd);
       if (meta) {
@@ -1785,7 +1724,7 @@ function ChatMarkdown({
       }
     }
     return metaByText;
-  }, [cwd, text]);
+  }, [cwd, markdownText]);
   const fileLinkParentSuffixByPath = useMemo(() => {
     const filePaths = [
       ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
@@ -2043,7 +1982,9 @@ function ChatMarkdown({
       li({ node, children, ...props }) {
         const listItemStart = node?.position?.start.offset;
         const markerOffset =
-          typeof listItemStart === "number" ? findTaskListMarkerOffset(text, listItemStart) : null;
+          typeof listItemStart === "number"
+            ? findTaskListMarkerOffset(markdownText, listItemStart)
+            : null;
         return (
           <li {...props} data-task-marker-offset={markerOffset ?? undefined}>
             {renderSkillInlineMarkdownChildren(children, skills)}
@@ -2292,7 +2233,7 @@ function ChatMarkdown({
     revealMarkdownFileInFileManager,
     revealInFileManagerLabel,
     skills,
-    text,
+    markdownText,
     threadRef,
     updateThreadPullRequestLink,
   ]);
@@ -2318,7 +2259,7 @@ function ChatMarkdown({
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
-        {text}
+        {markdownText}
       </ReactMarkdown>
     </div>
   );

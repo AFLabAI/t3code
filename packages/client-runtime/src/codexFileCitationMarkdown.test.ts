@@ -45,4 +45,9 @@ describe("replaceCodexFileCitationsWithMarkdownLinks", () => {
       "[\\*draft\\*\\_\\`copy\\`.txt](<reports/*draft*_`copy`.txt>)",
     );
   });
+
+  it("leaves citations inside existing links literal", () => {
+    const markdown = `[See ${OUTPUT_CITATION}](https://example.com)`;
+    expect(replaceCodexFileCitationsWithMarkdownLinks(markdown)).toBe(markdown);
+  });
 });

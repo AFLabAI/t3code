@@ -32,19 +32,21 @@ const citationParser = unified().use(remarkParse).use(remarkDirective).freeze();
 function collectCitationReplacements(
   node: MarkdownDirectiveNode,
   replacements: CitationReplacement[],
+  insideLink = false,
 ): void {
   if (node.type === "textDirective" && node.name === CODEX_FILE_CITATION_NAME) {
     const citation = resolveCodexFileCitationLink(node.attributes);
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
-    if (citation && start !== undefined && end !== undefined) {
+    if (!insideLink && citation && start !== undefined && end !== undefined) {
       replacements.push({ start, end, markdown: codexFileCitationMarkdown(citation) });
     }
     return;
   }
 
+  const childInsideLink = insideLink || node.type === "link" || node.type === "linkReference";
   for (const child of node.children ?? []) {
-    collectCitationReplacements(child, replacements);
+    collectCitationReplacements(child, replacements, childInsideLink);
   }
 }
 

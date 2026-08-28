@@ -187,7 +187,18 @@ describe("ChatMarkdown file option chips", () => {
     expect(renderedText).toContain("Error:ENOENT explained");
   });
 
-  it("restores flow directives as paragraphs", () => {
+  it("does not create a nested link for citations inside link text", () => {
+    const directive = ':codex-file-citation{path="/tmp/project/outputs/report.xlsx"}';
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={`[See ${directive}](https://example.com)`} />,
+    );
+    const renderedText = html.replace(/<[^>]+>/g, "");
+
+    expect(renderedText).toContain("codex-file-citation");
+    expect(html).not.toContain("chat-markdown-file-link");
+  });
+
+  it("keeps flow directive-like text in paragraphs", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown cwd="/tmp/project" text={"before\n\n::note\n\n:::note\ncontent\n:::"} />,
     );
@@ -196,12 +207,48 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("<p>:::note\ncontent\n:::</p>");
   });
 
-  it("applies line-break rendering after restoring flow directives", () => {
+  it("applies line-break rendering to flow directive-like text", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown cwd="/tmp/project" text={":::note\ncontent\n:::"} lineBreaks />,
     );
 
     expect(html).toContain("<p>:::note<br/>\ncontent<br/>\n:::</p>");
+  });
+
+  it("keeps inline Markdown in over-indented list recovery", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={"-       Updated `src/main.ts`"} />,
+    );
+
+    expect(html).not.toContain("<pre>");
+    expect(html).toContain("Updated ");
+    expect(html).toContain("chat-markdown-file-link");
+  });
+
+  it("keeps Markdown semantics inside unknown container-like text", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={":::note\n**important** [docs](https://example.com) `inline`\n:::"}
+      />,
+    );
+
+    expect(html).toContain("<strong>important</strong>");
+    expect(html).toContain(">inline</code>");
+    expect(html).toContain('href="https://example.com"');
+  });
+
+  it("renders citations after an unclosed container-like marker", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={':::note\nCreated :codex-file-citation{path="/tmp/project/outputs/report.xlsx"}.'}
+      />,
+    );
+
+    expect(html).toContain(":::note");
+    expect(html).toContain("chat-markdown-file-link");
+    expect(html).toContain("report.xlsx");
   });
 });
 
