@@ -3317,14 +3317,12 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         !attachment.presentation.active
       ) {
         return yield* new PreviewAutomationTabNotVisibleError({
-          operation: "click",
           tabId,
           webContentsId: wc.id,
         });
       }
       if (!attachment.presentation.visible) {
         return yield* new PreviewAutomationTabNotVisibleError({
-          operation: "click",
           tabId,
           webContentsId: wc.id,
         });
@@ -4124,7 +4122,6 @@ export class PreviewAutomationControlInterruptedError extends Schema.TaggedError
 export class PreviewAutomationTabNotVisibleError extends Schema.TaggedErrorClass<PreviewAutomationTabNotVisibleError>()(
   "PreviewAutomationTabNotVisibleError",
   {
-    operation: Schema.Literal("click"),
     tabId: Schema.String,
     webContentsId: Schema.Number,
   },

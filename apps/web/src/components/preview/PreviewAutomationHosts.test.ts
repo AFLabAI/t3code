@@ -501,8 +501,15 @@ describe("clickVisiblePreview", () => {
     });
     const click = vi.fn(async () => ({ _tag: "Dispatched" as const }));
 
-    await expect(runClick(makeBridge(setWebviewVisibility, click))).rejects.toMatchObject({
+    let hiddenError: unknown;
+    try {
+      await runClick(makeBridge(setWebviewVisibility, click));
+    } catch (cause) {
+      hiddenError = cause;
+    }
+    expect(hiddenError).toMatchObject({
       _tag: "PreviewAutomationTabNotVisibleHostError",
+      cause: bridgeError,
     });
     expect(setWebviewVisibility).toHaveBeenLastCalledWith(
       runtimeTabId,

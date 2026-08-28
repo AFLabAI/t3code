@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   confirmPreviewAutomationClickDispatched,
   PreviewAutomationRecordingNotActiveError,
+  PreviewAutomationTabNotVisibleHostError,
   PreviewAutomationTargetUnavailableError,
   PreviewAutomationViewportTimeoutError,
 } from "./previewAutomationErrors";
@@ -358,6 +359,34 @@ describe("previewAutomationRequestConsumer", () => {
         tabId: "tab-1",
       },
     });
+  });
+
+  it("keeps a hidden-click cause local to the renderer", () => {
+    const context = {
+      requestId: "request-click-cause",
+      operation: "click" as const,
+      environmentId,
+      threadId,
+      tabId,
+    };
+    const cause = new Error("private visibility bridge detail");
+    const error = new PreviewAutomationTabNotVisibleHostError({ ...context, cause });
+
+    expect(error.cause).toBe(cause);
+    const response = serializePreviewAutomationError(error, context);
+    expect(response).toEqual({
+      _tag: "PreviewAutomationTabNotVisibleError",
+      message:
+        "Preview tab tab-1 is hidden. No mouse input was sent. Show the tab before clicking.",
+      detail: {
+        requestId: "request-click-cause",
+        operation: "click",
+        environmentId: "environment-1",
+        threadId: "thread-1",
+        tabId: "tab-1",
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("private visibility bridge detail");
   });
 
   it("preserves context when desktop click delivery is unconfirmed", () => {

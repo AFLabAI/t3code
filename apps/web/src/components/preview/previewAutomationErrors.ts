@@ -144,6 +144,7 @@ export class PreviewAutomationTabNotVisibleHostError extends Schema.TaggedErrorC
     environmentId: EnvironmentId,
     threadId: ThreadId,
     tabId: PreviewTabId,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   get responseTag() {

@@ -419,7 +419,7 @@ export async function clickVisiblePreview(
         throw cause;
       }
       if (!invalidated) void setCapturedWebviewHidden();
-      throw new PreviewAutomationTabNotVisibleHostError(context);
+      throw new PreviewAutomationTabNotVisibleHostError({ ...context, cause });
     }
     assertPreviewClickBeforeDeadline(context, timing);
     assertRuntimeCurrentBeforeDispatch();
