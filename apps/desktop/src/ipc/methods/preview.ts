@@ -298,13 +298,14 @@ export const automationSnapshot = DesktopIpc.makeIpcMethod({
     const manager = yield* PreviewManager.PreviewManager;
     return yield* manager.automationSnapshot(input).pipe(
       Effect.map((snapshot) => ({ _tag: "Success" as const, snapshot })),
-      Effect.catchTag("PreviewAutomationDeadlineExceededError", (error) =>
-        Effect.succeed({
-          _tag: "Timeout" as const,
-          stage: error.stage,
-          timeoutMs: error.timeoutMs,
-        }),
-      ),
+      Effect.catchTags({
+        PreviewAutomationDeadlineExceededError: (error) =>
+          Effect.succeed({
+            _tag: "Timeout" as const,
+            stage: error.stage,
+            timeoutMs: error.timeoutMs,
+          }),
+      }),
     );
   }),
 });
