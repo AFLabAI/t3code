@@ -384,7 +384,6 @@ type MarkdownAstNode = {
   type?: string;
   meta?: unknown;
   url?: string;
-  value?: string;
   data?: {
     hProperties?: Record<string, unknown>;
   };
