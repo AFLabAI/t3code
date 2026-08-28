@@ -42,6 +42,7 @@ import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon, providerInstanceInitials } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
+import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -212,6 +213,7 @@ function ProviderAuthEmail(props: { readonly email: string | undefined }) {
     />
   );
 }
+
 function ProviderEnvironmentSection(props: {
   readonly environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>;
   readonly onChange: (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void;
@@ -724,6 +726,51 @@ export function ProviderInstanceCard({
     <code className="text-xs text-muted-foreground">{versionLabel}</code>
   ) : null;
 
+  if (mode === "list") {
+    return (
+      <div
+        className={cn(
+          "group relative flex min-h-16 items-center gap-3 border-b border-border/60 px-3 py-2.5 transition-colors last:border-b-0",
+          selected ? "bg-muted/50" : "hover:bg-muted/25",
+        )}
+      >
+        {selected ? <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" /> : null}
+        <button
+          type="button"
+          className={cn(
+            "flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-sm text-left outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-ring",
+            !enabled && !selected && "opacity-60 group-hover:opacity-100",
+          )}
+          onClick={onSelect}
+          aria-pressed={selected}
+        >
+          {titleIconNode}
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
+              {versionCodeNode}
+            </span>
+            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className={cn("size-1.5 shrink-0 rounded-full", statusStyle.dot)} />
+              <span className="truncate">{summary.headline}</span>
+            </span>
+            {String(instanceId) !== String(instance.driver) ? (
+              <code className="mt-0.5 block truncate text-[10px] text-muted-foreground/70">
+                {instanceId}
+              </code>
+            ) : null}
+          </span>
+        </button>
+        <Switch
+          checked={enabled}
+          disabled={readOnly}
+          onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
+          aria-label={`Enable ${displayName}`}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
       <div
@@ -909,113 +956,6 @@ export function ProviderInstanceCard({
               description="Used to distinguish this instance in picker rails and model lists."
             />
           </div>
-
-          <div>
-            <ProviderEnvironmentSection
-              environment={instance.environment ?? []}
-              onChange={updateEnvironment}
-            />
-          </div>
-
-          {driverOption ? (
-            <ProviderSettingsForm
-              definition={driverOption}
-              value={instance.config}
-              idPrefix={`provider-instance-${instanceId}`}
-              variant="card"
-              onChange={updateConfig}
-            />
-          ) : null}
-
-          {driverOption === undefined ? (
-            <div>
-              <p className="text-xs text-muted-foreground">
-                This instance uses a driver (
-                <code className="text-foreground">{String(instance.driver)}</code>) that is not
-                shipped with the current build. Configuration values are preserved but cannot be
-                edited from this surface.
-              </p>
-            </div>
-          ) : null}
-        </div>
-        {driverOption !== undefined ? (
-          <div className="px-4 py-5 lg:h-full lg:min-h-0" hidden={visibleTab !== "models"}>
-            <ProviderModelsSection
-              instanceId={instanceId}
-              driverKind={driverKind}
-              models={modelsForDisplay}
-              customModels={customModels}
-              hiddenModels={hiddenModels}
-              favoriteModels={favoriteModels}
-              modelOrder={modelOrder}
-              onChange={updateCustomModels}
-              onHiddenModelsChange={onHiddenModelsChange}
-              onFavoriteModelsChange={onFavoriteModelsChange}
-              onModelOrderChange={onModelOrderChange}
-            />
-          </div>
-          {showEditorStatus ? (
-            <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-              <span>{summary.headline}</span>
-              {summary.detail ? <span>· {summary.detail}</span> : null}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex h-11 border-b border-border/70 px-1">
-        {driverOption !== undefined ? (
-          <button
-            type="button"
-            aria-pressed={visibleTab === "models"}
-            className={providerSettingsTabClassName(visibleTab === "models")}
-            onClick={() => setActiveTab("models")}
-          >
-            Models
-          </button>
-        ) : null}
-        <button
-          type="button"
-          aria-pressed={visibleTab === "configuration"}
-          className={providerSettingsTabClassName(visibleTab === "configuration")}
-          onClick={() => setActiveTab("configuration")}
-        >
-          Configuration
-        </button>
-      </div>
-
-      <div
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={cn("px-4 py-5", readOnly && "opacity-50 select-none")}
-      >
-        <div className="space-y-5" hidden={visibleTab !== "configuration"}>
-          <div>
-            <label htmlFor={`provider-instance-${instanceId}-display-name`} className="block">
-              <span className="text-xs font-medium text-foreground">Display name</span>
-              <DraftInput
-                id={`provider-instance-${instanceId}-display-name`}
-                className="mt-1.5"
-                value={instance.displayName ?? ""}
-                onCommit={updateDisplayName}
-                placeholder={driverOption?.label ?? "Instance label"}
-                spellCheck={false}
-              />
-              <span className="mt-1 block text-xs text-muted-foreground">
-                Optional label shown in the provider list.
-              </span>
-            </label>
-          </div>
-
-          <div>
-            <ProviderAccentColorPicker
-              displayName={displayName}
-              value={accentColor}
-              onCommit={updateAccentColor}
-              commitDelayMs={120}
-              description="Used to distinguish this instance in picker rails and model lists."
-            />
-          </div>
           <div className="border-t border-border/60 px-4 py-3 sm:px-5">
             {environmentFields.length > 0 ? (
               <div className="mb-4 grid gap-3">
@@ -1066,7 +1006,7 @@ export function ProviderInstanceCard({
           ) : null}
         </div>
         {driverOption !== undefined ? (
-          <div hidden={visibleTab !== "models"}>
+          <div className="px-4 py-5 lg:h-full lg:min-h-0" hidden={visibleTab !== "models"}>
             <ProviderModelsSection
               instanceId={instanceId}
               driverKind={driverKind}
