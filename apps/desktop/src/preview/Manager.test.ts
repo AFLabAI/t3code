@@ -188,6 +188,101 @@ const makeTestPreviewWebContents = (
     capturePage,
   }) as never;
 
+const makeAutomationImage = (width = 800, height = 600) => {
+  const image = {
+    getSize: () => ({ width, height }),
+    resize: vi.fn(() => image),
+    toJPEG: () => Buffer.from("jpeg"),
+    toPNG: () => Buffer.from("png"),
+  };
+  return image;
+};
+
+const makeAutomationWebContents = (options: {
+  readonly capturePage: () => Promise<ReturnType<typeof makeAutomationImage>>;
+  readonly id?: number;
+  readonly sendCommand: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+}) => {
+  let attached = false;
+  let destroyed = false;
+  let devToolsOpen = false;
+  const listeners = new Map<string, (...args: never[]) => void>();
+  const attach = vi.fn(() => {
+    attached = true;
+  });
+  const detach = vi.fn(() => {
+    attached = false;
+  });
+  const on = vi.fn((event: string, listener: (...args: never[]) => void) => {
+    listeners.set(event, listener);
+  });
+  const off = vi.fn();
+  const debuggerOn = vi.fn();
+  const debuggerOff = vi.fn();
+  const sendCommand = vi.fn(options.sendCommand);
+  const capturePage = vi.fn(options.capturePage);
+  const webContents = {
+    id: options.id ?? 42,
+    isDestroyed: () => destroyed,
+    isDevToolsOpened: () => devToolsOpen,
+    getType: () => "webview",
+    getURL: () => "https://example.com",
+    getTitle: () => "Example",
+    isLoading: () => false,
+    getZoomFactor: () => 1,
+    setZoomFactor: vi.fn(),
+    setAudioMuted: vi.fn(),
+    isCurrentlyAudible: () => false,
+    on,
+    once: on,
+    off,
+    ipc: { on: vi.fn(), off: vi.fn() },
+    send: webviewSend,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+    setWindowOpenHandler: vi.fn(),
+    debugger: {
+      isAttached: () => attached,
+      attach,
+      detach,
+      sendCommand,
+      on: debuggerOn,
+      off: debuggerOff,
+    },
+    capturePage,
+  };
+  return {
+    attach,
+    capturePage,
+    debuggerOn,
+    debuggerOff,
+    detach,
+    listeners,
+    sendCommand,
+    setDestroyed: (value: boolean) => {
+      destroyed = value;
+    },
+    setDevToolsOpen: (value: boolean) => {
+      devToolsOpen = value;
+    },
+    webContents: webContents as never,
+  };
+};
+
+const snapshotPageValue = {
+  url: "https://example.com",
+  title: "Example",
+  loading: false,
+  visibleText: "Example",
+  interactiveElements: [],
+};
+
+const snapshotInput = (tabId: string, timeoutMs = 1_000) => ({
+  tabId,
+  connectionId: "connection-1",
+  requestId: `request-${tabId}`,
+  timeoutMs,
+});
+
 const TEST_FAVICON = "data:image/png;base64,cG5n";
 
 const makeSourcePng = (width = 1, height = 1): Buffer => {
@@ -3383,4 +3478,640 @@ describe("Preview automation diagnostics", () => {
     expect(JSON.stringify(error)).not.toContain(selector);
     expect("locator" in error).toBe(false);
   });
+
+  effectIt.effect("does not let stalled debugger initialization block another tab", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const stalled = new Promise<unknown>(() => undefined);
+        const first = makeAutomationWebContents({
+          id: 41,
+          capturePage: async () => makeAutomationImage(),
+          sendCommand: async (method) => {
+            if (method === "Runtime.enable") return await stalled;
+            if (method === "Runtime.evaluate") return { result: { value: snapshotPageValue } };
+            if (method === "Accessibility.getFullAXTree") return { nodes: [] };
+            return undefined;
+          },
+        });
+        const second = makeAutomationWebContents({
+          id: 42,
+          capturePage: async () => makeAutomationImage(),
+          sendCommand: async (method) =>
+            method === "Runtime.evaluate"
+              ? { result: { value: { ready: true } } }
+              : method === "Accessibility.getFullAXTree"
+                ? { nodes: [] }
+                : undefined,
+        });
+        const byId = new Map([
+          [41, first.webContents],
+          [42, second.webContents],
+        ]);
+        fromId.mockImplementation((id) => (id === undefined ? null : (byId.get(id) ?? null)));
+
+        first.setDevToolsOpen(true);
+        yield* manager.createTab("tab_stalled");
+        yield* manager.registerWebview("tab_stalled", 41);
+        first.setDevToolsOpen(false);
+        yield* manager.createTab("tab_ready");
+        yield* manager.registerWebview("tab_ready", 42);
+        yield* settle(() => second.attach.mock.calls.length > 0);
+
+        const stalledSnapshot = yield* manager
+          .automationSnapshot(snapshotInput("tab_stalled", 100))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() =>
+          first.sendCommand.mock.calls.some(([method]) => method === "Runtime.enable"),
+        );
+
+        expect(yield* manager.automationEvaluate("tab_ready", { expression: "ready" })).toEqual({
+          ready: true,
+        });
+
+        yield* TestClock.adjust(100);
+        const exit = yield* Fiber.await(stalledSnapshot);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewAutomationDeadlineExceededError",
+            stage: "initialization",
+          });
+        }
+        expect(first.detach).toHaveBeenCalledOnce();
+        const messageListener = first.debuggerOn.mock.calls.find(
+          ([event]) => event === "message",
+        )?.[1];
+        expect(messageListener).toBeTypeOf("function");
+        expect(first.debuggerOff).toHaveBeenCalledWith("message", messageListener);
+      }),
+    ),
+  );
+
+  effectIt.effect("keeps an active attachment when a queued snapshot expires", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () => void 0;
+        const pendingCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveCapture = resolve;
+        });
+        let markCaptureStarted: () => void = () => void 0;
+        const captureStarted = new Promise<void>((resolve) => {
+          markCaptureStarted = resolve;
+        });
+        const preview = makeAutomationWebContents({
+          capturePage: () => {
+            markCaptureStarted();
+            return pendingCapture;
+          },
+          sendCommand: async (method) =>
+            method === "Runtime.evaluate"
+              ? { result: { value: snapshotPageValue } }
+              : method === "Accessibility.getFullAXTree"
+                ? { nodes: [] }
+                : undefined,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_queue_deadline");
+        yield* manager.registerWebview("tab_queue_deadline", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+
+        const active = yield* manager
+          .automationSnapshot(snapshotInput("tab_queue_deadline", 1_000))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => captureStarted);
+        const queued = yield* manager
+          .automationSnapshot({
+            ...snapshotInput("tab_queue_deadline", 50),
+            requestId: "request-queued",
+          })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        expect(queued.pollUnsafe()).toBeUndefined();
+        expect(
+          preview.sendCommand.mock.calls.filter(([method]) => method === "Runtime.evaluate"),
+        ).toHaveLength(1);
+
+        yield* TestClock.adjust(50);
+        expect(active.pollUnsafe()).toBeUndefined();
+        expect(
+          preview.sendCommand.mock.calls.filter(([method]) => method === "Runtime.evaluate"),
+        ).toHaveLength(1);
+        const queuedExit = yield* Fiber.await(queued);
+        expect(Exit.isFailure(queuedExit)).toBe(true);
+        if (Exit.isFailure(queuedExit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(queuedExit.cause))).toMatchObject({
+            _tag: "PreviewAutomationDeadlineExceededError",
+            stage: "queue",
+            requestId: "request-queued",
+          });
+        }
+        expect(preview.detach).not.toHaveBeenCalled();
+        expect(preview.capturePage).toHaveBeenCalledOnce();
+
+        resolveCapture(makeAutomationImage());
+        expect(Exit.isSuccess(yield* Fiber.await(active))).toBe(true);
+      }),
+    ),
+  );
+
+  effectIt.effect("fails ordinary captures while a native snapshot capture is pending", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () => void 0;
+        const pendingCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveCapture = resolve;
+        });
+        let markCaptureStarted: () => void = () => void 0;
+        const captureStarted = new Promise<void>((resolve) => {
+          markCaptureStarted = resolve;
+        });
+        const preview = makeAutomationWebContents({
+          capturePage: () => {
+            markCaptureStarted();
+            return pendingCapture;
+          },
+          sendCommand: async (method) =>
+            method === "Runtime.evaluate"
+              ? { result: { value: snapshotPageValue } }
+              : method === "Accessibility.getFullAXTree"
+                ? { nodes: [] }
+                : undefined,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_capture_busy");
+        yield* manager.registerWebview("tab_capture_busy", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+
+        const snapshot = yield* manager
+          .automationSnapshot(snapshotInput("tab_capture_busy"))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => captureStarted);
+
+        const screenshotExit = yield* Effect.exit(manager.captureScreenshot("tab_capture_busy"));
+        expect(Exit.isFailure(screenshotExit)).toBe(true);
+        if (Exit.isFailure(screenshotExit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(screenshotExit.cause))).toMatchObject({
+            _tag: "PreviewOperationError",
+            operation: "captureScreenshot.capturePage",
+          });
+        }
+        expect(preview.capturePage).toHaveBeenCalledOnce();
+
+        resolveCapture(makeAutomationImage());
+        expect(Exit.isSuccess(yield* Fiber.await(snapshot))).toBe(true);
+      }),
+    ),
+  );
+
+  effectIt.effect("rejects an in-flight capture after an exact guest replacement", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveOldCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () =>
+          void 0;
+        const oldCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveOldCapture = resolve;
+        });
+        let markOldCaptureStarted: () => void = () => void 0;
+        const oldCaptureStarted = new Promise<void>((resolve) => {
+          markOldCaptureStarted = resolve;
+        });
+        const sendCommand = async (method: string) =>
+          method === "Runtime.evaluate"
+            ? { result: { value: snapshotPageValue } }
+            : method === "Accessibility.getFullAXTree"
+              ? { nodes: [] }
+              : undefined;
+        const previous = makeAutomationWebContents({
+          capturePage: () => {
+            markOldCaptureStarted();
+            return oldCapture;
+          },
+          sendCommand,
+        });
+        const replacement = makeAutomationWebContents({
+          capturePage: async () => makeAutomationImage(),
+          sendCommand,
+        });
+        let current = previous.webContents;
+        fromId.mockImplementation(() => current);
+        yield* manager.createTab("tab_retired_capture");
+        yield* manager.registerWebview("tab_retired_capture", 42);
+        yield* settle(() => previous.attach.mock.calls.length > 0);
+
+        const screenshot = yield* manager
+          .captureScreenshot("tab_retired_capture")
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => oldCaptureStarted);
+
+        current = replacement.webContents;
+        yield* manager.registerWebview("tab_retired_capture", 42);
+        yield* settle(() => replacement.attach.mock.calls.length > 0);
+        resolveOldCapture(makeAutomationImage());
+
+        expect(Exit.isFailure(yield* Fiber.await(screenshot))).toBe(true);
+        expect(previous.capturePage).toHaveBeenCalledOnce();
+        expect(replacement.detach).not.toHaveBeenCalled();
+
+        const recovered = yield* manager.automationSnapshot({
+          ...snapshotInput("tab_retired_capture"),
+          requestId: "request-replacement-capture",
+        });
+        expect(recovered.url).toBe(snapshotPageValue.url);
+        expect(replacement.capturePage).toHaveBeenCalledOnce();
+      }),
+    ),
+  );
+
+  effectIt.effect("recovers evaluation while a timed-out native capture is still pending", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveFirstCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () =>
+          void 0;
+        const firstCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveFirstCapture = resolve;
+        });
+        let nativeCaptureCount = 0;
+        const preview = makeAutomationWebContents({
+          capturePage: () => {
+            nativeCaptureCount += 1;
+            return nativeCaptureCount === 1 ? firstCapture : Promise.resolve(makeAutomationImage());
+          },
+          sendCommand: async (method) =>
+            method === "Runtime.evaluate"
+              ? { result: { value: snapshotPageValue } }
+              : method === "Accessibility.getFullAXTree"
+                ? { nodes: [] }
+                : undefined,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_capture_recovery");
+        yield* manager.registerWebview("tab_capture_recovery", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+        yield* manager.setColorScheme("tab_capture_recovery", "dark");
+        preview.sendCommand.mockClear();
+
+        const first = yield* manager
+          .automationSnapshot(snapshotInput("tab_capture_recovery", 100))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() => nativeCaptureCount === 1);
+        yield* TestClock.adjust(100);
+        expect(Exit.isFailure(yield* Fiber.await(first))).toBe(true);
+        expect(preview.detach).toHaveBeenCalledOnce();
+
+        expect(
+          yield* manager.automationEvaluate("tab_capture_recovery", {
+            expression: "location.href",
+          }),
+        ).toEqual(snapshotPageValue);
+        expect(preview.sendCommand).toHaveBeenCalledWith("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-color-scheme", value: "dark" }],
+        });
+
+        const second = yield* manager
+          .automationSnapshot({
+            ...snapshotInput("tab_capture_recovery", 100),
+            requestId: "request-second-timeout",
+          })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        expect(nativeCaptureCount).toBe(1);
+        yield* TestClock.adjust(100);
+        expect(Exit.isFailure(yield* Fiber.await(second))).toBe(true);
+        expect(nativeCaptureCount).toBe(1);
+
+        resolveFirstCapture(makeAutomationImage());
+        yield* Effect.promise(
+          () => new Promise<void>((resolve) => globalThis.setImmediate(resolve)),
+        );
+        const recovered = yield* manager.automationSnapshot({
+          ...snapshotInput("tab_capture_recovery"),
+          requestId: "request-recovered",
+        });
+        expect(nativeCaptureCount).toBe(2);
+        expect(recovered.actionTimeline.some((event) => event.error?.includes("timed out"))).toBe(
+          true,
+        );
+        expect(
+          preview.sendCommand.mock.calls.filter(([method]) => method === "Accessibility.disable")
+            .length,
+        ).toBeGreaterThanOrEqual(3);
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "bounds AX output and disables Accessibility on success and capture failure",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const preview = makeAutomationWebContents({
+            capturePage: async () => makeAutomationImage(),
+            sendCommand: async (method) =>
+              method === "Runtime.evaluate"
+                ? { result: { value: snapshotPageValue } }
+                : method === "Accessibility.getFullAXTree"
+                  ? { nodes: Array.from({ length: 1_050 }, (_, id) => ({ nodeId: id })) }
+                  : undefined,
+          });
+          fromId.mockReturnValue(preview.webContents);
+          yield* manager.createTab("tab_ax_bounds");
+          yield* manager.registerWebview("tab_ax_bounds", 42);
+          yield* settle(() => preview.attach.mock.calls.length > 0);
+          preview.sendCommand.mockClear();
+
+          yield* manager.automationEvaluate("tab_ax_bounds", { expression: "location.href" });
+          expect(preview.sendCommand).not.toHaveBeenCalledWith("Accessibility.enable", undefined);
+          preview.sendCommand.mockClear();
+
+          const snapshot = yield* manager.automationSnapshot(snapshotInput("tab_ax_bounds"));
+          expect(snapshot.accessibilityTree).toMatchObject({
+            nodes: expect.arrayContaining([{ nodeId: 0 }, { nodeId: 999 }]),
+          });
+          expect((snapshot.accessibilityTree as { nodes: unknown[] }).nodes).toHaveLength(1_000);
+          expect(preview.sendCommand).toHaveBeenCalledWith("Accessibility.getFullAXTree", {
+            depth: 12,
+          });
+          expect(preview.sendCommand).toHaveBeenCalledWith("Accessibility.disable", undefined);
+
+          preview.sendCommand.mockClear();
+          preview.capturePage.mockRejectedValueOnce(new Error("UnknownVizError"));
+          const failed = yield* Effect.exit(
+            manager.automationSnapshot({
+              ...snapshotInput("tab_ax_bounds"),
+              requestId: "request-capture-failure",
+            }),
+          );
+          expect(Exit.isFailure(failed)).toBe(true);
+          if (Exit.isFailure(failed)) {
+            expect(Option.getOrThrow(Cause.findErrorOption(failed.cause))).toMatchObject({
+              _tag: "PreviewOperationError",
+              operation: "automationSnapshot.capturePage",
+            });
+          }
+          expect(preview.sendCommand).toHaveBeenCalledWith("Accessibility.disable", undefined);
+        }),
+      ),
+  );
+
+  effectIt.effect("disables Accessibility and releases the queue when the deadline expires", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const stalledAccessibility = new Promise<unknown>(() => undefined);
+        let accessibilityRequestCount = 0;
+        const preview = makeAutomationWebContents({
+          capturePage: async () => makeAutomationImage(),
+          sendCommand: async (method) => {
+            if (method === "Runtime.evaluate") {
+              return { result: { value: snapshotPageValue } };
+            }
+            if (method === "Accessibility.getFullAXTree") {
+              accessibilityRequestCount += 1;
+              return accessibilityRequestCount === 1 ? await stalledAccessibility : { nodes: [] };
+            }
+            return undefined;
+          },
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_ax_timeout");
+        yield* manager.registerWebview("tab_ax_timeout", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+        preview.sendCommand.mockClear();
+
+        const pending = yield* manager
+          .automationSnapshot(snapshotInput("tab_ax_timeout", 1_000))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(
+            ([method]) => method === "Accessibility.getFullAXTree",
+          ),
+        );
+        yield* TestClock.adjust(900);
+
+        const exit = yield* Fiber.await(pending);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewAutomationDeadlineExceededError",
+            stage: "execution",
+          });
+        }
+        expect(preview.sendCommand).toHaveBeenCalledWith("Accessibility.disable", undefined);
+        expect(preview.detach).toHaveBeenCalledOnce();
+        const disableCallOrder = preview.sendCommand.mock.invocationCallOrder.find(
+          (_, index) => preview.sendCommand.mock.calls[index]?.[0] === "Accessibility.disable",
+        );
+        expect(disableCallOrder).toBeLessThan(preview.detach.mock.invocationCallOrder[0]!);
+
+        const retry = yield* manager.automationSnapshot({
+          ...snapshotInput("tab_ax_timeout"),
+          requestId: "request-after-local-deadline",
+        });
+        expect(retry.url).toBe(snapshotPageValue.url);
+        expect(preview.attach).toHaveBeenCalledTimes(2);
+      }),
+    ),
+  );
+
+  effectIt.effect("recovers after Accessibility cleanup exceeds the deadline budget", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const stalledCleanup = new Promise<unknown>(() => undefined);
+        const preview = makeAutomationWebContents({
+          capturePage: async () => makeAutomationImage(),
+          sendCommand: async (method) => {
+            if (method === "Runtime.evaluate") {
+              return { result: { value: snapshotPageValue } };
+            }
+            if (method === "Accessibility.getFullAXTree") return { nodes: [] };
+            if (method === "Accessibility.disable") return await stalledCleanup;
+            return undefined;
+          },
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_ax_cleanup_timeout");
+        yield* manager.registerWebview("tab_ax_cleanup_timeout", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+        preview.sendCommand.mockClear();
+
+        const pending = yield* manager
+          .automationSnapshot(snapshotInput("tab_ax_cleanup_timeout", 1_000))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(([method]) => method === "Accessibility.disable"),
+        );
+        yield* TestClock.adjust(225);
+
+        const exit = yield* Fiber.await(pending);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewAutomationDeadlineExceededError",
+            stage: "cleanup",
+          });
+        }
+        expect(preview.detach).toHaveBeenCalledOnce();
+        expect(
+          yield* manager.automationEvaluate("tab_ax_cleanup_timeout", {
+            expression: "location.href",
+          }),
+        ).toEqual(snapshotPageValue);
+        expect(preview.attach).toHaveBeenCalledTimes(2);
+      }),
+    ),
+  );
+
+  effectIt.effect("keeps the cleanup stage when execution and cleanup both stall", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const stalledCommand = new Promise<unknown>(() => undefined);
+        const preview = makeAutomationWebContents({
+          capturePage: async () => makeAutomationImage(),
+          sendCommand: async (method) => {
+            if (method === "Runtime.evaluate") {
+              return { result: { value: snapshotPageValue } };
+            }
+            if (method === "Accessibility.getFullAXTree" || method === "Accessibility.disable") {
+              return await stalledCommand;
+            }
+            return undefined;
+          },
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_ax_execution_cleanup_timeout");
+        yield* manager.registerWebview("tab_ax_execution_cleanup_timeout", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+        preview.sendCommand.mockClear();
+
+        const pending = yield* manager
+          .automationSnapshot(snapshotInput("tab_ax_execution_cleanup_timeout", 1_000))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(
+            ([method]) => method === "Accessibility.getFullAXTree",
+          ),
+        );
+        yield* TestClock.adjust(900);
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(([method]) => method === "Accessibility.disable"),
+        );
+        yield* TestClock.adjust(75);
+
+        const exit = yield* Fiber.await(pending);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewAutomationDeadlineExceededError",
+            stage: "cleanup",
+          });
+        }
+        expect(preview.detach).toHaveBeenCalledOnce();
+      }),
+    ),
+  );
+
+  effectIt.effect("preserves a screenshot failure while late cleanup uses the reserve", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const captureCause = new Error("late capture failure");
+        let rejectCapture: (error: Error) => void = () => void 0;
+        const capture = new Promise<ReturnType<typeof makeAutomationImage>>((_, reject) => {
+          rejectCapture = reject;
+        });
+        const stalledCommand = new Promise<unknown>(() => undefined);
+        const preview = makeAutomationWebContents({
+          capturePage: () => capture,
+          sendCommand: async (method) => {
+            if (method === "Runtime.evaluate") {
+              return { result: { value: snapshotPageValue } };
+            }
+            if (method === "Accessibility.getFullAXTree" || method === "Accessibility.disable") {
+              return await stalledCommand;
+            }
+            return undefined;
+          },
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_late_capture_failure");
+        yield* manager.registerWebview("tab_late_capture_failure", 42);
+        yield* settle(() => preview.attach.mock.calls.length > 0);
+        preview.sendCommand.mockClear();
+
+        const pending = yield* manager
+          .automationSnapshot(snapshotInput("tab_late_capture_failure", 1_000))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() => preview.capturePage.mock.calls.length === 1);
+        yield* TestClock.adjust(850);
+        rejectCapture(captureCause);
+        yield* settle(() =>
+          preview.sendCommand.mock.calls.some(([method]) => method === "Accessibility.disable"),
+        );
+        yield* TestClock.adjust(125);
+
+        const exit = yield* Fiber.await(pending);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewOperationError",
+            operation: "automationSnapshot.capturePage",
+            cause: captureCause,
+          });
+        }
+        expect(preview.detach).toHaveBeenCalledOnce();
+      }),
+    ),
+  );
+
+  effectIt.effect("rejects stale snapshot work after a same-id guest replacement", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let resolveOldCapture: (image: ReturnType<typeof makeAutomationImage>) => void = () =>
+          void 0;
+        const oldCapture = new Promise<ReturnType<typeof makeAutomationImage>>((resolve) => {
+          resolveOldCapture = resolve;
+        });
+        const sendCommand = async (method: string) =>
+          method === "Runtime.evaluate"
+            ? { result: { value: snapshotPageValue } }
+            : method === "Accessibility.getFullAXTree"
+              ? { nodes: [] }
+              : undefined;
+        const previous = makeAutomationWebContents({
+          capturePage: () => oldCapture,
+          sendCommand,
+        });
+        const replacement = makeAutomationWebContents({
+          capturePage: async () => makeAutomationImage(),
+          sendCommand,
+        });
+        let current = previous.webContents;
+        fromId.mockImplementation(() => current);
+        yield* manager.createTab("tab_replaced_capture");
+        yield* manager.registerWebview("tab_replaced_capture", 42);
+        yield* settle(() => previous.attach.mock.calls.length > 0);
+
+        const stale = yield* manager
+          .automationSnapshot(snapshotInput("tab_replaced_capture", 1_000))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* settle(() => previous.capturePage.mock.calls.length === 1);
+        current = replacement.webContents;
+        yield* manager.registerWebview("tab_replaced_capture", 42);
+        yield* settle(() => replacement.attach.mock.calls.length > 0);
+        resolveOldCapture(makeAutomationImage());
+
+        const staleExit = yield* Fiber.await(stale);
+        expect(Exit.isFailure(staleExit)).toBe(true);
+        if (Exit.isFailure(staleExit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(staleExit.cause))).toMatchObject({
+            _tag: "PreviewAutomationControlInterruptedError",
+          });
+        }
+        expect(replacement.detach).not.toHaveBeenCalled();
+        expect(
+          yield* manager.automationEvaluate("tab_replaced_capture", {
+            expression: "location.href",
+          }),
+        ).toEqual(snapshotPageValue);
+      }),
+    ),
+  );
 });

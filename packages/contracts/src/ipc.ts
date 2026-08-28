@@ -64,6 +64,7 @@ import type {
 } from "./preview.ts";
 import {
   PreviewAutomationClickInput,
+  PreviewAutomationConnectionId,
   PreviewAutomationEvaluateInput,
   PreviewAutomationHost,
   PreviewAutomationHostFocus,
@@ -1042,6 +1043,41 @@ export const DesktopPreviewAutomationClickInputSchema = Schema.Struct({
   input: PreviewAutomationClickInput,
 });
 
+/**
+ * Context kept by the local desktop while it executes one remote snapshot.
+ * `timeoutMs` is a remaining duration measured by the renderer, never an
+ * absolute timestamp from the server.
+ */
+export const DesktopPreviewAutomationRequestContextSchema = Schema.Struct({
+  connectionId: PreviewAutomationConnectionId,
+  requestId: Schema.String.check(Schema.isTrimmed()).check(Schema.isNonEmpty()),
+  timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+
+export type DesktopPreviewAutomationRequestContext =
+  typeof DesktopPreviewAutomationRequestContextSchema.Type;
+
+export const DesktopPreviewAutomationSnapshotInputSchema = Schema.Struct({
+  tabId: DesktopPreviewTabIdSchema,
+  ...DesktopPreviewAutomationRequestContextSchema.fields,
+});
+
+export type DesktopPreviewAutomationSnapshotInput =
+  typeof DesktopPreviewAutomationSnapshotInputSchema.Type;
+
+export const DesktopPreviewAutomationSnapshotResultSchema = Schema.Union([
+  Schema.TaggedStruct("Success", {
+    snapshot: PreviewAutomationSnapshot,
+  }),
+  Schema.TaggedStruct("Timeout", {
+    stage: Schema.Literals(["queue", "initialization", "execution", "cleanup"]),
+    timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),
+  }),
+]);
+
+export type DesktopPreviewAutomationSnapshotResult =
+  typeof DesktopPreviewAutomationSnapshotResultSchema.Type;
+
 export const DesktopPreviewAutomationTypeInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
   input: PreviewAutomationTypeInput,
@@ -1224,7 +1260,9 @@ export interface DesktopPreviewBridge {
   };
   automation: {
     status: (tabId: string) => Promise<DesktopPreviewAutomationStatus>;
-    snapshot: (tabId: string) => Promise<PreviewAutomationSnapshot>;
+    snapshot: (
+      input: DesktopPreviewAutomationSnapshotInput,
+    ) => Promise<DesktopPreviewAutomationSnapshotResult>;
     click: (tabId: string, input: PreviewAutomationClickInput) => Promise<void>;
     type: (tabId: string, input: PreviewAutomationTypeInput) => Promise<void>;
     press: (tabId: string, input: PreviewAutomationPressInput) => Promise<void>;

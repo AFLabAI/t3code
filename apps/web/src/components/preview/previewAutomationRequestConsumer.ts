@@ -29,7 +29,10 @@ export function createPreviewAutomationRequestConsumerAtom<E>(options: {
   readonly connectionAtom: Atom.Writable<PreviewAutomationStreamEvent["connectionId"] | null>;
   readonly environmentId: PreviewAutomationHost["environmentId"];
   readonly requestHandlerAtom: Atom.Atom<{
-    readonly handle: (request: PreviewAutomationRequest) => Promise<unknown>;
+    readonly handle: (
+      request: PreviewAutomationRequest,
+      connectionId: PreviewAutomationStreamEvent["connectionId"],
+    ) => Promise<unknown>;
   }>;
   readonly respond: (response: PreviewAutomationResponse) => Promise<unknown>;
   readonly label: string;
@@ -65,7 +68,7 @@ export function createPreviewAutomationRequestConsumerAtom<E>(options: {
       const request = event.request;
       void get
         .once(options.requestHandlerAtom)
-        .handle(request)
+        .handle(request, event.connectionId)
         .then(
           (value) =>
             options.respond({

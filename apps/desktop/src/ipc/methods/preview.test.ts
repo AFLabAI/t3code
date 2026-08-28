@@ -28,6 +28,13 @@ vi.mock("electron", () => ({
   },
 }));
 
+const snapshotInput = {
+  tabId: "runtime-tab",
+  connectionId: "connection-1",
+  requestId: "request-1",
+  timeoutMs: 15_000,
+} as const;
+
 describe("preview IPC methods", () => {
   beforeEach(() => {
     fromPartition.mockClear();
@@ -94,4 +101,61 @@ describe("preview IPC methods", () => {
       }),
     ).toThrow();
   });
+
+  effectIt.effect("encodes Manager deadline errors as timeout results", () =>
+    Effect.gen(function* () {
+      const error = new PreviewManager.PreviewAutomationDeadlineExceededError({
+        operation: "snapshot",
+        tabId: snapshotInput.tabId,
+        webContentsId: 42,
+        connectionId: snapshotInput.connectionId,
+        requestId: snapshotInput.requestId,
+        timeoutMs: snapshotInput.timeoutMs,
+        stage: "execution",
+      });
+      const automationSnapshot = vi.fn(() => Effect.fail(error));
+
+      const result = yield* PreviewIpc.automationSnapshot
+        .handler(snapshotInput)
+        .pipe(
+          Effect.provideService(
+            PreviewManager.PreviewManager,
+            PreviewManager.PreviewManager.of({ automationSnapshot } as never),
+          ),
+        );
+
+      expect(automationSnapshot).toHaveBeenCalledWith(snapshotInput);
+      expect(result).toEqual({
+        _tag: "Timeout",
+        stage: "execution",
+        timeoutMs: snapshotInput.timeoutMs,
+      });
+    }),
+  );
+
+  effectIt.effect("keeps unexpected Manager failures rejected", () =>
+    Effect.gen(function* () {
+      const error = new PreviewManager.PreviewOperationError({
+        operation: "automationSnapshot.capturePage",
+        tabId: snapshotInput.tabId,
+        webContentsId: 42,
+        cause: new Error("capture failed"),
+      });
+      const automationSnapshot = vi.fn(() => Effect.fail(error));
+
+      const exit = yield* PreviewIpc.automationSnapshot
+        .handler(snapshotInput)
+        .pipe(
+          Effect.provideService(
+            PreviewManager.PreviewManager,
+            PreviewManager.PreviewManager.of({ automationSnapshot } as never),
+          ),
+          Effect.exit,
+        );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) return;
+      expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toBe(error);
+    }),
+  );
 });

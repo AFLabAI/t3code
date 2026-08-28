@@ -47,7 +47,12 @@ const requestEvent = (
   request: request(requestId, overrides),
 });
 
-const consumerState = (handleRequest: (request: PreviewAutomationRequest) => Promise<unknown>) => ({
+const consumerState = (
+  handleRequest: (
+    request: PreviewAutomationRequest,
+    connectionId: PreviewAutomationStreamEvent["connectionId"],
+  ) => Promise<unknown>,
+) => ({
   connectionAtom: Atom.make<string | null>(null),
   requestHandlerAtom: Atom.make({ handle: handleRequest }),
 });
@@ -149,6 +154,49 @@ describe("previewAutomationRequestConsumer", () => {
       "request-2",
     ]);
     expect(responses.map((response) => response.requestId)).toEqual(["request-1", "request-2"]);
+    registry.dispose();
+  });
+
+  it("passes each request stream connection ID to the handler", async () => {
+    const requestsAtom = Atom.make<AsyncResult.AsyncResult<PreviewAutomationStreamEvent, Error>>(
+      AsyncResult.initial<PreviewAutomationStreamEvent, Error>(false),
+    );
+    const handleRequest = vi.fn(
+      async (
+        _value: PreviewAutomationRequest,
+        _eventConnectionId: PreviewAutomationStreamEvent["connectionId"],
+      ) => undefined,
+    );
+    const respond = vi.fn(async (_response: PreviewAutomationResponse) => undefined);
+    const state = consumerState(handleRequest);
+    const consumerAtom = createPreviewAutomationRequestConsumerAtom({
+      requestsAtom,
+      clientId,
+      connectionAtom: state.connectionAtom,
+      environmentId,
+      requestHandlerAtom: state.requestHandlerAtom,
+      respond,
+      label: "test:preview-automation-request-connection",
+    });
+    const registry = AtomRegistry.make();
+    registry.mount(consumerAtom);
+
+    registry.set(requestsAtom, AsyncResult.success(requestEvent("request-1")));
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledTimes(1));
+    registry.set(
+      requestsAtom,
+      AsyncResult.success<PreviewAutomationStreamEvent, Error>({
+        type: "connected",
+        connectionId: "connection-2",
+      }),
+    );
+    registry.set(requestsAtom, AsyncResult.success(requestEvent("request-2", {}, "connection-2")));
+
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledTimes(2));
+    expect(handleRequest.mock.calls).toEqual([
+      [expect.objectContaining({ requestId: "request-1" }), "connection-1"],
+      [expect.objectContaining({ requestId: "request-2" }), "connection-2"],
+    ]);
     registry.dispose();
   });
 

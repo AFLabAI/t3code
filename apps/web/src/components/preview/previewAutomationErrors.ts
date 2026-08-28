@@ -36,6 +36,25 @@ export class PreviewAutomationOverlayTimeoutError extends Schema.TaggedErrorClas
   }
 }
 
+export class PreviewAutomationSnapshotTimeoutError extends Schema.TaggedErrorClass<PreviewAutomationSnapshotTimeoutError>()(
+  "PreviewAutomationSnapshotTimeoutError",
+  {
+    requestId: TrimmedNonEmptyString,
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+    tabId: PreviewTabId,
+    timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),
+  },
+) {
+  get responseTag() {
+    return "PreviewAutomationTimeoutError" as const;
+  }
+
+  override get message(): string {
+    return `Preview snapshot request ${this.requestId} did not finish within ${this.timeoutMs}ms in tab ${this.tabId}.`;
+  }
+}
+
 export class PreviewAutomationNavigationTimeoutError extends Schema.TaggedErrorClass<PreviewAutomationNavigationTimeoutError>()(
   "PreviewAutomationNavigationTimeoutError",
   {
@@ -207,6 +226,7 @@ export class PreviewAutomationOperationError extends Schema.TaggedErrorClass<Pre
 
 export const PreviewAutomationHostError = Schema.Union([
   PreviewAutomationOverlayTimeoutError,
+  PreviewAutomationSnapshotTimeoutError,
   PreviewAutomationNavigationTimeoutError,
   PreviewAutomationViewportTimeoutError,
   PreviewAutomationTargetUnavailableError,

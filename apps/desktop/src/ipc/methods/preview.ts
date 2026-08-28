@@ -5,6 +5,8 @@ import {
   DesktopPreviewAutomationEvaluateInputSchema,
   DesktopPreviewAutomationPressInputSchema,
   DesktopPreviewAutomationScrollInputSchema,
+  DesktopPreviewAutomationSnapshotInputSchema,
+  DesktopPreviewAutomationSnapshotResultSchema,
   DesktopPreviewAutomationStatusSchema,
   DesktopPreviewAutomationTypeInputSchema,
   DesktopPreviewAutomationWaitForInputSchema,
@@ -20,7 +22,6 @@ import {
   DesktopPreviewTabInputSchema,
   DesktopPreviewWebviewConfigSchema,
   PreviewAnnotationSubmissionResultSchema,
-  PreviewAutomationSnapshot,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -291,11 +292,20 @@ export const automationStatus = DesktopIpc.makeIpcMethod({
 
 export const automationSnapshot = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_AUTOMATION_SNAPSHOT_CHANNEL,
-  payload: DesktopPreviewTabInputSchema,
-  result: PreviewAutomationSnapshot,
-  handler: Effect.fn("desktop.ipc.preview.automationSnapshot")(function* ({ tabId }) {
+  payload: DesktopPreviewAutomationSnapshotInputSchema,
+  result: DesktopPreviewAutomationSnapshotResultSchema,
+  handler: Effect.fn("desktop.ipc.preview.automationSnapshot")(function* (input) {
     const manager = yield* PreviewManager.PreviewManager;
-    return yield* manager.automationSnapshot(tabId);
+    return yield* manager.automationSnapshot(input).pipe(
+      Effect.map((snapshot) => ({ _tag: "Success" as const, snapshot })),
+      Effect.catchTag("PreviewAutomationDeadlineExceededError", (error) =>
+        Effect.succeed({
+          _tag: "Timeout" as const,
+          stage: error.stage,
+          timeoutMs: error.timeoutMs,
+        }),
+      ),
+    );
   }),
 });
 

@@ -1,7 +1,10 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { DesktopEnvironmentBootstrapSchema } from "./ipc.ts";
+import {
+  DesktopEnvironmentBootstrapSchema,
+  DesktopPreviewAutomationSnapshotInputSchema,
+} from "./ipc.ts";
 
 describe("DesktopEnvironmentBootstrapSchema", () => {
   const decode = Schema.decodeUnknownSync(DesktopEnvironmentBootstrapSchema);
@@ -34,5 +37,38 @@ describe("DesktopEnvironmentBootstrapSchema", () => {
         wsBaseUrl: null,
       }).runningDistro,
     ).toBeNull();
+  });
+});
+
+describe("DesktopPreviewAutomationSnapshotInputSchema", () => {
+  const decode = Schema.decodeUnknownSync(DesktopPreviewAutomationSnapshotInputSchema);
+
+  it("requires a positive timeout", () => {
+    expect(() =>
+      decode({
+        tabId: "runtime-tab",
+        connectionId: "connection-1",
+        requestId: "request-1",
+      }),
+    ).toThrow();
+    expect(() =>
+      decode({
+        tabId: "runtime-tab",
+        connectionId: "connection-1",
+        requestId: "request-1",
+        timeoutMs: 0,
+      }),
+    ).toThrow();
+  });
+
+  it("preserves long runtime and request ids at the connection id limit", () => {
+    const input = {
+      tabId: `runtime-${"t".repeat(512)}`,
+      connectionId: "c".repeat(64),
+      requestId: `request-${"r".repeat(512)}`,
+      timeoutMs: 14_750,
+    };
+
+    expect(decode(input)).toEqual(input);
   });
 });
