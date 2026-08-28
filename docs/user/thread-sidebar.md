@@ -7,6 +7,11 @@ one environment.
 Pinned threads still move to **Settled** when they become inactive. They also move when their pull
 request merges if **Auto-settle merged threads** is enabled.
 
+The **Settle** and **Reopen** actions sync through the T3 Code server. Automatic settlement uses
+the inactivity and pull request settings saved on each device. Active work stays active. A closed
+pull request, or an enabled merged pull request, can settle a thread if no newer user activity
+exists. An open pull request blocks inactivity settlement, but you can still settle it manually.
+
 When you un-settle a thread, it returns to the top of the active list so you can find it right
 away. Its timestamps do not change. Other threads keep their positions.
 
