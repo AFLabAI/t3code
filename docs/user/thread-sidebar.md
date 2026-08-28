@@ -24,6 +24,9 @@ their pinned threads keep the default newest-first order below the ones you have
 
 ## Refreshing saved threads
 
+On SwiftUI mobile, returning to the inbox keeps the last opened thread highlighted. The highlight
+moves when you open another thread.
+
 SwiftUI mobile keeps saved messages visible while a thread refreshes. A status above the composer
 shows when the thread is updating or its computer is offline. If the refresh fails, choose **Retry**.
 The app also retries when that computer reconnects.
