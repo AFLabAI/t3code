@@ -65,6 +65,7 @@ export function HostedBrowserWebview(props: {
         cornerRadius: current?.cornerRadius ?? 0,
         fitSourceContent: current?.fitSourceContent ?? false,
         fittedSourceContent: current?.fittedSourceContent ?? null,
+        owner: current?.owner ?? null,
         rect: resolveBrowserSurfacePanelRect(state.byTabId, runtimeTabId),
         visible: current?.visible ?? false,
       };
@@ -222,7 +223,7 @@ export function HostedBrowserWebview(props: {
       },
       () => undefined,
     );
-  }, [active, runtimeTabId]);
+  }, [active, presentation.owner, runtimeTabId]);
 
   const normalizedZoomFactor = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
   const viewportWidth = viewport._tag === "fill" ? null : viewport.width;

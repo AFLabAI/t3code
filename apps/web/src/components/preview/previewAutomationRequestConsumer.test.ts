@@ -360,6 +360,35 @@ describe("previewAutomationRequestConsumer", () => {
     });
   });
 
+  it("preserves context when desktop click delivery is unconfirmed", () => {
+    const context = {
+      requestId: "request-click-unconfirmed",
+      operation: "click" as const,
+      environmentId,
+      threadId,
+      tabId,
+    };
+    let unconfirmedError: unknown;
+    try {
+      confirmPreviewAutomationClickDispatched(undefined, context);
+    } catch (cause) {
+      unconfirmedError = cause;
+    }
+
+    expect(serializePreviewAutomationError(unconfirmedError, context)).toEqual({
+      _tag: "PreviewAutomationExecutionError",
+      message:
+        "Mouse input MAY have been sent to preview tab tab-1, but T3 Code could not confirm delivery to the requested target. Inspect the tab before you retry.",
+      detail: {
+        requestId: "request-click-unconfirmed",
+        operation: "click",
+        environmentId: "environment-1",
+        threadId: "thread-1",
+        tabId: "tab-1",
+      },
+    });
+  });
+
   it("correlates unexpected failures without exposing cause details", () => {
     const cause = new Error("private bridge token: preview-secret");
     const context = {

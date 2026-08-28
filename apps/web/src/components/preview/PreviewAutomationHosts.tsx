@@ -309,28 +309,54 @@ export async function clickVisiblePreview(
     const currentPresentation = useBrowserSurfaceStore.getState().byTabId[runtimeTabId];
     return currentPresentation?.visible === true && currentPresentation.owner === presentationOwner;
   };
-  const targetIsCurrent = () => {
+  const capturedWebviewIsCurrent = () => {
     if (!registration) return false;
-    const currentPresentation = useBrowserSurfaceStore.getState().byTabId[runtimeTabId];
     const currentWebview = findPreviewWebview(runtimeTabId);
     const currentRegistration = readPreviewWebviewRegistration(currentWebview);
     return (
-      currentPresentation?.visible === true &&
-      currentPresentation.owner === presentationOwner &&
       currentWebview === webview &&
       currentRegistration?.webContentsId === registration.webContentsId &&
       currentRegistration.attachmentId === registration.attachmentId
     );
   };
+  const targetIsCurrent = () => presentationIsCurrent() && capturedWebviewIsCurrent();
   const setCapturedWebviewHidden = () => {
     if (!registration) return Promise.resolve();
-    webview.removeAttribute("data-preview-main-visible");
+    const currentPresentation = useBrowserSurfaceStore.getState().byTabId[runtimeTabId];
+    if (currentPresentation?.visible && currentPresentation.owner !== presentationOwner) {
+      return Promise.resolve();
+    }
+    if (capturedWebviewIsCurrent()) webview.removeAttribute("data-preview-main-visible");
     return setWebviewVisibility(
       runtimeTabId,
       registration.webContentsId,
       registration.attachmentId,
       false,
     ).catch(() => undefined);
+  };
+  const capturedRuntimeIsCurrent = () => {
+    try {
+      assertRuntimeCurrent();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const restoreCapturedWebviewPresentation = () => {
+    if (!registration || !targetIsCurrent() || !capturedRuntimeIsCurrent()) return;
+    const capturedRegistration = registration;
+    void setWebviewVisibility(
+      runtimeTabId,
+      capturedRegistration.webContentsId,
+      capturedRegistration.attachmentId,
+      true,
+    ).then(
+      () => {
+        if (!targetIsCurrent() || !capturedRuntimeIsCurrent()) return;
+        webview.setAttribute("data-preview-main-visible", "true");
+      },
+      () => undefined,
+    );
   };
   const assertRuntimeCurrentBeforeDispatch = () => {
     try {
@@ -390,10 +416,9 @@ export async function clickVisiblePreview(
       );
     } catch (cause) {
       if (!invalidated && targetIsCurrent()) {
-        void setCapturedWebviewHidden();
         throw cause;
       }
-      void setCapturedWebviewHidden();
+      if (!invalidated) void setCapturedWebviewHidden();
       throw new PreviewAutomationTabNotVisibleHostError(context);
     }
     assertPreviewClickBeforeDeadline(context, timing);
@@ -443,6 +468,7 @@ export async function clickVisiblePreview(
     return confirmPreviewAutomationClickDispatched(result, context);
   } finally {
     unsubscribe();
+    if (invalidated) restoreCapturedWebviewPresentation();
   }
 }
 

@@ -190,7 +190,7 @@ export class PreviewAutomationClickDeliveryUnconfirmedHostError extends Schema.T
   }
 
   override get message(): string {
-    return `Mouse input MAY have been sent to preview tab ${this.tabId}, but T3 Code could not confirm that the target stayed visible. Inspect the tab before you retry.`;
+    return `Mouse input MAY have been sent to preview tab ${this.tabId}, but T3 Code could not confirm delivery to the requested target. Inspect the tab before you retry.`;
   }
 }
 
@@ -207,7 +207,7 @@ export function confirmPreviewAutomationClickDispatched(
   if (result?._tag === "NotSent") {
     throw new PreviewAutomationTabNotVisibleHostError(context);
   }
-  throw new Error("Desktop preview did not confirm native click dispatch.");
+  throw new PreviewAutomationClickDeliveryUnconfirmedHostError(context);
 }
 
 const targetNotEditableDiagnostics = (

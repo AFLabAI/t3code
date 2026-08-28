@@ -200,7 +200,7 @@ describe("clickVisiblePreview", () => {
     expect(click).not.toHaveBeenCalled();
   });
 
-  it("does not dispatch when the visibility acknowledgement arrives after the deadline", async () => {
+  it("keeps a presented target visible when its acknowledgement misses the deadline", async () => {
     presentSurface();
     const webview = makeWebview(42, "preview-attachment-1");
     stubWebview(() => webview);
@@ -220,12 +220,14 @@ describe("clickVisiblePreview", () => {
 
     await rejection;
     expect(click).not.toHaveBeenCalled();
-    expect(setWebviewVisibility).toHaveBeenLastCalledWith(
+    expect(setWebviewVisibility).toHaveBeenCalledOnce();
+    expect(setWebviewVisibility).toHaveBeenCalledWith(
       runtimeTabId,
       42,
       "preview-attachment-1",
-      false,
+      true,
     );
+    expect(webview.getAttribute("data-preview-main-visible")).toBe("true");
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -246,7 +248,7 @@ describe("clickVisiblePreview", () => {
     expect(click).not.toHaveBeenCalled();
   });
 
-  it("does not click if the surface hides before visibility is acknowledged", async () => {
+  it("restores presentation without clicking after a hide and re-show during acknowledgement", async () => {
     const surface = presentSurface();
     const webview = makeWebview(42, "preview-attachment-1");
     stubWebview(() => webview);
@@ -261,13 +263,15 @@ describe("clickVisiblePreview", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     surface.present({ x: 0, y: 0, width: 800, height: 600 }, false);
+    surface.present({ x: 0, y: 0, width: 800, height: 600 }, true);
     await expect(result).rejects.toMatchObject({
       _tag: "PreviewAutomationTabNotVisibleHostError",
     });
     acknowledgement.resolve();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(visibilityCalls).toEqual([true, false, false]);
+    expect(visibilityCalls).toEqual([true, false, true]);
+    expect(webview.getAttribute("data-preview-main-visible")).toBe("true");
     expect(click).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -324,9 +328,13 @@ describe("clickVisiblePreview", () => {
     const webview = makeWebview(42, "preview-attachment-1");
     stubWebview(() => webview);
     const clickResult = deferred<{ readonly _tag: "Dispatched" }>();
+    const visibilityCalls: boolean[] = [];
+    const setWebviewVisibility = vi.fn(async (_tabId, _id, _attachment, visible) => {
+      visibilityCalls.push(visible);
+    });
     const result = runClick(
       makeBridge(
-        vi.fn(async () => undefined),
+        setWebviewVisibility,
         vi.fn(() => clickResult.promise),
       ),
     );
@@ -339,6 +347,9 @@ describe("clickVisiblePreview", () => {
     await expect(result).rejects.toMatchObject({
       _tag: "PreviewAutomationClickDeliveryUnconfirmedHostError",
     });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibilityCalls).toEqual([true, false, true]);
+    expect(webview.getAttribute("data-preview-main-visible")).toBe("true");
   });
 
   it("reports uncertain delivery when the DOM attachment changes during dispatch", async () => {
@@ -474,6 +485,58 @@ describe("clickVisiblePreview", () => {
     ).rejects.toBe(bridgeError);
     expect(unsubscribe).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not clear the marker owned by a replacement attachment", async () => {
+    presentSurface();
+    const webview = makeWebview(42, "preview-attachment-1");
+    stubWebview(() => webview);
+    const bridgeError = new Error("bridge failed");
+    const setWebviewVisibility = vi.fn(async (_tabId, _id, _attachment, visible) => {
+      if (!visible) return;
+      webview.setAttribute("data-preview-web-contents-id", "43");
+      webview.setAttribute("data-preview-attachment-id", "preview-attachment-2");
+      webview.setAttribute("data-preview-main-visible", "true");
+      throw bridgeError;
+    });
+    const click = vi.fn(async () => ({ _tag: "Dispatched" as const }));
+
+    await expect(runClick(makeBridge(setWebviewVisibility, click))).rejects.toMatchObject({
+      _tag: "PreviewAutomationTabNotVisibleHostError",
+    });
+    expect(setWebviewVisibility).toHaveBeenLastCalledWith(
+      runtimeTabId,
+      42,
+      "preview-attachment-1",
+      false,
+    );
+    expect(webview.getAttribute("data-preview-main-visible")).toBe("true");
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it("does not let late cleanup overwrite a visible new owner", async () => {
+    presentSurface();
+    const webview = makeWebview(42, "preview-attachment-1");
+    stubWebview(() => webview);
+    const visibilityCalls: boolean[] = [];
+    const setWebviewVisibility = vi.fn(async (_tabId, _id, _attachment, visible) => {
+      visibilityCalls.push(visible);
+    });
+    const click = vi.fn(async () => ({ _tag: "Dispatched" as const }));
+    const runtimeError = new Error("runtime changed");
+    const assertRuntimeCurrent = () => {
+      const newOwner = acquireBrowserSurface(runtimeTabId);
+      newOwner.present({ x: 0, y: 0, width: 800, height: 600 }, true);
+      webview.setAttribute("data-preview-main-visible", "true");
+      throw runtimeError;
+    };
+
+    await expect(
+      runClick(makeBridge(setWebviewVisibility, click), makeTiming(), assertRuntimeCurrent),
+    ).rejects.toBe(runtimeError);
+    expect(visibilityCalls).toEqual([false]);
+    expect(webview.getAttribute("data-preview-main-visible")).toBe("true");
+    expect(click).not.toHaveBeenCalled();
   });
 
   it("cleans up after a click bridge error", async () => {
