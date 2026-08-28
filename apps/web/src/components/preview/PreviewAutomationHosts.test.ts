@@ -8,7 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import { acquireBrowserSurface, useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 
-import { clickVisiblePreview, isPreviewPresentationConfirmed } from "./PreviewAutomationHosts";
+import {
+  clickVisiblePreview,
+  isPreviewPresentationConfirmed,
+  makePreviewClickTiming,
+} from "./PreviewAutomationHosts";
 
 const runtimeTabId = "runtime-tab-1";
 const context = {
@@ -132,6 +136,41 @@ describe("clickVisiblePreview", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { timeoutMs: 1, workBudgetMs: 1 },
+    { timeoutMs: 50, workBudgetMs: 45 },
+    { timeoutMs: 15_000, workBudgetMs: 14_950 },
+  ])(
+    "keeps $workBudgetMs ms of a $timeoutMs ms request for click work",
+    ({ timeoutMs, workBudgetMs }) => {
+      vi.spyOn(performance, "now").mockReturnValue(2_000);
+
+      expect(makePreviewClickTiming(timeoutMs)).toEqual({
+        deadline: 2_000 + workBudgetMs,
+        timeoutMs,
+      });
+    },
+  );
+
+  it("does not reject a ready target before a one millisecond request starts", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(2_000);
+    presentSurface();
+    const webview = makeWebview(42, "preview-attachment-1");
+    stubWebview(() => webview);
+    const click = vi.fn(async () => ({ _tag: "Dispatched" as const }));
+
+    await expect(
+      runClick(
+        makeBridge(
+          vi.fn(async () => undefined),
+          click,
+        ),
+        makePreviewClickTiming(1),
+      ),
+    ).resolves.toEqual({ _tag: "PreviewAutomationClickDispatched" });
+    expect(click).toHaveBeenCalledOnce();
   });
 
   it("waits for registration on the captured visible webview", async () => {

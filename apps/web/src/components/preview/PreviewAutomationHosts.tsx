@@ -156,6 +156,17 @@ interface PreviewAutomationClickTiming {
   readonly timeoutMs: number;
 }
 
+export const makePreviewClickTiming = (timeoutMs: number): PreviewAutomationClickTiming => {
+  const responseReserveMs = Math.min(
+    PREVIEW_CLICK_RESPONSE_RESERVE_MS,
+    Math.max(0, Math.floor(timeoutMs / 10)),
+  );
+  return {
+    deadline: performance.now() + Math.max(0, timeoutMs - responseReserveMs),
+    timeoutMs,
+  };
+};
+
 const makePreviewClickTimeoutError = (
   context: PreviewAutomationClickContext,
   timing: PreviewAutomationClickTiming,
@@ -654,11 +665,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
 
   const handleRequest = useCallback(
     async (request: PreviewAutomationRequest): Promise<unknown> => {
-      const clickTiming = {
-        deadline:
-          performance.now() + Math.max(0, request.timeoutMs - PREVIEW_CLICK_RESPONSE_RESERVE_MS),
-        timeoutMs: request.timeoutMs,
-      };
+      const clickTiming = makePreviewClickTiming(request.timeoutMs);
       const threadRef: ScopedThreadRef = {
         environmentId,
         threadId: request.threadId,
