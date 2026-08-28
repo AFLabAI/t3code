@@ -1,4 +1,5 @@
 import * as Equal from "effect/Equal";
+import { replaceCodexFileCitationsWithMarkdownLinks } from "@t3tools/client-runtime/codex-file-citation-markdown";
 import {
   formatDuration,
   workEntryDisplayIndicatesToolFailure,
@@ -440,7 +441,7 @@ export function resolveAssistantMessageCopyState({
 }) {
   const hasText = text !== null && text.trim().length > 0;
   return {
-    text: hasText ? text : null,
+    text: hasText ? replaceCodexFileCitationsWithMarkdownLinks(text) : null,
     visible: showCopyButton && hasText && !streaming,
   };
 }

@@ -18,6 +18,10 @@ function citationLabel(path: string): string {
   return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized || "File";
 }
 
+function markdownDestinationPath(path: string): string {
+  return path.replaceAll("%", "%25").replaceAll("#", "%23").replaceAll("?", "%3F");
+}
+
 export function resolveCodexFileCitationLink(
   attributes: CodexFileCitationAttributes | null | undefined,
 ): CodexFileCitationLink | null {
@@ -25,16 +29,17 @@ export function resolveCodexFileCitationLink(
   if (!path) return null;
 
   const lineRangeStart = positiveInteger(attributes?.line_range_start);
+  const destinationPath = markdownDestinationPath(path);
   return {
     path,
-    href: lineRangeStart === undefined ? path : `${path}#L${lineRangeStart}`,
+    href: lineRangeStart === undefined ? destinationPath : `${destinationPath}#L${lineRangeStart}`,
     label: citationLabel(path),
     ...(lineRangeStart === undefined ? {} : { lineRangeStart }),
   };
 }
 
 function markdownLabel(value: string): string {
-  return value.replace(/[\\[\]]/g, "\\$&");
+  return value.replace(/[\\[\]*_`<&]/g, "\\$&");
 }
 
 function markdownDestination(value: string): string {

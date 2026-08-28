@@ -42,6 +42,20 @@ describe("resolveCodexFileCitationLink", () => {
       label: "main.ts",
     });
   });
+
+  it("preserves URL syntax characters in file paths", () => {
+    expect(
+      resolveCodexFileCitationLink({
+        path: "reports/100% #1? draft.md",
+        line_range_start: "7",
+      }),
+    ).toEqual({
+      path: "reports/100% #1? draft.md",
+      href: "reports/100%25 %231%3F draft.md#L7",
+      label: "100% #1? draft.md",
+      lineRangeStart: 7,
+    });
+  });
 });
 
 describe("codexFileCitationMarkdown", () => {
@@ -49,6 +63,15 @@ describe("codexFileCitationMarkdown", () => {
     const citation = resolveCodexFileCitationLink({ path: "reports/profit and loss.xlsx" });
     expect(citation && codexFileCitationMarkdown(citation)).toBe(
       "[profit and loss.xlsx](<reports/profit and loss.xlsx>)",
+    );
+  });
+
+  it("escapes Markdown syntax in the visible filename", () => {
+    const citation = resolveCodexFileCitationLink({
+      path: "reports/*draft*_[copy]`<&.txt",
+    });
+    expect(citation && codexFileCitationMarkdown(citation)).toBe(
+      "[\\*draft\\*\\_\\[copy\\]\\`\\<\\&.txt](<reports/*draft*_[copy]`%3C&.txt>)",
     );
   });
 });

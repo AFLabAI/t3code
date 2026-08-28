@@ -406,23 +406,34 @@ type MarkdownAstNode = {
 function remarkCodexFileCitations() {
   return (tree: MarkdownAstNode, file: { value: unknown }) => {
     const source = String(file.value);
+    const restoreDirectiveSource = (node: MarkdownAstNode) => {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      node.type = "text";
+      node.value =
+        start === undefined || end === undefined ? `:${node.name ?? ""}` : source.slice(start, end);
+      delete node.name;
+      delete node.attributes;
+      delete node.children;
+    };
+
     const visit = (node: MarkdownAstNode) => {
-      if (node.type === "textDirective" && node.name === "codex-file-citation") {
-        const citation = resolveCodexFileCitationLink(node.attributes);
-        if (!citation) {
-          const start = node.position?.start.offset;
-          const end = node.position?.end.offset;
-          node.type = "text";
-          node.value =
-            start === undefined || end === undefined
-              ? ":codex-file-citation"
-              : source.slice(start, end);
-          delete node.children;
-          return;
+      if (
+        node.type === "textDirective" ||
+        node.type === "leafDirective" ||
+        node.type === "containerDirective"
+      ) {
+        if (node.type === "textDirective" && node.name === "codex-file-citation") {
+          const citation = resolveCodexFileCitationLink(node.attributes);
+          if (citation) {
+            node.type = "link";
+            node.url = citation.href;
+            node.children = [{ type: "text", value: citation.label }];
+            return;
+          }
         }
-        node.type = "link";
-        node.url = citation.href;
-        node.children = [{ type: "text", value: citation.label }];
+
+        restoreDirectiveSource(node);
         return;
       }
 

@@ -232,6 +232,19 @@ describe("resolveAssistantMessageCopyState", () => {
     });
   });
 
+  it("copies Codex file citations as portable Markdown links", () => {
+    expect(
+      resolveAssistantMessageCopyState({
+        showCopyButton: true,
+        text: 'Created :codex-file-citation{path="outputs/report.xlsx" purpose="output"}.',
+        streaming: false,
+      }),
+    ).toEqual({
+      text: "Created [report.xlsx](<outputs/report.xlsx>).",
+      visible: true,
+    });
+  });
+
   it("hides copy while an assistant message is still streaming", () => {
     expect(
       resolveAssistantMessageCopyState({

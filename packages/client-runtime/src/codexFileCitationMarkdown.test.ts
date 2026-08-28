@@ -38,4 +38,11 @@ describe("replaceCodexFileCitationsWithMarkdownLinks", () => {
     const markdown = 'Created :codex-file-citation{path="/workspace/outputs/report.xlsx"';
     expect(replaceCodexFileCitationsWithMarkdownLinks(markdown)).toBe(markdown);
   });
+
+  it("keeps Markdown punctuation in filenames literal", () => {
+    const citation = ':codex-file-citation{path="reports/*draft*_`copy`.txt"}';
+    expect(replaceCodexFileCitationsWithMarkdownLinks(citation)).toBe(
+      "[\\*draft\\*\\_\\`copy\\`.txt](<reports/*draft*_`copy`.txt>)",
+    );
+  });
 });

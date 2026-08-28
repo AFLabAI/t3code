@@ -163,6 +163,19 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain(":codex-file-citation");
     expect(html).not.toContain("chat-markdown-file-link");
   });
+
+  it.each([
+    "Meeting at 10:30",
+    "Open src/main.ts:42",
+    "Use :hover and :tada:",
+    "Error:ENOENT",
+    "See ::note",
+    "See :::note\ncontent\n:::",
+  ])("preserves non-Codex directive-like text: %s", (text) => {
+    const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
+
+    expect(html).toContain(text);
+  });
 });
 
 describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
