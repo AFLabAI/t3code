@@ -40,7 +40,7 @@ const clientSettings: ClientSettings = {
   persistComposerContextStrip: true,
   providerModelPreferences: {},
   sidebarAutoSettleAfterDays: 3,
-  sidebarAutoSettleOnMerge: true,
+  sidebarAutoSettleMode: "change-request",
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",
