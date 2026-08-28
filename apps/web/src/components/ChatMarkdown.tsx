@@ -1640,7 +1640,12 @@ function ChatMarkdown({
   parseRawHtml = true,
 }: ChatMarkdownProps) {
   // Keep directive grammar isolated so ordinary chat Markdown retains its existing parse rules.
-  const markdownText = useMemo(() => replaceCodexFileCitationsWithMarkdownLinks(text), [text]);
+  // Editable file previews report offsets into the parsed source, so they must retain the original.
+  const editsSourceByOffset = onTaskListChange !== undefined;
+  const markdownText = useMemo(
+    () => (editsSourceByOffset ? text : replaceCodexFileCitationsWithMarkdownLinks(text)),
+    [editsSourceByOffset, text],
+  );
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,

@@ -250,6 +250,19 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("chat-markdown-file-link");
     expect(html).toContain("report.xlsx");
   });
+
+  it("keeps task-list offsets on the original editable file source", () => {
+    const text =
+      ':codex-file-citation{path="/tmp/project/outputs/report.xlsx"}\n\n- [ ] Review output';
+    const markerOffset = text.indexOf("[ ]");
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={text} onTaskListChange={() => undefined} />,
+    );
+
+    expect(html).toContain("codex-file-citation");
+    expect(html).not.toContain("chat-markdown-file-link");
+    expect(html).toContain(`data-task-marker-offset="${markerOffset}"`);
+  });
 });
 
 describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
