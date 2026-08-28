@@ -4763,6 +4763,114 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("does not dispatch a key after a human pointer claims control", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const hostWebContents = { sendInputEvent: vi.fn() } as unknown as Electron.WebContents;
+        let pointerInjected = false;
+        let guest: ReturnType<typeof makeKeyboardWebContents>;
+        guest = makeKeyboardWebContents({
+          hostWebContents,
+          onSetIgnoreMenuShortcuts: (ignore) => {
+            if (!ignore || pointerInjected) return;
+            pointerInjected = true;
+            guest.emitHumanInput({ kind: "pointer", x: 12, y: 24, button: 0 });
+          },
+        });
+        fromId.mockReturnValue(guest.webContents);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          isFocused: () => true,
+          once: vi.fn(),
+          webContents: hostWebContents,
+        } as never);
+        yield* manager.createTab("tab_pointer_before_key");
+        yield* manager.registerWebview("tab_pointer_before_key", 42);
+
+        const exit = yield* Effect.exit(
+          manager.automationPress("tab_pointer_before_key", { key: "x" }),
+        );
+        yield* TestClock.adjust(750);
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewAutomationControlInterruptedError",
+            operation: "press",
+          });
+        }
+        expect(guest.sendInputEvent).not.toHaveBeenCalled();
+        expect(guest.setIgnoreMenuShortcuts.mock.calls).toEqual([[true], [false]]);
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "does not complete a key press after a pointer claims control between receipts",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const hostWebContents = { sendInputEvent: vi.fn() } as unknown as Electron.WebContents;
+          let reportKeyUp: (() => void) | undefined;
+          const keyUpSent = new Promise<void>((resolve) => {
+            reportKeyUp = resolve;
+          });
+          const guest = makeKeyboardWebContents({
+            hostWebContents,
+            onSendInputEvent: (packet) => {
+              if (packet.type === "keyUp") reportKeyUp?.();
+            },
+          });
+          guest.setConfirmDelivery(false);
+          fromId.mockReturnValue(guest.webContents);
+          let humanHasControl = false;
+          yield* manager.subscribeStateChanges((_tabId, state) =>
+            Effect.sync(() => {
+              if (state.controller === "human") humanHasControl = true;
+            }),
+          );
+          yield* manager.setMainWindow({
+            isDestroyed: () => false,
+            isFocused: () => true,
+            once: vi.fn(),
+            webContents: hostWebContents,
+          } as never);
+          yield* manager.createTab("tab_pointer_receipts");
+          yield* manager.registerWebview("tab_pointer_receipts", 42);
+
+          const press = yield* manager
+            .automationPress("tab_pointer_receipts", { key: "x" })
+            .pipe(Effect.exit, Effect.forkChild({ startImmediately: true }));
+          yield* Effect.promise(() => keyUpSent);
+          guest.emitHumanInput(makeKeyboardSignal("down", "x"));
+          yield* TestClock.adjust(0);
+
+          guest.emitHumanInput({ kind: "pointer", x: 12, y: 24, button: 0 });
+          yield* settle(() => humanHasControl);
+          guest.emitHumanInput(makeKeyboardSignal("up", "x"));
+          yield* TestClock.adjust(0);
+          yield* TestClock.adjust(1_000);
+
+          const exit = yield* Fiber.join(press);
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit)) {
+            expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+              _tag: "PreviewAutomationControlInterruptedError",
+              operation: "press",
+            });
+          }
+          expect(guest.sendInputEvent.mock.calls.map(([packet]) => packet.type)).toEqual([
+            "rawKeyDown",
+            "char",
+            "keyUp",
+          ]);
+
+          guest.emitNavigation();
+          expect(guest.setIgnoreMenuShortcuts.mock.calls).toEqual([[true], [false]]);
+        }),
+      ),
+  );
+
   effectIt.effect("rejects queued keyboard input after physical input takes control", () =>
     withManager((manager) =>
       Effect.gen(function* () {

@@ -1985,6 +1985,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
     };
     const claimHumanControl = Effect.fn("PreviewManager.claimHumanControl")(function* () {
+      for (const pending of attachment.pendingAgentKeys) pending.valid = false;
       yield* Ref.update(controlEpochRef, (epochs) =>
         replaceMap(epochs, (copy) => {
           copy.set(tabId, (epochs.get(tabId) ?? 0) + 1);
@@ -4253,6 +4254,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       Effect.ensuring(releaseInput),
     );
     yield* Effect.gen(function* () {
+      yield* assertCurrent;
       yield* dispatch;
       const received = yield* Effect.all(
         [Deferred.await(keyDownReceipt), Deferred.await(keyUpReceipt)],
@@ -4273,6 +4275,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           webContentsId: wc.id,
         });
       }
+      yield* assertCurrent;
       const interrupted = !keyDownMarker.valid || !keyUpMarker.valid;
       if (interrupted) {
         return yield* new PreviewAutomationControlInterruptedError({
