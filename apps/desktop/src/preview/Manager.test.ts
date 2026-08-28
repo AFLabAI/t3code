@@ -4030,6 +4030,49 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("does not quarantine a new document for an old key receipt", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const hostWebContents = { sendInputEvent: vi.fn() } as unknown as Electron.WebContents;
+        let reportKeyUp: (() => void) | undefined;
+        const keyUpSent = new Promise<void>((resolve) => {
+          reportKeyUp = resolve;
+        });
+        const guest = makeKeyboardWebContents({
+          hostWebContents,
+          onSendInputEvent: (packet) => {
+            if (packet.type === "keyUp") reportKeyUp?.();
+          },
+        });
+        guest.setConfirmDelivery(false);
+        fromId.mockReturnValue(guest.webContents);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          isFocused: () => true,
+          once: vi.fn(),
+          webContents: hostWebContents,
+        } as never);
+        yield* manager.createTab("tab_navigation_receipt");
+        yield* manager.registerWebview("tab_navigation_receipt", 42);
+
+        const oldPress = yield* manager
+          .automationPress("tab_navigation_receipt", { key: "x" })
+          .pipe(Effect.exit, Effect.forkChild({ startImmediately: true }));
+        yield* Effect.promise(() => keyUpSent);
+
+        guest.emitNavigation();
+        guest.emitHumanInput(makeKeyboardSignal("up", "x"));
+        yield* TestClock.adjust(1_000);
+        expect(Exit.isFailure(yield* Fiber.join(oldPress))).toBe(true);
+
+        guest.setConfirmDelivery(true);
+        yield* manager.automationPress("tab_navigation_receipt", { key: "y" });
+        expect(guest.sendInputEvent).toHaveBeenCalledTimes(6);
+        expect(guest.setIgnoreMenuShortcuts.mock.calls).toEqual([[true], [false], [true], [false]]);
+      }),
+    ),
+  );
+
   effectIt.effect("quarantines a document after a partial out-of-order receipt", () =>
     withManager((manager) =>
       Effect.gen(function* () {

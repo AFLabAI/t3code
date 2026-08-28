@@ -2045,15 +2045,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             return;
           }
         }
-        const pendingAgentDocument = attachment.pendingKeyInputs.find(
-          (candidate) => candidate.nativeKey !== undefined,
-        )?.document;
-        if (pendingAgentDocument || attachment.pendingAgentKeys.size > 0) {
-          markKeyboardDeliveryUncertain(
-            attachment,
-            wc,
-            pendingAgentDocument ?? captureKeyboardDocument(attachment, wc),
-          );
+        const pendingAgentDocument =
+          attachment.pendingKeyInputs.find(
+            (candidate) =>
+              candidate.nativeKey !== undefined &&
+              isKeyboardDocumentCurrent(attachment, wc, candidate.document),
+          )?.document ??
+          Array.from(attachment.pendingAgentKeys).find((candidate) =>
+            isKeyboardDocumentCurrent(attachment, wc, candidate.document),
+          )?.document;
+        if (pendingAgentDocument) {
+          markKeyboardDeliveryUncertain(attachment, wc, pendingAgentDocument);
         }
         attachment.pendingKeyInputs.length = 0;
         if (rawSignal.phase === "down") runFork(claimHumanControl());
