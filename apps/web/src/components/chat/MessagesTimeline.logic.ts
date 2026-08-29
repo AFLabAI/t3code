@@ -1,5 +1,4 @@
 import * as Equal from "effect/Equal";
-import { codexMarkdownForCopy } from "@t3tools/client-runtime/codex-markdown-directives";
 import {
   formatDuration,
   workEntryDisplayIndicatesToolFailure,
@@ -441,7 +440,7 @@ export function resolveAssistantMessageCopyState({
 }) {
   const hasText = text !== null && text.trim().length > 0;
   return {
-    text: hasText ? codexMarkdownForCopy(text) : null,
+    text: hasText ? text : null,
     visible: showCopyButton && hasText && !streaming,
   };
 }

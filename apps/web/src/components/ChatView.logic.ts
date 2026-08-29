@@ -44,23 +44,13 @@ export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
-export type ArtifactTemplateUseInsertionResult = "already-present" | "inserted" | "rejected";
-
-export function tryInsertCodexArtifactTemplateUsePrompt(input: {
-  currentDraft: string;
-  template: CodexArtifactTemplate;
-  insertTextAtEnd: (text: string, options: { ensureLeadingBoundary: true }) => boolean;
-}): ArtifactTemplateUseInsertionResult {
-  if (
-    appendCodexArtifactTemplateUsePrompt(input.currentDraft, input.template) === input.currentDraft
-  ) {
-    return "already-present";
-  }
-  return input.insertTextAtEnd(codexArtifactTemplateUsePrompt(input.template), {
-    ensureLeadingBoundary: true,
-  })
-    ? "inserted"
-    : "rejected";
+export function codexArtifactTemplatePromptToAppend(
+  currentDraft: string,
+  template: CodexArtifactTemplate,
+): string | null {
+  return appendCodexArtifactTemplateUsePrompt(currentDraft, template) === currentDraft
+    ? null
+    : codexArtifactTemplateUsePrompt(template);
 }
 
 export function shouldDockDraftHeroForSubmission(input: {

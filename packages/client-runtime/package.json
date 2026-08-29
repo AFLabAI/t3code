@@ -27,17 +27,9 @@
       "types": "./src/codexArtifactTemplates.ts",
       "default": "./src/codexArtifactTemplates.ts"
     },
-    "./codex-file-citation-markdown": {
-      "types": "./src/codexFileCitationMarkdown.ts",
-      "default": "./src/codexFileCitationMarkdown.ts"
-    },
     "./codex-markdown-directives": {
       "types": "./src/codexMarkdownDirectives.ts",
       "default": "./src/codexMarkdownDirectives.ts"
-    },
-    "./markdown-list-indentation": {
-      "types": "./src/markdownListIndentation.ts",
-      "default": "./src/markdownListIndentation.ts"
     },
     "./errors": {
       "types": "./src/errors/index.ts",
@@ -188,12 +180,15 @@
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "effect": "catalog:",
-    "remark-directive": "^4.0.0",
+    "mdast-util-directive": "^3.1.0",
+    "micromark-extension-directive": "^4.0.0",
+    "micromark-util-character": "^2.1.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "micromark-util-types": "^2.0.2",
     "vite-plus": "catalog:"
   }
 }

@@ -369,7 +369,7 @@ import {
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
-  tryInsertCodexArtifactTemplateUsePrompt,
+  codexArtifactTemplatePromptToAppend,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
@@ -3063,18 +3063,11 @@ function ChatViewContent(props: ChatViewProps) {
       if (!composer) return;
 
       const currentDraft = composer.getSendContext().prompt;
-      const result = tryInsertCodexArtifactTemplateUsePrompt({
-        currentDraft,
-        template,
-        insertTextAtEnd: composer.insertTextAtEnd,
-      });
-      if (result === "rejected") {
-        toastManager.add({
-          type: "error",
-          title: "Unable to add to chat",
-          description: "The composer is busy; try again once it is ready.",
+      const prompt = codexArtifactTemplatePromptToAppend(currentDraft, template);
+      if (prompt !== null) {
+        composer.insertTextAtEnd(prompt, {
+          ensureLeadingBoundary: true,
         });
-        return;
       }
       scheduleComposerFocus();
     },

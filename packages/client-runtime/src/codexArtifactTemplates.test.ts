@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   appendCodexArtifactTemplateUsePrompt,
-  codexArtifactTemplateCopyText,
   codexArtifactTemplatePresentationLabel,
   codexArtifactTemplateUsePrompt,
   resolveCodexArtifactTemplate,
@@ -19,9 +18,6 @@ const HELLO_WORLD_TEMPLATE: CodexArtifactTemplate = {
 describe("artifact template presentation", () => {
   it("shares labels and copy text across clients", () => {
     expect(codexArtifactTemplatePresentationLabel("document")).toBe("Document template");
-    expect(codexArtifactTemplateCopyText(HELLO_WORLD_TEMPLATE)).toBe(
-      "Hello World (Document template)",
-    );
   });
 });
 

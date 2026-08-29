@@ -33,7 +33,6 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  codexArtifactTemplateCopyText,
   codexArtifactTemplatePresentationLabel,
   type CodexArtifactTemplate,
   type CodexArtifactTemplateKind,
@@ -67,9 +66,8 @@ import { remarkGithubAlerts } from "../markdown-github-alerts";
 import {
   artifactTemplateFromHastProperties,
   CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES,
-  extractCodexFileCitationHrefs,
   remarkCodexDirectives,
-} from "../markdown-codex-directives";
+} from "@t3tools/client-runtime/codex-markdown-directives";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
@@ -230,7 +228,7 @@ function CodexArtifactTemplateCard(props: {
       aria-label={`${props.template.displayName} template`}
       className="chat-markdown-artifact-template my-[0.65rem] flex w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-foreground shadow-xs"
       data-artifact-kind={props.template.artifactKind}
-      data-markdown-copy={codexArtifactTemplateCopyText(props.template)}
+      data-markdown-copy={`${props.template.displayName} (${presentationLabel})\n\n`}
       data-skill-name={props.template.skillName}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -1784,10 +1782,7 @@ function ChatMarkdown({
       string,
       NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
     >();
-    for (const href of [
-      ...extractMarkdownLinkHrefs(text),
-      ...extractCodexFileCitationHrefs(text),
-    ]) {
+    for (const href of extractMarkdownLinkHrefs(text)) {
       const normalizedHref = normalizeMarkdownLinkHrefKey(href);
       if (metaByHref.has(normalizedHref)) continue;
       const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd);

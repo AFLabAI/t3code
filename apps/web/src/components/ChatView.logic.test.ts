@@ -34,7 +34,7 @@ import {
   resolveDraftHeroState,
   scheduleEnvironmentReconnectWarning,
   startNewThreadForProject,
-  tryInsertCodexArtifactTemplateUsePrompt,
+  codexArtifactTemplatePromptToAppend,
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -54,34 +54,10 @@ const helloWorldTemplate: CodexArtifactTemplate = {
 };
 
 describe("artifact template composer insertion", () => {
-  it("reports a rejected insertion so the caller can surface feedback", () => {
-    const insertTextAtEnd = vi.fn(() => false);
-
-    expect(
-      tryInsertCodexArtifactTemplateUsePrompt({
-        currentDraft: "",
-        template: helloWorldTemplate,
-        insertTextAtEnd,
-      }),
-    ).toBe("rejected");
-    expect(insertTextAtEnd).toHaveBeenCalledWith(
-      "Create a document using this $artifact-template-hello-world about…",
-      { ensureLeadingBoundary: true },
-    );
-  });
-
   it("does not insert an already-present prompt", () => {
     const prompt = "Create a document using this $artifact-template-hello-world about…";
-    const insertTextAtEnd = vi.fn(() => true);
 
-    expect(
-      tryInsertCodexArtifactTemplateUsePrompt({
-        currentDraft: prompt,
-        template: helloWorldTemplate,
-        insertTextAtEnd,
-      }),
-    ).toBe("already-present");
-    expect(insertTextAtEnd).not.toHaveBeenCalled();
+    expect(codexArtifactTemplatePromptToAppend(prompt, helloWorldTemplate)).toBeNull();
   });
 });
 

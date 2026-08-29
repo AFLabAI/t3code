@@ -115,10 +115,6 @@ export function codexArtifactTemplatePresentationLabel(kind: CodexArtifactTempla
   return CODEX_ARTIFACT_TEMPLATE_LABEL_BY_KIND[kind];
 }
 
-export function codexArtifactTemplateCopyText(template: CodexArtifactTemplate): string {
-  return `${template.displayName} (${codexArtifactTemplatePresentationLabel(template.artifactKind)})`;
-}
-
 export function appendCodexArtifactTemplateUsePrompt(
   draft: string,
   template: CodexArtifactTemplate,

@@ -7,7 +7,10 @@ import {
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
-import { splitCodexArtifactTemplateMarkdown } from "@t3tools/client-runtime/codex-markdown-directives";
+import {
+  renderCodexFileCitationsAsMarkdown,
+  splitCodexArtifactTemplateMarkdown,
+} from "@t3tools/client-runtime/codex-markdown-directives";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import { formatElapsed } from "@t3tools/shared/orchestrationTiming";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
@@ -116,10 +119,6 @@ import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl, useAssetUrlState } from "../../state/assets";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
 import { MARKDOWN_IMAGE_MAX_WIDTH, resolveMarkdownImageDisplaySize } from "./markdownImageSize";
-import {
-  CODEX_FILE_CITATION_MARKDOWN_PLUGINS,
-  codexMarkdownForCopy,
-} from "../../lib/codexFileCitationMarkdown";
 
 const WIDE_MARKDOWN_BLOCK_OPTIONS = {
   includeOrderedLists: Platform.OS === "android",
@@ -514,38 +513,40 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     [props.markdown],
   );
 
-  return segments.map((segment) =>
-    segment.kind === "artifact-template" ? (
-      <ArtifactTemplateCard
-        key={`artifact-template:${segment.sourceOffset}`}
-        template={segment.template}
-        onUse={props.onUseArtifactTemplate}
-      />
-    ) : segment.markdown.trim().length > 0 ? (
-      hasNativeSelectableMarkdownText() ? (
-        <SelectableMarkdownText
-          key={`markdown:${segment.sourceOffset}`}
-          markdown={segment.markdown}
-          plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
-          skills={props.skills}
-          textStyle={props.markdownStyles.nativeTextStyle}
-          onLinkPress={props.onLinkPress}
-          renderImage={props.renderImage}
+  return segments.map((segment) => {
+    if (segment.kind === "artifact-template") {
+      return (
+        <ArtifactTemplateCard
+          key={`artifact-template:${segment.sourceOffset}`}
+          template={segment.template}
+          onUse={props.onUseArtifactTemplate}
         />
-      ) : (
-        <Markdown
-          key={`markdown:${segment.sourceOffset}`}
-          options={{ gfm: true }}
-          plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
-          renderers={props.markdownStyles.renderers}
-          styles={props.markdownStyles.styles}
-          theme={props.markdownStyles.theme}
-        >
-          {segment.markdown}
-        </Markdown>
-      )
-    ) : null,
-  );
+      );
+    }
+    if (segment.markdown.trim().length === 0) return null;
+
+    const markdown = renderCodexFileCitationsAsMarkdown(segment.markdown);
+    return hasNativeSelectableMarkdownText() ? (
+      <SelectableMarkdownText
+        key={`markdown:${segment.sourceOffset}`}
+        markdown={markdown}
+        skills={props.skills}
+        textStyle={props.markdownStyles.nativeTextStyle}
+        onLinkPress={props.onLinkPress}
+        renderImage={props.renderImage}
+      />
+    ) : (
+      <Markdown
+        key={`markdown:${segment.sourceOffset}`}
+        options={{ gfm: true }}
+        renderers={props.markdownStyles.renderers}
+        styles={props.markdownStyles.styles}
+        theme={props.markdownStyles.theme}
+      >
+        {markdown}
+      </Markdown>
+    );
+  });
 });
 
 function MarkdownCodeBlock(props: {
@@ -1144,7 +1145,6 @@ function renderFeedEntry(
     const { message } = entry;
     const isUser = message.role === "user";
     const renderedText = message.text;
-    const copiedText = isUser ? renderedText : codexMarkdownForCopy(renderedText);
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = (message.attachments ?? []).filter(
@@ -1263,7 +1263,7 @@ function renderFeedEntry(
           <View className="mt-1 flex-row items-center gap-1">
             <CopyTextButton
               accessibilityLabel="Copy message"
-              text={copiedText}
+              text={renderedText}
               tintColor={iconSubtleColor}
               buttonSize={28}
               iconSize={13}
