@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-import { remarkCodexDirectives } from "./markdown-codex-directives";
+import { extractCodexFileCitationHrefs, remarkCodexDirectives } from "./markdown-codex-directives";
 
 interface TestNode {
   readonly type: string;
@@ -86,5 +86,32 @@ describe("remarkCodexDirectives", () => {
     ]) {
       expect(await parseWithCodexDirectives(markdown)).toEqual(parseOrdinaryMarkdown(markdown));
     }
+  });
+});
+
+describe("extractCodexFileCitationHrefs", () => {
+  it("discovers rendered citations through the same parser pipeline", () => {
+    expect(
+      extractCodexFileCitationHrefs(
+        'Changed :codex-file-citation{path="src/index.ts"} and :codex-file-citation{path="test/index.ts"}.',
+      ),
+    ).toEqual(["src/index.ts", "test/index.ts"]);
+  });
+
+  it("includes citations created by over-indented list recovery", () => {
+    expect(
+      extractCodexFileCitationHrefs(
+        '-       Created :codex-file-citation{path="outputs/report.xlsx"}',
+      ),
+    ).toEqual(["outputs/report.xlsx"]);
+  });
+
+  it("ignores escaped, code, invalid, and nested-link citations", () => {
+    const valid = ':codex-file-citation{path="outputs/report.xlsx"}';
+    expect(
+      extractCodexFileCitationHrefs(
+        `\\${valid}\n\n\`${valid}\`\n\n:codex-file-citation{purpose="output"}\n\n[See ${valid}](https://example.com)`,
+      ),
+    ).toEqual([]);
   });
 });

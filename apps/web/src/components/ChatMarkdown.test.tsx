@@ -126,6 +126,20 @@ describe("ChatMarkdown file option chips", () => {
     },
   );
 
+  it("disambiguates Codex citations with the same basename", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={
+          'Changed :codex-file-citation{path="/tmp/project/src/index.ts"} and :codex-file-citation{path="/tmp/project/test/index.ts"}.'
+        }
+      />,
+    );
+
+    expect(html).toContain("index.ts · project/src");
+    expect(html).toContain("index.ts · project/test");
+  });
+
   it("leaves an unfinished streaming citation visible until it is complete", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown

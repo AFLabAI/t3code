@@ -11,8 +11,13 @@ import {
   unicodeWhitespace,
 } from "micromark-util-character";
 import type { Construct, Extension, Tokenizer } from "micromark-util-types";
-import type { Processor } from "unified";
-import { sourceForRecoveredMarkdownNode } from "./markdown-list-indentation";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified, type Processor } from "unified";
+import {
+  remarkNormalizeListItemIndentation,
+  sourceForRecoveredMarkdownNode,
+} from "./markdown-list-indentation";
 
 const COLON = 58;
 const DASH = 45;
@@ -42,6 +47,7 @@ interface MarkdownAstNode {
   attributes?: Readonly<Record<string, string | null>>;
   position?: MarkdownPosition;
   data?: {
+    codexFileCitation?: true;
     hName?: string;
     hProperties?: Record<string, unknown>;
   };
@@ -177,10 +183,10 @@ function renderFileCitation(node: MarkdownAstNode, insideLink: boolean, source: 
   node.type = "link";
   node.url = citation.href;
   node.children = [{ type: "text", value: citation.label }];
+  node.data = { codexFileCitation: true };
   delete node.name;
   delete node.attributes;
   delete node.value;
-  delete node.data;
 }
 
 function renderArtifactTemplate(node: MarkdownAstNode, source: string): void {
@@ -236,6 +242,33 @@ export function remarkCodexDirectives(this: Processor) {
   return (tree: unknown, file: MarkdownFile) => {
     transformCodexDirectives(tree as MarkdownAstNode, String(file.value));
   };
+}
+
+const codexFileCitationParser = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkNormalizeListItemIndentation)
+  .use(remarkCodexDirectives)
+  .freeze();
+
+export function extractCodexFileCitationHrefs(markdown: string): ReadonlyArray<string> {
+  if (!markdown.includes(`:${CODEX_FILE_CITATION_NAME}`)) return [];
+
+  const tree = codexFileCitationParser.runSync(codexFileCitationParser.parse(markdown), {
+    value: markdown,
+  }) as MarkdownAstNode;
+  const hrefs: string[] = [];
+  const visit = (node: MarkdownAstNode) => {
+    if (node.type === "link" && node.data?.codexFileCitation === true && node.url !== undefined) {
+      hrefs.push(node.url);
+      return;
+    }
+    for (const child of node.children ?? []) {
+      visit(child);
+    }
+  };
+  visit(tree);
+  return hrefs;
 }
 
 export function artifactTemplateFromHastProperties(

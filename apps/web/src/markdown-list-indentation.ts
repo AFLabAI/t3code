@@ -129,7 +129,7 @@ function blocksFromIndentedCode(node: MarkdownAstNode, parser: MarkdownParser): 
  * blocks remain code.
  */
 function attachListItemIndentationNormalizer(this: MarkdownParser) {
-  return (tree: MarkdownAstNode, file: MarkdownFile) => {
+  return (tree: unknown, file: MarkdownFile) => {
     if (typeof file.value !== "string") {
       return;
     }
@@ -152,7 +152,7 @@ function attachListItemIndentationNormalizer(this: MarkdownParser) {
       });
     };
 
-    visit(tree, markdown);
+    visit(tree as MarkdownAstNode, markdown);
   };
 }
 
