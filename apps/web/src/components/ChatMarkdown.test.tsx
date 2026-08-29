@@ -282,6 +282,7 @@ describe("ChatMarkdown artifact-template cards", () => {
     expect(html).not.toContain("::artifact-template");
     expect(html).toContain("chat-markdown-artifact-template");
     expect(html).toContain('data-artifact-kind="document"');
+    expect(html).toContain('data-markdown-copy="Hello World (Document template)"');
     expect(html).toContain('data-skill-name="artifact-template-hello-world"');
     expect(html).toContain("Hello World");
     expect(html).toContain("Document template");
