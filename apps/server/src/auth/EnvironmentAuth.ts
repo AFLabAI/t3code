@@ -600,12 +600,13 @@ export const make = Effect.gen(function* () {
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
   ): Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError> => {
-    const cookieToken =
-      request.cookies[sessions.cookieName] ??
-      (sessions.legacyCookieName ? request.cookies[sessions.legacyCookieName] : undefined);
+    const cookieToken = request.cookies[sessions.cookieName];
+    const legacyCookieToken = sessions.legacyCookieName
+      ? request.cookies[sessions.legacyCookieName]
+      : undefined;
     const bearerToken = parseBearerToken(request);
     const dpopToken = parseDpopToken(request);
-    const credential = cookieToken ?? bearerToken ?? dpopToken;
+    const credential = cookieToken ?? bearerToken ?? dpopToken ?? legacyCookieToken;
     if (!credential) {
       return Effect.fail(new ServerAuthMissingCredentialError({}));
     }
