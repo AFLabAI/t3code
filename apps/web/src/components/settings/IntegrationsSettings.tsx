@@ -674,7 +674,12 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
             ) : null}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogClose
+              disabled={profileRemovalInFlight}
+              render={<Button variant="outline" disabled={profileRemovalInFlight} />}
+            >
+              Cancel
+            </AlertDialogClose>
             <Button
               variant="destructive"
               disabled={profileRemovalInFlight}
