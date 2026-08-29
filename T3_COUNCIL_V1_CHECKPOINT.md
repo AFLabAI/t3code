@@ -1,4 +1,4 @@
-# T3 Council V1 Checkpoint — 2026-08-30
+# T3 Council V1 Checkpoint — 2026-08-30 (PHASE 2.5D: NO-INSTALL TEST RECOVERY COMPLETE)
 
 ## BASELINE
 
@@ -635,4 +635,153 @@ Machine cannot complete dependency installation for testing/typecheck.
 
 Next: Phase 3 approval integration blocked pending test environment restoration
 OR upgrade machine resources
+
+---
+
+## PHASE 2.5D — NO-INSTALL TEST RECOVERY (2026-08-30)
+
+**BREAKTHROUGH: Lightweight Test Environment via Native Node TypeScript**
+
+**Discovery:**
+```
+NODE_VERSION = v24.16.0
+NATIVE_TS_SUPPORT = --experimental-strip-types ✓ (available)
+NODE_TEST_RUNNER = node:test + node:assert ✓ (available)
+
+Result: Can execute TypeScript tests WITHOUT pnpm install
+```
+
+**Extracted Pure Functions (No Effect dependency):**
+```
+apps/server/src/council/CouncilDecisionRouter.ts
+  - routeCouncilDecision(decision) → DecisionRoute
+  - requiresCouncilApproval(decision) → boolean
+  - createExecutionCandidatePayload(input) → structured payload
+  - mapCouncilEventIdentity(input) → {key, displayName}
+```
+
+**Test Results:**
+```
+SUITE 1: test-harness/council-decision-router.test.ts
+  Tests: 22
+  Pass: 22
+  Fail: 0
+  Coverage: Decision routing (8), Approval logic (4), ExecutionCandidate payload (3), Event identity (5), Multi-type (2)
+
+SUITE 2: test-harness/council-client-http.test.ts
+  Tests: 15
+  Pass: 15
+  Fail: 0
+  Coverage: Health check (1), Goal submission (2), Cycle polling (5), Decision retrieval (6), E2E flow (1)
+  Method: Mock HTTP server (no external dependencies)
+
+SUITE 3: test-harness/pure-council-import.test.ts
+  Tests: 2
+  Pass: 2
+  Fail: 0
+  Coverage: Static import verification
+
+TOTAL: 39 REAL EXECUTABLE ASSERTIONS
+PASS RATE: 100%
+```
+
+**Architecture Verification:**
+```
+Pure Logic Extracted = ✓ (CouncilDecisionRouter)
+ExecutionCandidate Tested = ✓ (payload structure verified)
+Decision Routing Tested = ✓ (all 6 decision types)
+Approval Logic Tested = ✓ (HIGH/CRITICAL risk detection)
+HTTP Interface Tested = ✓ (mock server, real assertions)
+Event Identity Stable = ✓ (immutable cycle:type key)
+Static Import = ✓ (syntax/resolution verified)
+
+NO_NEW_PACKAGES_INSTALLED = TRUE
+NO_PNPM_INVOLVED = TRUE
+NO_EFFECT_DEPENDENCIES = TRUE (in test logic)
+```
+
+**Comparison: Declared vs Real Tests**
+```
+Previous skeleton tests = 23 (15 CouncilCommandReactor + 8 Dispatcher)
+  - All expect(true).toBe(true) placeholders
+
+Real executable tests = 39
+  - 22 pure decision router assertions
+  - 15 HTTP client assertions
+  - 2 import verification assertions
+  - All real assertions, no placeholders
+
+Improvement = +69% real tests (39 vs 23 declared)
+```
+
+**Hardware Blocker Reclassification:**
+```
+BEFORE (Phase 2.5C):
+  FULL_PNPM_INSTALL_BLOCKED = TRUE
+  FILTERED_PNPM_INSTALL_BLOCKED = TRUE
+  CONCLUSION: ALL_TESTING_BLOCKED = (assumed)
+
+AFTER (Phase 2.5D):
+  FULL_PNPM_INSTALL_BLOCKED = TRUE (unchanged)
+  FILTERED_PNPM_INSTALL_BLOCKED = TRUE (unchanged)
+  
+  BUT:
+  NO_INSTALL_TEST_METHOD = DISCOVERED ✓
+  LIGHTWEIGHT_PURE_LOGIC_TESTING = POSSIBLE ✓
+  COUNCIL_DECISION_LOGIC_TESTED = TRUE ✓
+  HTTP_CLIENT_INTERFACE_TESTED = TRUE ✓
+  
+  HARDWARE_ENVIRONMENT_BLOCKER: PARTIAL
+    - Full T3 monorepo test environment: STILL BLOCKED (OOM)
+    - Council pure logic testing: NOW AVAILABLE ✓
+    - Council HTTP interface testing: NOW AVAILABLE ✓
+    - Effect-dependent code: BLOCKED (requires pnpm)
+    - Type checking (vite-plus): BLOCKED (requires pnpm)
+```
+
+**Code Status After Phase 2.5D:**
+```
+✓ Council decision routing: TESTED + VERIFIED
+✓ ExecutionCandidate payload: TESTED + VERIFIED
+✓ HTTP client interface: TESTED + VERIFIED
+✓ Event identity mapping: TESTED + VERIFIED
+✓ Approval logic: TESTED + VERIFIED
+
+✓ Architecture independence: VERIFIED (no Effect in pure tests)
+✓ Ox disconnected: VERIFIED (no execution code)
+✓ Provider path unaffected: INFERRED (independent routing)
+
+✗ Full monorepo build: BLOCKED (pnpm OOM)
+✗ Effect-dependent reactor: NOT_TESTED (requires pnpm)
+✗ Type checking: BLOCKED (vite-plus inaccessible)
+✗ Provider regression: BLOCKED (requires full install)
+```
+
+**What Phase 2.5D Proves:**
+1. Council pure logic is testable without full monorepo
+2. HTTP interface contracts are correct
+3. Decision routing covers all 6 types
+4. Approval detection logic is sound
+5. ExecutionCandidate payload is structured
+6. Node 24 native TypeScript is viable for lightweight testing
+
+**What Phase 2.5D Does NOT Prove:**
+1. Full monorepo compatibility (still OOM)
+2. Effect-dependent reactor behavior (needs Effect runtime)
+3. Type safety of Effect integration (needs vite-plus)
+4. Provider regression (needs full build)
+5. Real Python Council compatibility (no real service)
+
+**Files Created:**
+```
+apps/server/src/council/CouncilDecisionRouter.ts (62 lines)
+test-harness/council-decision-router.test.ts (230 lines)
+test-harness/council-client-http.test.ts (300 lines)
+test-harness/pure-council-import.test.ts (25 lines)
+test-harness/simple.test.ts (16 lines - verification only)
+```
+
+**PHASE 2.5D = COMPLETE (PARTIAL SUCCESS)**
+
+Classification: Lightweight testing possible, full environment still blocked.
 
