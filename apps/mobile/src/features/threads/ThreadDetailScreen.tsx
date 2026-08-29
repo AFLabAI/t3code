@@ -258,6 +258,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
+  const draftMessageRef = useRef(props.draftMessage);
+  draftMessageRef.current = props.draftMessage;
   const composerOverlayRef = useRef<View>(null);
   const listRef = useRef<LegendListRef>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
@@ -561,8 +563,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   const handleUseArtifactTemplate = useCallback(
     (template: CodexArtifactTemplate) => {
-      const nextDraft = appendCodexArtifactTemplateUsePrompt(props.draftMessage, template);
-      if (nextDraft !== props.draftMessage) {
+      const currentDraft = draftMessageRef.current;
+      const nextDraft = appendCodexArtifactTemplateUsePrompt(currentDraft, template);
+      if (nextDraft !== currentDraft) {
+        draftMessageRef.current = nextDraft;
         props.onChangeDraftMessage(nextDraft);
       }
       requestAnimationFrame(() => {
@@ -570,7 +574,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         composerEditorRef.current?.setSelection({ start: nextDraft.length, end: nextDraft.length });
       });
     },
-    [props.draftMessage, props.onChangeDraftMessage],
+    [props.onChangeDraftMessage],
   );
 
   const handleScrollToEnd = useCallback(() => {

@@ -28,6 +28,11 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
 import {
+  appendCodexArtifactTemplateUsePrompt,
+  codexArtifactTemplateUsePrompt,
+  type CodexArtifactTemplate,
+} from "@t3tools/client-runtime/codex-artifact-templates";
+import {
   changeRequestAutoSettles,
   effectiveSettled,
   effectiveSnoozed,
@@ -2982,8 +2987,21 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, [focusComposer]);
   const useArtifactTemplate = useCallback(
-    (prompt: string) => {
-      if (composerRef.current?.insertTextAtEnd(prompt, { ensureLeadingBoundary: true })) {
+    (template: CodexArtifactTemplate) => {
+      const composer = composerRef.current;
+      if (!composer) return;
+
+      const currentDraft = composer.getSendContext().prompt;
+      if (appendCodexArtifactTemplateUsePrompt(currentDraft, template) === currentDraft) {
+        scheduleComposerFocus();
+        return;
+      }
+
+      if (
+        composer.insertTextAtEnd(codexArtifactTemplateUsePrompt(template), {
+          ensureLeadingBoundary: true,
+        })
+      ) {
         scheduleComposerFocus();
       }
     },

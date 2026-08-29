@@ -33,7 +33,6 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  codexArtifactTemplateUsePrompt,
   parseCodexArtifactTemplateMarkdownHref,
   type CodexArtifactTemplate,
   type CodexArtifactTemplateKind,
@@ -165,7 +164,7 @@ interface ChatMarkdownProps {
   /** Parse sanitized raw HTML instead of displaying its source text. */
   parseRawHtml?: boolean;
   /** Append a prompt that invokes a newly created artifact-template skill. */
-  onUseArtifactTemplate?: ((prompt: string) => void) | undefined;
+  onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
 }
 
 export function canUseMarkdownFileShellActions(
@@ -217,7 +216,7 @@ const ARTIFACT_TEMPLATE_PRESENTATIONS = {
 
 function CodexArtifactTemplateCard(props: {
   readonly template: CodexArtifactTemplate;
-  readonly onUse?: ((prompt: string) => void) | undefined;
+  readonly onUse?: ((template: CodexArtifactTemplate) => void) | undefined;
 }) {
   const presentation = ARTIFACT_TEMPLATE_PRESENTATIONS[props.template.artifactKind];
 
@@ -249,7 +248,7 @@ function CodexArtifactTemplateCard(props: {
           size="sm"
           variant="outline"
           className="shrink-0"
-          onClick={() => props.onUse?.(codexArtifactTemplateUsePrompt(props.template))}
+          onClick={() => props.onUse?.(props.template)}
         >
           Use template
         </Button>

@@ -472,9 +472,7 @@ function ArtifactTemplateCard(props: {
   readonly onUse?: ((template: CodexArtifactTemplate) => void) | undefined;
 }) {
   return (
-    <View
-      className="my-2 min-w-0 flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3"
-    >
+    <View className="my-2 min-w-0 flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3">
       <View className="relative h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-subtle">
         <SymbolView
           name={ARTIFACT_TEMPLATE_SYMBOL_BY_KIND[props.template.artifactKind]}
