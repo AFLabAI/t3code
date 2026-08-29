@@ -245,6 +245,19 @@ describe("resolveAssistantMessageCopyState", () => {
     });
   });
 
+  it("copies citations in recovered over-indented list items as portable links", () => {
+    expect(
+      resolveAssistantMessageCopyState({
+        showCopyButton: true,
+        text: '-       Created :codex-file-citation{path="outputs/report.xlsx"}',
+        streaming: false,
+      }),
+    ).toEqual({
+      text: "-       Created [report.xlsx](<outputs/report.xlsx>)",
+      visible: true,
+    });
+  });
+
   it("hides copy while an assistant message is still streaming", () => {
     expect(
       resolveAssistantMessageCopyState({

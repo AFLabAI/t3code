@@ -9,6 +9,10 @@ import {
 import remarkDirective from "remark-directive";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import {
+  remarkNormalizeListItemIndentation,
+  sourceOffsetForRecoveredMarkdownNode,
+} from "./markdownListIndentation.js";
 
 const CODEX_FILE_CITATION_NAME = "codex-file-citation";
 const CODEX_ARTIFACT_TEMPLATE_NAME = "artifact-template";
@@ -46,7 +50,17 @@ interface CodexDirectiveKinds {
   readonly fileCitations: boolean;
 }
 
-const directiveParser = unified().use(remarkParse).use(remarkDirective).freeze();
+const directiveParser = unified()
+  .use(remarkParse)
+  .use(remarkDirective)
+  .use(remarkNormalizeListItemIndentation)
+  .freeze();
+
+function parseDirectiveMarkdown(markdown: string): MarkdownDirectiveNode {
+  return directiveParser.runSync(directiveParser.parse(markdown), {
+    value: markdown,
+  }) as MarkdownDirectiveNode;
+}
 
 function collectDirectiveReplacements(
   node: MarkdownDirectiveNode,
@@ -60,8 +74,14 @@ function collectDirectiveReplacements(
     node.name === CODEX_FILE_CITATION_NAME
   ) {
     const citation = resolveCodexFileCitationLink(node.attributes);
-    const start = node.position?.start.offset;
-    const end = node.position?.end.offset;
+    const parsedStart = node.position?.start.offset;
+    const parsedEnd = node.position?.end.offset;
+    const start =
+      parsedStart === undefined
+        ? undefined
+        : sourceOffsetForRecoveredMarkdownNode(node, parsedStart);
+    const end =
+      parsedEnd === undefined ? undefined : sourceOffsetForRecoveredMarkdownNode(node, parsedEnd);
     if (!insideLink && citation && start !== undefined && end !== undefined) {
       replacements.push({ start, end, markdown: codexFileCitationMarkdown(citation) });
     }
@@ -74,8 +94,14 @@ function collectDirectiveReplacements(
     node.name === CODEX_ARTIFACT_TEMPLATE_NAME
   ) {
     const template = resolveCodexArtifactTemplate(node.attributes);
-    const start = node.position?.start.offset;
-    const end = node.position?.end.offset;
+    const parsedStart = node.position?.start.offset;
+    const parsedEnd = node.position?.end.offset;
+    const start =
+      parsedStart === undefined
+        ? undefined
+        : sourceOffsetForRecoveredMarkdownNode(node, parsedStart);
+    const end =
+      parsedEnd === undefined ? undefined : sourceOffsetForRecoveredMarkdownNode(node, parsedEnd);
     if (!insideLink && template && start !== undefined && end !== undefined) {
       replacements.push({
         start,
@@ -97,7 +123,7 @@ export function replaceCodexFileCitationsWithMarkdownLinks(markdown: string): st
   if (!markdown.includes(`:${CODEX_FILE_CITATION_NAME}`)) return markdown;
 
   const matches: DirectiveMatch[] = [];
-  collectDirectiveReplacements(directiveParser.parse(markdown) as MarkdownDirectiveNode, matches, {
+  collectDirectiveReplacements(parseDirectiveMarkdown(markdown), matches, {
     artifactTemplates: false,
     fileCitations: true,
   });
@@ -118,11 +144,10 @@ export function splitCodexArtifactTemplateMarkdown(
   }
 
   const replacements: DirectiveMatch[] = [];
-  collectDirectiveReplacements(
-    directiveParser.parse(markdown) as MarkdownDirectiveNode,
-    replacements,
-    { artifactTemplates: true, fileCitations: false },
-  );
+  collectDirectiveReplacements(parseDirectiveMarkdown(markdown), replacements, {
+    artifactTemplates: true,
+    fileCitations: false,
+  });
   const artifactReplacements = replacements
     .filter(
       (

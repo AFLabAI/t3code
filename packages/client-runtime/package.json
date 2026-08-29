@@ -35,6 +35,10 @@
       "types": "./src/codexMarkdownDirectives.ts",
       "default": "./src/codexMarkdownDirectives.ts"
     },
+    "./markdown-list-indentation": {
+      "types": "./src/markdownListIndentation.ts",
+      "default": "./src/markdownListIndentation.ts"
+    },
     "./errors": {
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"

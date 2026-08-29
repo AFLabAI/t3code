@@ -27,6 +27,12 @@ describe("replaceCodexFileCitationsWithMarkdownLinks", () => {
     );
   });
 
+  it("turns citations in over-indented list recovery into portable links", () => {
+    expect(replaceCodexFileCitationsWithMarkdownLinks(`-       Created ${OUTPUT_CITATION}`)).toBe(
+      "-       Created [issue-2387-sparse-diagonal.xlsx](</workspace/outputs/issue-2387-sparse-diagonal.xlsx>)",
+    );
+  });
+
   it("leaves escaped citations literal", () => {
     const markdown = `\\${OUTPUT_CITATION}`;
     expect(replaceCodexFileCitationsWithMarkdownLinks(markdown)).toBe(markdown);
