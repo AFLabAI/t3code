@@ -118,7 +118,7 @@ import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
 import { MARKDOWN_IMAGE_MAX_WIDTH, resolveMarkdownImageDisplaySize } from "./markdownImageSize";
 import {
   CODEX_FILE_CITATION_MARKDOWN_PLUGINS,
-  replaceCodexFileCitationsWithMarkdownLinks,
+  codexMarkdownForCopy,
 } from "../../lib/codexFileCitationMarkdown";
 
 const WIDE_MARKDOWN_BLOCK_OPTIONS = {
@@ -1144,9 +1144,7 @@ function renderFeedEntry(
     const { message } = entry;
     const isUser = message.role === "user";
     const renderedText = message.text;
-    const copiedText = isUser
-      ? renderedText
-      : replaceCodexFileCitationsWithMarkdownLinks(renderedText);
+    const copiedText = isUser ? renderedText : codexMarkdownForCopy(renderedText);
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = (message.attachments ?? []).filter(

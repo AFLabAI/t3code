@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { CODEX_FILE_CITATION_MARKDOWN_PLUGINS } from "./codexFileCitationMarkdown";
+import {
+  CODEX_FILE_CITATION_MARKDOWN_PLUGINS,
+  codexMarkdownForCopy,
+} from "./codexFileCitationMarkdown";
 
 describe("Codex file citation Nitro Markdown plugin", () => {
   it("uses the parser-backed citation transformer before Nitro parses", () => {
@@ -24,5 +27,13 @@ describe("Codex file citation Nitro Markdown plugin", () => {
     expect(transform?.(`-       Created ${directive}`)).toBe(
       "-       Created [report.xlsx](<outputs/report.xlsx>)",
     );
+  });
+
+  it("copies artifact template cards as their visible presentation text", () => {
+    expect(
+      codexMarkdownForCopy(
+        '::artifact-template{skill_name="artifact-template-hello-world" skill_directory="/Users/test/.codex/skills/artifact-template-hello-world" display_name="Hello World" artifact_kind="document"}',
+      ),
+    ).toBe("Hello World (Document template)");
   });
 });
