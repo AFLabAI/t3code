@@ -1,4 +1,7 @@
 import { expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { describe } from "vite-plus/test";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -8,93 +11,63 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpServerResponse } from "effect/unstable/http";
 
+import { ORCHESTRATION_PROTOCOL_HEADER } from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+
+import * as ServerConfig from "./config.ts";
+
 import {
   assetResponseHeaders,
-  assetFileResponse,
+  browserApiCorsLayer,
   downloadContentDisposition,
   isLoopbackHostname,
   resolveDevRedirectUrl,
 } from "./http.ts";
 
-const fileResponseLayer = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
+describe("browser API CORS", () => {
+  it("accepts protocol negotiation with authenticated browser headers", async () => {
+    const routeLayer = Layer.effectDiscard(
+      Effect.gen(function* () {
+        const router = yield* HttpRouter.HttpRouter;
+        yield* router.add("GET", "/api/environment", HttpServerResponse.empty());
+      }),
+    );
+    const appLayer = Layer.merge(routeLayer, browserApiCorsLayer).pipe(
+      Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "http-cors-test-" })),
+      Layer.provide(NodeServices.layer),
+    );
+    const { handler, dispose } = HttpRouter.toWebHandler(appLayer, { disableLogger: true });
 
-describe("video asset byte ranges", () => {
-  it.effect("streams exactly the requested bytes and leaves full downloads intact", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-video-range-" });
-      const file = path.join(directory, "clip.mp4");
-      yield* fs.writeFileString(file, "0123456789");
-      const asset = { path: file, mimeType: "video/mp4" };
-      for (const [header, expected, contentRange] of [
-        ["bytes=0-1", "01", "bytes 0-1/10"],
-        ["bytes=4-", "456789", "bytes 4-9/10"],
-        ["bytes=-3", "789", "bytes 7-9/10"],
-        ["bytes=-999999999999999999999999", "0123456789", "bytes 0-9/10"],
-        ["bytes=8-999999999999999999999999", "89", "bytes 8-9/10"],
-      ] as const) {
-        const response = HttpServerResponse.toWeb(yield* assetFileResponse(asset, header));
-        expect(response.status).toBe(206);
-        expect(response.headers.get("accept-ranges")).toBe("bytes");
-        expect(response.headers.get("content-range")).toBe(contentRange);
-        expect(response.headers.get("content-length")).toBe(String(expected.length));
-        expect(yield* Effect.promise(() => response.text())).toBe(expected);
-      }
-      for (const header of [
-        undefined,
-        "items=0-1",
-        "bytes=0-1,4-5",
-        "bytes=8-2",
-        "bytes=-",
-        "bytes=bad",
-      ]) {
-        const response = HttpServerResponse.toWeb(yield* assetFileResponse(asset, header));
-        expect(response.status).toBe(200);
-        expect(yield* Effect.promise(() => response.text())).toBe("0123456789");
-      }
-      const conditional = HttpServerResponse.toWeb(
-        yield* assetFileResponse(asset, "bytes=0-1", '"old-etag"'),
+    try {
+      const response = await handler(
+        new Request("https://backend.example/api/environment", {
+          method: "OPTIONS",
+          headers: {
+            origin: "https://app.t3.codes",
+            "access-control-request-method": "GET",
+            "access-control-request-headers": [
+              ORCHESTRATION_PROTOCOL_HEADER,
+              "authorization",
+              "dpop",
+            ].join(", "),
+          },
+        }),
       );
-      expect(conditional.status).toBe(200);
-      expect(yield* Effect.promise(() => conditional.text())).toBe("0123456789");
-      const uppercase = HttpServerResponse.toWeb(
-        yield* assetFileResponse({ ...asset, mimeType: "Video/MP4" }, "bytes=0-1"),
-      );
-      expect(uppercase.status).toBe(206);
-      expect(yield* Effect.promise(() => uppercase.text())).toBe("01");
-      const image = HttpServerResponse.toWeb(
-        yield* assetFileResponse({ path: file, mimeType: "image/png" }, "bytes=0-1"),
-      );
-      expect(image.status).toBe(200);
-      expect(image.headers.has("accept-ranges")).toBe(false);
-      expect(yield* Effect.promise(() => image.text())).toBe("0123456789");
-    }).pipe(Effect.provide(fileResponseLayer)),
-  );
 
-  it.effect("rejects ranges outside the file, including empty files", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-video-range-" });
-      const file = path.join(directory, "clip.mp4");
-      yield* fs.writeFileString(file, "0123456789");
-      for (const header of ["bytes=10-", "bytes=-0", "bytes=999999999999999999999999-"]) {
-        const response = HttpServerResponse.toWeb(
-          yield* assetFileResponse({ path: file, mimeType: "video/mp4" }, header),
-        );
-        expect(response.status).toBe(416);
-        expect(response.headers.get("content-range")).toBe("bytes */10");
-        expect(yield* Effect.promise(() => response.text())).toBe("");
-      }
-      yield* fs.writeFileString(file, "");
-      const empty = HttpServerResponse.toWeb(
-        yield* assetFileResponse({ path: file, mimeType: "video/mp4" }, "bytes=0-1"),
+      expect(response.status).toBe(204);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      const allowedHeaders = new Set(
+        (response.headers.get("access-control-allow-headers") ?? "")
+          .split(",")
+          .map((header) => header.trim().toLowerCase()),
       );
-      expect(empty.status).toBe(416);
-      expect(empty.headers.get("content-range")).toBe("bytes */0");
-    }).pipe(Effect.provide(fileResponseLayer)),
-  );
+      expect(allowedHeaders.has(ORCHESTRATION_PROTOCOL_HEADER)).toBe(true);
+      expect(allowedHeaders.has("authorization")).toBe(true);
+      expect(allowedHeaders.has("dpop")).toBe(true);
+    } finally {
+      await dispose();
+    }
+  });
 });
 
 describe("http dev routing", () => {
