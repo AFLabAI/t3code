@@ -200,6 +200,31 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("chat-markdown-file-link");
     expect(html).toContain("report.xlsx");
   });
+
+  it("preserves rejected citations created by over-indented list recovery", () => {
+    const malformedHtml = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={'Leading text before list.\n\n-       Bad :codex-file-citation{purpose="output"}'}
+      />,
+    );
+    const nestedLinkHtml = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={
+          'Leading text before list.\n\n-       [Bad :codex-file-citation{path="/tmp/project/report.xlsx"}](https://example.com)'
+        }
+      />,
+    );
+    const nestedLinkText = nestedLinkHtml.replace(/<[^>]+>/g, "");
+
+    expect(malformedHtml).toContain(
+      "<li>Bad :codex-file-citation{purpose=&quot;output&quot;}</li>",
+    );
+    expect(nestedLinkText).toContain(
+      "Bad :codex-file-citation{path=&quot;/tmp/project/report.xlsx&quot;}",
+    );
+  });
 });
 
 const ARTIFACT_TEMPLATE_DIRECTIVE =

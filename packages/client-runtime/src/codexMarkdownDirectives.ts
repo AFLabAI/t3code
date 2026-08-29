@@ -149,9 +149,20 @@ function sourceForNode(node: MarkdownAstNode, source: string): string {
   return start === undefined || end === undefined ? "" : source.slice(start, end);
 }
 
+function sourceForDirective(node: MarkdownAstNode, source: string, marker: ":" | "::"): string {
+  const prefix = `${marker}${node.name ?? ""}`;
+  const slicedSource = sourceForNode(node, source);
+  if (slicedSource.startsWith(prefix)) return slicedSource;
+
+  const attributes = Object.entries(node.attributes ?? {}).map(([name, value]) =>
+    value === null ? name : `${name}=${JSON.stringify(value)}`,
+  );
+  return `${prefix}${attributes.length === 0 ? "" : `{${attributes.join(" ")}}`}`;
+}
+
 function restoreTextDirective(node: MarkdownAstNode, source: string): void {
   node.type = "text";
-  node.value = sourceForNode(node, source) || `:${node.name ?? ""}`;
+  node.value = sourceForDirective(node, source, ":");
   delete node.name;
   delete node.attributes;
   delete node.url;
@@ -160,7 +171,7 @@ function restoreTextDirective(node: MarkdownAstNode, source: string): void {
 }
 
 function restoreLeafDirective(node: MarkdownAstNode, source: string): void {
-  const value = sourceForNode(node, source) || `::${node.name ?? ""}`;
+  const value = sourceForDirective(node, source, "::");
   node.type = "paragraph";
   node.children = [
     { type: "text", value, ...(node.position === undefined ? {} : { position: node.position }) },
