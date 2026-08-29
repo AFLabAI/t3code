@@ -13,7 +13,12 @@ import {
   TriangleAlertIcon,
   WrapTextIcon,
 } from "lucide-react";
-import type { EnvironmentId, ScopedThreadRef, ServerProviderSkill } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ScopedThreadRef,
+  ServerProviderSkill,
+  ThreadLinkedPullRequest,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -96,6 +101,7 @@ import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import { useRemoteOpenResolution, type RemoteOpenMode } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
+import { readThreadShell, useProjects } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { shellEnvironment } from "../state/shell";
 import { assetEnvironment } from "../state/assets";
@@ -104,13 +110,19 @@ import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { projectEnvironment } from "../state/projects";
+import { threadEnvironment } from "../state/threads";
 import {
   claimWorkspaceBasenameLookup,
   needsWorkspaceBasenameLookup,
   pickWorkspaceBasenameMatch,
   WORKSPACE_BASENAME_LOOKUP_LIMIT,
 } from "../workspaceBasenameLookup";
-import { useOpenChangeRequestLink } from "~/lib/openPullRequestLink";
+import {
+  findProjectForChangeRequest,
+  matchesLinkedPullRequestUrl,
+  parseChangeRequestUrl,
+  useOpenChangeRequestLink,
+} from "~/lib/openPullRequestLink";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useAssetUrlState } from "../assets/assetUrls";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
@@ -1603,6 +1615,9 @@ interface ChatMarkdownComponentsContext {
   readonly openMarkdownFileInPreview: (
     path: string,
   ) => Promise<AtomCommandResult<unknown, unknown>>;
+  readonly openChangeRequestLink: ReturnType<typeof useOpenChangeRequestLink>;
+  readonly resolveThreadPullRequest: (href: string) => ThreadLinkedPullRequest | null;
+  readonly updateThreadPullRequestLink: (href: string, linked: boolean) => Promise<void>;
   readonly resolvedTheme: "light" | "dark";
   readonly skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   readonly text: string;
@@ -1629,6 +1644,9 @@ function createChatMarkdownComponents(ctx: ChatMarkdownComponentsContext): Compo
     revealMarkdownFileInFileManager,
     openExternalLinkInPreview,
     openMarkdownFileInPreview,
+    openChangeRequestLink,
+    resolveThreadPullRequest,
+    updateThreadPullRequestLink,
     resolvedTheme,
     skills,
     text,
@@ -1766,16 +1784,29 @@ function createChatMarkdownComponents(ctx: ChatMarkdownComponentsContext): Compo
               onClick?.(event);
               if (isSameDocumentLink && href) {
                 handleMarkdownFragmentClick(event, href);
+                return;
               }
+              if (href) openChangeRequestLink(event, href);
             }}
             onContextMenu={(event) => {
-              if (!canOpenInPreview || !href || !faviconHost) return;
+              if (!href || !faviconHost) return;
               event.preventDefault();
               event.stopPropagation();
               const api = readLocalApi();
               if (!api) return;
+              const pullRequest = resolveThreadPullRequest(href);
+              const currentPullRequest =
+                threadRef === undefined ? null : readThreadShell(threadRef)?.linkedPullRequest;
+              const threadLinkAction =
+                currentPullRequest != null && matchesLinkedPullRequestUrl(currentPullRequest, href)
+                  ? "unlink-from-thread"
+                  : pullRequest === null
+                    ? undefined
+                    : "link-to-thread";
               void showExternalLinkContextMenu({
                 href,
+                canOpenInPreview,
+                threadLinkAction,
                 position: { x: event.clientX, y: event.clientY },
                 showContextMenu: (items, position) => api.contextMenu.show(items, position),
                 openInPreview: async (target) => {
@@ -1789,8 +1820,24 @@ function createChatMarkdownComponents(ctx: ChatMarkdownComponentsContext): Compo
                 },
                 openExternal: (target) => api.shell.openExternal(target),
                 copyLink: (target) => writeTextToClipboard(target, "link"),
+                updateThreadLink: updateThreadPullRequestLink,
                 reportFailure: (operation, cause) => {
                   reportMarkdownActionFailure({ operation, target: href }, cause);
+                  if (
+                    operation === "link-pull-request-to-thread" ||
+                    operation === "unlink-pull-request-from-thread"
+                  ) {
+                    toastManager.add(
+                      stackedThreadToast({
+                        type: "error",
+                        title:
+                          operation === "link-pull-request-to-thread"
+                            ? "Unable to link pull request"
+                            : "Unable to unlink pull request",
+                        description: cause instanceof Error ? cause.message : "The request failed.",
+                      }),
+                    );
+                  }
                 },
               });
             }}
@@ -1901,6 +1948,9 @@ function ChatMarkdown({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
   const preparedConnection = usePreparedConnection(environmentId);
   const remoteOpen = useRemoteOpenResolution(environmentId);
@@ -1910,6 +1960,7 @@ function ChatMarkdown({
     remoteOpen.isResolved,
   );
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const projects = useProjects();
   const availableEditors = serverConfig?.availableEditors ?? [];
   const [preferredEditor] = usePreferredEditor(availableEditors);
   const preferredEditorMenuLabel = openInEditorMenuLabel(preferredEditor);
@@ -1987,6 +2038,54 @@ function ChatMarkdown({
     event.clipboardData.setData("text/html", payload.html);
   }, []);
   const openChangeRequestLink = useOpenChangeRequestLink(threadRef);
+  const resolveThreadPullRequest = useCallback(
+    (href: string): ThreadLinkedPullRequest | null => {
+      if (
+        threadRef === undefined ||
+        readThreadShell(threadRef) === null ||
+        serverConfig?.environment.capabilities.threadPullRequestLinking !== true
+      ) {
+        return null;
+      }
+      const parsed = parseChangeRequestUrl(href);
+      if (parsed === null) return null;
+      const project = findProjectForChangeRequest(
+        projects.filter((candidate) => candidate.environmentId === threadRef.environmentId),
+        parsed,
+      );
+      if (project === undefined) return null;
+      return {
+        projectId: project.id,
+        repository: project.repositoryIdentity?.displayName ?? parsed.repository,
+        number: parsed.number,
+        url: href,
+      };
+    },
+    [projects, serverConfig, threadRef],
+  );
+  const updateThreadPullRequestLink = useCallback(
+    async (href: string, linked: boolean) => {
+      if (threadRef === undefined) return;
+      const linkedPullRequest = linked ? resolveThreadPullRequest(href) : null;
+      if (linked && linkedPullRequest === null) {
+        throw new Error("The pull request is not available in this environment.");
+      }
+      if (!linked) {
+        const currentPullRequest = readThreadShell(threadRef)?.linkedPullRequest;
+        if (currentPullRequest == null || !matchesLinkedPullRequestUrl(currentPullRequest, href)) {
+          return;
+        }
+      }
+      const result = await updateThreadMetadata({
+        environmentId: threadRef.environmentId,
+        input: { threadId: threadRef.threadId, linkedPullRequest },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        throw squashAtomCommandFailure(result);
+      }
+    },
+    [resolveThreadPullRequest, threadRef, updateThreadMetadata],
+  );
   const openExternalLinkInPreview = useCallback(
     (url: string) => {
       if (!threadRef) {
@@ -2103,6 +2202,9 @@ function ChatMarkdown({
             : undefined,
         openExternalLinkInPreview,
         openMarkdownFileInPreview,
+        openChangeRequestLink,
+        resolveThreadPullRequest,
+        updateThreadPullRequestLink,
         resolvedTheme,
         skills,
         text,
@@ -2124,10 +2226,13 @@ function ChatMarkdown({
       openInPreferredEditor,
       openExternalLinkInPreview,
       openMarkdownFileInPreview,
+      openChangeRequestLink,
+      resolveThreadPullRequest,
       resolvedTheme,
       skills,
       text,
       threadRef,
+      updateThreadPullRequestLink,
     ],
   );
 
