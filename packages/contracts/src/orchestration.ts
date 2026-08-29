@@ -1063,6 +1063,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
   "thread.council-goal-requested",
+  "thread.council-approval-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.checkpoint-revert-requested",
@@ -1256,6 +1257,19 @@ export const ThreadCouncilGoalRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadCouncilApprovalRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  requestId: ApprovalRequestId,
+  councilCycleId: Schema.String,
+  goal: TrimmedNonEmptyString,
+  proposedAction: Schema.String,
+  reasoning: Schema.String,
+  riskLevel: Schema.Literals(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
+  requiresApproval: Schema.Boolean,
+  createdAt: IsoDateTime,
+});
+export type ThreadCouncilApprovalRequestedPayload = typeof ThreadCouncilApprovalRequestedPayload.Type;
+
 export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
@@ -1438,6 +1452,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.council-goal-requested"),
     payload: ThreadCouncilGoalRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.council-approval-requested"),
+    payload: ThreadCouncilApprovalRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

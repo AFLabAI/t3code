@@ -290,27 +290,89 @@ const make = Effect.gen(function* () {
         }),
       );
 
-    // Create ExecutionCandidate for decisions that require it
-    yield* createExecutionCandidate({
-      threadId: input.threadId,
-      cycleId,
-      goal: input.goalText,
-      decision,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("failed to create execution candidate", {
-          cycleId,
-          threadId: input.threadId,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-
-    // Route based on decision type
+    // Route based on decision type and risk level
     switch (decision.decision) {
-      case "EXECUTE":
-        // ExecutionCandidate already created, awaiting approval
+      case "EXECUTE": {
+        // Check if approval is required (HIGH/CRITICAL risk)
+        const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
+
+        if (requiresApproval) {
+          // Create approval request instead of direct ExecutionCandidate
+          const approvalRequestId = yield* serverCommandId("council-approval-request");
+          const approvalEventId = yield* serverEventId();
+
+          yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId: approvalRequestId,
+            threadId: input.threadId,
+            activity: {
+              id: approvalEventId,
+              tone: "approval",
+              kind: "council.approval.requested",
+              summary: `Council Approval Required: ${decision.decision}`,
+              payload: {
+                cycleId,
+                councilCycleId: cycleId,
+                decision: decision.decision,
+                reasoning: decision.reasoning,
+                proposal: decision.executionProposal,
+                riskLevel: decision.riskLevel,
+                goal: input.goalText,
+              },
+              turnId: null,
+              createdAt: new Date().toISOString(),
+            },
+            createdAt: new Date().toISOString(),
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to create council approval request activity", {
+                cycleId,
+                threadId: input.threadId,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+
+          // Emit approval-response-requested event to put thread in waiting state
+          const requestId = yield* crypto.randomUUIDv4.pipe(
+            Effect.map((uuid) => CommandId.make(`server:council-approval:${uuid}`))
+          );
+
+          yield* orchestrationEngine.dispatch({
+            type: "thread.approval-response-requested",
+            commandId: requestId,
+            threadId: input.threadId,
+            requestId: requestId,
+            decision: "decline", // Default to decline, awaits user approval
+            createdAt: new Date().toISOString(),
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to emit approval-response-requested", {
+                cycleId,
+                threadId: input.threadId,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+        } else {
+          // Low/Medium risk: create ExecutionCandidate directly
+          yield* createExecutionCandidate({
+            threadId: input.threadId,
+            cycleId,
+            goal: input.goalText,
+            decision,
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to create execution candidate", {
+                cycleId,
+                threadId: input.threadId,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+        }
         break;
+      }
       case "ASK_USER":
       case "BLOCKED":
       case "RESEARCH":
