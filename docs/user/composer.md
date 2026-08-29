@@ -14,6 +14,18 @@ On mobile, the model picker shows each OpenCode model's upstream provider, such 
 GitHub Copilot, or OpenCode Zen, beneath its name. Search by that provider name to narrow the list
 when starting a thread or changing an existing thread's model.
 
+## Queued messages
+
+Messages sent while the agent is working queue above the composer. Rows show a thumbnail of any
+attached image alongside the text, and each row can be reordered, promoted to a steer, or removed.
+
+The pencil on a queued row opens that message in the composer for editing. The message's
+attachments appear above the text with a remove control, and new images can be added the usual way.
+Sending saves the queued message in place; **Cancel** in the banner leaves it unchanged. Whatever
+you had typed in the composer before starting the edit is restored afterwards. If the queued
+message starts or is removed while you are editing, the edit ends: changed content moves into the
+composer when it is empty, and is discarded otherwise.
+
 ## Commands and skills
 
 Type `/` to open the command menu. Type `$` to find and add a skill. Skill rows show their source,
