@@ -968,16 +968,53 @@ const makeWsRpcLayer = (
       const dispatchNormalizedCommand = (
         normalizedCommand: OrchestrationCommand,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> => {
-        const dispatchEffect =
-          normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap
-            ? dispatchBootstrapTurnStart(normalizedCommand)
-            : orchestrationEngine
-                .dispatch(normalizedCommand)
-                .pipe(
-                  Effect.mapError((cause) =>
-                    toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
-                  ),
-                );
+        const dispatchEffect = Effect.gen(function* () {
+          if (
+            normalizedCommand.type === "thread.turn.start" &&
+            normalizedCommand.interactionMode === "council"
+          ) {
+            const crypto = yield* Crypto.Crypto;
+            return yield* orchestrationEngine
+              .dispatch({
+                type: "thread.council-goal-requested",
+                commandId: normalizedCommand.commandId,
+                eventId: EventId.make(yield* crypto.randomUUIDv4),
+                threadId: normalizedCommand.threadId,
+                payload: {
+                  threadId: normalizedCommand.threadId,
+                  goalText: normalizedCommand.message.text,
+                  createdAt: normalizedCommand.createdAt,
+                },
+                aggregateKind: "thread",
+                aggregateId: normalizedCommand.threadId,
+                occurredAt: normalizedCommand.createdAt,
+                causationEventId: null,
+                correlationId: normalizedCommand.commandId,
+                metadata: {},
+              } as any)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toDispatchCommandError(cause, "Failed to dispatch Council goal"),
+                ),
+              );
+          }
+
+          if (normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap) {
+            return yield* dispatchBootstrapTurnStart(normalizedCommand).pipe(
+              Effect.mapError((cause) =>
+                toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
+              ),
+            );
+          }
+
+          return yield* orchestrationEngine
+            .dispatch(normalizedCommand)
+            .pipe(
+              Effect.mapError((cause) =>
+                toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
+              ),
+            );
+        });
 
         return startup
           .enqueueCommand(dispatchEffect)
