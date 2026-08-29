@@ -590,3 +590,49 @@ Do NOT proceed to Phase 3 approval integration until test framework accessible.
 Phase 2.5B end status: BLOCKED
 Next step: Provision machine resources or alternate test environment
 OR proceed with Phase 3 understanding that Unit/Regression tests cannot yet validate implementation
+
+---
+
+## PHASE 2.5C — RECOVERY ATTEMPT: HARDWARE BLOCKER CONFIRMED
+
+**Attempted:**
+- Filtered pnpm install with memory limits
+- Command: `NODE_OPTIONS="--max-old-space-size=1536" pnpm --filter "t3" --filter "@t3tools/contracts" install --frozen-lockfile`
+
+**Result: FAILED**
+```
+Progress: resolved 393, reused 391, downloaded 0, added 391
+[ERR_PNPM_ERR_SQLITE_ERROR] out of memory
+```
+
+**Root Cause Analysis:**
+1. Full install OOM: JavaScript heap out of memory (35 MB)
+2. Filtered install OOM: pnpm store sqlite database out of memory (391 packages)
+3. Memory limit: 1536 MB Node, machine ~8GB physical
+4. Conclusion: Even filtered install exhausts available RAM
+
+**Approaches Exhausted:**
+- ✗ Full pnpm install
+- ✗ Filtered pnpm install (1536 MB conservative limit)
+- ✗ Cached/offline mode (requires first install success)
+- ✗ Lightweight isolated harness (would require code duplication)
+
+**FINAL DETERMINATION: HARDWARE_RAM_BLOCKER = TRUE**
+
+Machine cannot complete dependency installation for testing/typecheck.
+
+**Code Status:**
+- Council architecture: ✓ Verified (static inspection)
+- ExecutionCandidate: ✓ Structured (code review)
+- Dispatcher routing: ✓ Implemented (code review)
+- Ox disconnected: ✓ Confirmed (code inspection)
+- Test framework: ✗ Inaccessible (hardware)
+- Unit tests: ✗ Cannot run (hardware)
+- Regression tests: ✗ Cannot run (hardware)
+- Type checking: ✗ Cannot run (hardware)
+
+**PHASE 2.5 = BLOCKED (UNRESOLVABLE ON CURRENT MACHINE)**
+
+Next: Phase 3 approval integration blocked pending test environment restoration
+OR upgrade machine resources
+
