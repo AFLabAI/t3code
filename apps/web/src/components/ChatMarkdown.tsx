@@ -33,11 +33,9 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  parseCodexArtifactTemplateMarkdownHref,
   type CodexArtifactTemplate,
   type CodexArtifactTemplateKind,
 } from "@t3tools/client-runtime/codex-artifact-templates";
-import { replaceCodexMarkdownDirectives } from "@t3tools/client-runtime/codex-markdown-directives";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -64,6 +62,11 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "../markdown-github-alerts";
+import {
+  artifactTemplateFromHastProperties,
+  CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES,
+  remarkCodexDirectives,
+} from "../markdown-codex-directives";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
@@ -258,14 +261,6 @@ function CodexArtifactTemplateCard(props: {
   );
 }
 
-function artifactTemplateFromMarkdownChildren(children: ReactNode): CodexArtifactTemplate | null {
-  const childNodes = Children.toArray(children);
-  if (childNodes.length !== 1) return null;
-  const child = childNodes[0];
-  if (!isValidElement<{ href?: string }>(child)) return null;
-  return parseCodexArtifactTemplateMarkdownHref(child.props.href);
-}
-
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
@@ -358,16 +353,18 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
     "*": (defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
     code: [...(defaultSchema.attributes?.code ?? []), "dataCodeMeta", "dataInlineCode"],
     blockquote: [...(defaultSchema.attributes?.blockquote ?? []), "dataAlert"],
+    div: [...(defaultSchema.attributes?.div ?? []), ...CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES],
   },
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "file", "t3-artifact-template"],
+    href: [...(defaultSchema.protocols?.href ?? []), "file"],
     src: [...(defaultSchema.protocols?.src ?? []), "file"],
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
 
 const CHAT_MARKDOWN_REMARK_PLUGINS = [
   remarkGfm,
+  remarkCodexDirectives,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
   remarkPreserveCodeMeta,
@@ -376,6 +373,7 @@ const CHAT_MARKDOWN_REMARK_PLUGINS = [
 
 const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkGfm,
+  remarkCodexDirectives,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
   remarkBreaks,
@@ -1722,13 +1720,6 @@ function ChatMarkdown({
   parseRawHtml = true,
   onUseArtifactTemplate,
 }: ChatMarkdownProps) {
-  // Keep directive grammar isolated so ordinary chat Markdown retains its existing parse rules.
-  // Editable file previews report offsets into the parsed source, so they must retain the original.
-  const editsSourceByOffset = onTaskListChange !== undefined;
-  const markdownText = useMemo(
-    () => (editsSourceByOffset ? text : replaceCodexMarkdownDirectives(text)),
-    [editsSourceByOffset, text],
-  );
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
@@ -1792,7 +1783,7 @@ function ChatMarkdown({
       string,
       NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
     >();
-    for (const href of extractMarkdownLinkHrefs(markdownText)) {
+    for (const href of extractMarkdownLinkHrefs(text)) {
       const normalizedHref = normalizeMarkdownLinkHrefKey(href);
       if (metaByHref.has(normalizedHref)) continue;
       const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd);
@@ -1801,10 +1792,10 @@ function ChatMarkdown({
       }
     }
     return metaByHref;
-  }, [cwd, markdownText]);
+  }, [cwd, text]);
   const inlineCodeFileLinkMetaByText = useMemo(() => {
     const metaByText = new Map<string, MarkdownFileLinkMeta>();
-    for (const span of extractInlineCodeSpans(markdownText)) {
+    for (const span of extractInlineCodeSpans(text)) {
       if (metaByText.has(span)) continue;
       const meta = resolveInlineCodeFileLinkMeta(span, cwd);
       if (meta) {
@@ -1812,7 +1803,7 @@ function ChatMarkdown({
       }
     }
     return metaByText;
-  }, [cwd, markdownText]);
+  }, [cwd, text]);
   const fileLinkParentSuffixByPath = useMemo(() => {
     const filePaths = [
       ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
@@ -1820,10 +1811,10 @@ function ChatMarkdown({
     ];
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [inlineCodeFileLinkMetaByText, markdownFileLinkMetaByHref]);
-  const markdownUrlTransform = useCallback((href: string) => {
-    if (parseCodexArtifactTemplateMarkdownHref(href)) return href;
-    return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
-  }, []);
+  const markdownUrlTransform = useCallback(
+    (href: string) => rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href),
+    [],
+  );
   // Re-emit highlighted content as markdown so copying out of the rendered
   // view keeps links, emphasis, lists, and code fences intact.
   const handleCopy = useCallback((event: ReactClipboardEvent<HTMLDivElement>) => {
@@ -2036,13 +2027,16 @@ function ChatMarkdown({
     };
 
     return {
-      p({ node: _node, children, ...props }) {
-        const artifactTemplate = artifactTemplateFromMarkdownChildren(children);
+      div({ node, children, ...props }) {
+        const artifactTemplate = artifactTemplateFromHastProperties(node?.properties);
         if (artifactTemplate) {
           return (
             <CodexArtifactTemplateCard template={artifactTemplate} onUse={onUseArtifactTemplate} />
           );
         }
+        return <div {...props}>{children}</div>;
+      },
+      p({ node: _node, children, ...props }) {
         return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
       },
       blockquote({ node: _node, children, ...props }) {
@@ -2077,9 +2071,7 @@ function ChatMarkdown({
       li({ node, children, ...props }) {
         const listItemStart = node?.position?.start.offset;
         const markerOffset =
-          typeof listItemStart === "number"
-            ? findTaskListMarkerOffset(markdownText, listItemStart)
-            : null;
+          typeof listItemStart === "number" ? findTaskListMarkerOffset(text, listItemStart) : null;
         return (
           <li {...props} data-task-marker-offset={markerOffset ?? undefined}>
             {renderSkillInlineMarkdownChildren(children, skills)}
@@ -2116,10 +2108,6 @@ function ChatMarkdown({
         );
       },
       a({ node, href, children, title: _title, ...props }) {
-        const artifactTemplate = parseCodexArtifactTemplateMarkdownHref(href);
-        if (artifactTemplate) {
-          return <>{artifactTemplate.displayName}</>;
-        }
         const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
         const fileLinkMeta = normalizedHref
           ? (markdownFileLinkMetaByHref.get(normalizedHref) ??
@@ -2333,7 +2321,7 @@ function ChatMarkdown({
     revealMarkdownFileInFileManager,
     revealInFileManagerLabel,
     skills,
-    markdownText,
+    text,
     threadRef,
     updateThreadPullRequestLink,
   ]);
@@ -2359,7 +2347,7 @@ function ChatMarkdown({
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
-        {markdownText}
+        {text}
       </ReactMarkdown>
     </div>
   );

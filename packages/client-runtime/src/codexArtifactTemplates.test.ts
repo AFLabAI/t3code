@@ -2,9 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   appendCodexArtifactTemplateUsePrompt,
-  codexArtifactTemplateMarkdownHref,
   codexArtifactTemplateUsePrompt,
-  parseCodexArtifactTemplateMarkdownHref,
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
 } from "./codexArtifactTemplates.js";
@@ -64,26 +62,6 @@ describe("resolveCodexArtifactTemplate", () => {
         skill_name: "artifact-template-hello-world",
         ...override,
       }),
-    ).toBeNull();
-  });
-});
-
-describe("artifact-template Markdown transport", () => {
-  it("round-trips validated metadata through the private Markdown href", () => {
-    expect(
-      parseCodexArtifactTemplateMarkdownHref(
-        codexArtifactTemplateMarkdownHref(HELLO_WORLD_TEMPLATE),
-      ),
-    ).toEqual(HELLO_WORLD_TEMPLATE);
-  });
-
-  it("rejects malformed and non-template hrefs", () => {
-    expect(parseCodexArtifactTemplateMarkdownHref("https://example.com")).toBeNull();
-    expect(parseCodexArtifactTemplateMarkdownHref("t3-artifact-template:%7Bbad")).toBeNull();
-    expect(
-      parseCodexArtifactTemplateMarkdownHref(
-        `t3-artifact-template:${encodeURIComponent(JSON.stringify({ artifactKind: "document" }))}`,
-      ),
     ).toBeNull();
   });
 });

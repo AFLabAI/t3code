@@ -614,6 +614,15 @@ importers:
       lucide-react:
         specifier: ^0.564.0
         version: 0.564.0(react@19.2.6)
+      mdast-util-directive:
+        specifier: ^3.1.0
+        version: 3.1.0
+      micromark-extension-directive:
+        specifier: ^4.0.0
+        version: 4.0.0
+      micromark-util-character:
+        specifier: ^2.1.1
+        version: 2.1.1
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -684,12 +693,21 @@ importers:
       compression:
         specifier: ^1.8.1
         version: 1.8.1
+      micromark-util-types:
+        specifier: ^2.0.2
+        version: 2.0.2
       msw:
         specifier: 2.12.11
         version: 2.12.11(@types/node@24.12.4)(typescript@6.0.3)
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
       tailwindcss:
         specifier: ^4.0.0
         version: 4.3.0
+      unified:
+        specifier: ^11.0.5
+        version: 11.0.5
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.2
         version: '@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(yaml@2.9.0)'

@@ -28,7 +28,6 @@ export interface CodexArtifactTemplate {
 
 export type CodexArtifactTemplateAttributes = Readonly<Record<string, string | null | undefined>>;
 
-const CODEX_ARTIFACT_TEMPLATE_MARKDOWN_PROTOCOL = "t3-artifact-template:";
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH_REGEX = /^(?:\\\\[^\\]+\\[^\\]+|\/\/[^/]+\/[^/]+)/;
 
@@ -80,55 +79,6 @@ export function resolveCodexArtifactTemplate(
     skillDirectory,
     skillName,
   };
-}
-
-function markdownLabel(value: string): string {
-  return value.replace(/[\\[\]*_`<&]/g, "\\$&");
-}
-
-function attributesForTemplate(template: CodexArtifactTemplate): CodexArtifactTemplateAttributes {
-  return {
-    artifact_kind: template.artifactKind,
-    display_name: template.displayName,
-    ...(template.galleryKind === undefined ? {} : { gallery_kind: template.galleryKind }),
-    skill_directory: template.skillDirectory,
-    skill_name: template.skillName,
-  };
-}
-
-export function codexArtifactTemplateMarkdownHref(template: CodexArtifactTemplate): string {
-  return `${CODEX_ARTIFACT_TEMPLATE_MARKDOWN_PROTOCOL}${encodeURIComponent(JSON.stringify(template))}`;
-}
-
-export function codexArtifactTemplateMarkdown(template: CodexArtifactTemplate): string {
-  return `[${markdownLabel(template.displayName)}](<${codexArtifactTemplateMarkdownHref(template)}>)`;
-}
-
-export function parseCodexArtifactTemplateMarkdownHref(
-  href: string | null | undefined,
-): CodexArtifactTemplate | null {
-  if (!href?.startsWith(CODEX_ARTIFACT_TEMPLATE_MARKDOWN_PROTOCOL)) return null;
-
-  try {
-    const decoded: unknown = JSON.parse(
-      decodeURIComponent(href.slice(CODEX_ARTIFACT_TEMPLATE_MARKDOWN_PROTOCOL.length)),
-    );
-    if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) return null;
-    const template = decoded as Partial<CodexArtifactTemplate>;
-    return resolveCodexArtifactTemplate(
-      attributesForTemplate({
-        artifactKind: template.artifactKind as CodexArtifactTemplateKind,
-        displayName: template.displayName ?? "",
-        ...(template.galleryKind === undefined
-          ? {}
-          : { galleryKind: template.galleryKind as CodexArtifactTemplateGalleryKind }),
-        skillDirectory: template.skillDirectory ?? "",
-        skillName: template.skillName ?? "",
-      }),
-    );
-  } catch {
-    return null;
-  }
 }
 
 const USE_PROMPT_BY_KIND: Record<CodexArtifactTemplateKind, (skill: string) => string> = {

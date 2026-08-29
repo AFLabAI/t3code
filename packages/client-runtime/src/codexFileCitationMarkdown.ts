@@ -3,7 +3,6 @@ import {
   resolveCodexFileCitationLink,
 } from "@t3tools/client-runtime/codex-file-citations";
 import {
-  codexArtifactTemplateMarkdown,
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
@@ -27,10 +26,10 @@ interface MarkdownDirectiveNode {
   readonly children?: ReadonlyArray<MarkdownDirectiveNode>;
 }
 
-interface DirectiveReplacement {
+interface DirectiveMatch {
   readonly start: number;
   readonly end: number;
-  readonly markdown: string;
+  readonly markdown?: string;
   readonly artifactTemplate?: CodexArtifactTemplate;
 }
 
@@ -51,7 +50,7 @@ const directiveParser = unified().use(remarkParse).use(remarkDirective).freeze()
 
 function collectDirectiveReplacements(
   node: MarkdownDirectiveNode,
-  replacements: DirectiveReplacement[],
+  replacements: DirectiveMatch[],
   kinds: CodexDirectiveKinds,
   insideLink = false,
 ): void {
@@ -81,7 +80,6 @@ function collectDirectiveReplacements(
       replacements.push({
         start,
         end,
-        markdown: `\n\n${codexArtifactTemplateMarkdown(template)}\n\n`,
         artifactTemplate: template,
       });
     }
@@ -94,44 +92,21 @@ function collectDirectiveReplacements(
   }
 }
 
-function replaceCodexDirectives(markdown: string, kinds: CodexDirectiveKinds): string {
-  const mayContainFileCitation =
-    kinds.fileCitations && markdown.includes(`:${CODEX_FILE_CITATION_NAME}`);
-  const mayContainArtifactTemplate =
-    kinds.artifactTemplates && markdown.includes(`::${CODEX_ARTIFACT_TEMPLATE_NAME}`);
-  if (!mayContainFileCitation && !mayContainArtifactTemplate) return markdown;
-
-  const replacements: DirectiveReplacement[] = [];
-  collectDirectiveReplacements(
-    directiveParser.parse(markdown) as MarkdownDirectiveNode,
-    replacements,
-    kinds,
-  );
-
-  let transformed = markdown;
-  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
-    transformed =
-      transformed.slice(0, replacement.start) +
-      replacement.markdown +
-      transformed.slice(replacement.end);
-  }
-  return transformed;
-}
-
 /** Uses remark's directive grammar to produce links for Markdown renderers without directives. */
 export function replaceCodexFileCitationsWithMarkdownLinks(markdown: string): string {
-  return replaceCodexDirectives(markdown, {
+  if (!markdown.includes(`:${CODEX_FILE_CITATION_NAME}`)) return markdown;
+
+  const matches: DirectiveMatch[] = [];
+  collectDirectiveReplacements(directiveParser.parse(markdown) as MarkdownDirectiveNode, matches, {
     artifactTemplates: false,
     fileCitations: true,
   });
-}
-
-/** Resolves only the Codex directives T3 knows how to render, leaving every other token literal. */
-export function replaceCodexMarkdownDirectives(markdown: string): string {
-  return replaceCodexDirectives(markdown, {
-    artifactTemplates: true,
-    fileCitations: true,
-  });
+  let transformed = markdown;
+  for (const match of matches.sort((left, right) => right.start - left.start)) {
+    if (match.markdown === undefined) continue;
+    transformed = transformed.slice(0, match.start) + match.markdown + transformed.slice(match.end);
+  }
+  return transformed;
 }
 
 /** Splits block cards from Markdown for native renderers that cannot host a view inside text. */
@@ -142,7 +117,7 @@ export function splitCodexArtifactTemplateMarkdown(
     return [{ kind: "markdown", markdown, sourceOffset: 0 }];
   }
 
-  const replacements: DirectiveReplacement[] = [];
+  const replacements: DirectiveMatch[] = [];
   collectDirectiveReplacements(
     directiveParser.parse(markdown) as MarkdownDirectiveNode,
     replacements,
@@ -152,7 +127,7 @@ export function splitCodexArtifactTemplateMarkdown(
     .filter(
       (
         replacement,
-      ): replacement is DirectiveReplacement & {
+      ): replacement is DirectiveMatch & {
         readonly artifactTemplate: CodexArtifactTemplate;
       } => replacement.artifactTemplate !== undefined,
     )

@@ -139,6 +139,18 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).not.toContain("chat-markdown-file-link");
   });
 
+  it("leaves malformed and similarly named file directives literal", () => {
+    for (const text of [
+      ':codex-file-citation{purpose="output"}',
+      ':codex-file-citation-extra{path="/tmp/project/outputs/report.xlsx"}',
+    ]) {
+      const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
+
+      expect(html).toContain(text.replaceAll('"', "&quot;"));
+      expect(html).not.toContain("chat-markdown-file-link");
+    }
+  });
+
   it("preserves Codex file citation examples inside code", () => {
     const directive = ':codex-file-citation{path="/tmp/project/outputs/report.xlsx"}';
     const html = renderToStaticMarkup(
@@ -251,7 +263,7 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("report.xlsx");
   });
 
-  it("keeps task-list offsets on the original editable file source", () => {
+  it("renders citations while keeping task-list offsets on the original editable source", () => {
     const text =
       ':codex-file-citation{path="/tmp/project/outputs/report.xlsx"}\n\n- [ ] Review output';
     const markerOffset = text.indexOf("[ ]");
@@ -259,8 +271,8 @@ describe("ChatMarkdown file option chips", () => {
       <ChatMarkdown cwd="/tmp/project" text={text} onTaskListChange={() => undefined} />,
     );
 
-    expect(html).toContain("codex-file-citation");
-    expect(html).not.toContain("chat-markdown-file-link");
+    expect(html).not.toContain("codex-file-citation");
+    expect(html).toContain("chat-markdown-file-link");
     expect(html).toContain(`data-task-marker-offset="${markerOffset}"`);
   });
 });
@@ -333,6 +345,18 @@ describe("ChatMarkdown artifact-template cards", () => {
 
     for (const text of [malformed, unfinished]) {
       const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
+      expect(html).toContain("::artifact-template");
+      expect(html).not.toContain("chat-markdown-artifact-template");
+    }
+  });
+
+  it("leaves escaped and similarly named artifact-template directives literal", () => {
+    for (const text of [
+      `\\${ARTIFACT_TEMPLATE_DIRECTIVE}`,
+      ARTIFACT_TEMPLATE_DIRECTIVE.replace("::artifact-template", "::artifact-template-extra"),
+    ]) {
+      const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
+
       expect(html).toContain("::artifact-template");
       expect(html).not.toContain("chat-markdown-artifact-template");
     }

@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
 
-import { parseCodexArtifactTemplateMarkdownHref } from "./codexArtifactTemplates.js";
 import {
   replaceCodexFileCitationsWithMarkdownLinks,
-  replaceCodexMarkdownDirectives,
   splitCodexArtifactTemplateMarkdown,
 } from "./codexFileCitationMarkdown.js";
 
@@ -62,59 +58,7 @@ describe("replaceCodexFileCitationsWithMarkdownLinks", () => {
 const ARTIFACT_TEMPLATE_DIRECTIVE =
   '::artifact-template{skill_name="artifact-template-hello-world" skill_directory="/Users/test/.codex/skills/artifact-template-hello-world" display_name="Hello World" artifact_kind="document"}';
 
-describe("replaceCodexMarkdownDirectives", () => {
-  it("turns a valid artifact-template leaf directive into a private Markdown link", () => {
-    const transformed = replaceCodexMarkdownDirectives(ARTIFACT_TEMPLATE_DIRECTIVE);
-    const href = /^\[Hello World\]\(<(.+)>\)$/.exec(transformed.trim())?.[1];
-
-    expect(href).toBeDefined();
-    expect(parseCodexArtifactTemplateMarkdownHref(href)).toEqual({
-      artifactKind: "document",
-      displayName: "Hello World",
-      skillDirectory: "/Users/test/.codex/skills/artifact-template-hello-world",
-      skillName: "artifact-template-hello-world",
-    });
-  });
-
-  it("resolves file citations and artifact-template cards in one parser pass", () => {
-    const transformed = replaceCodexMarkdownDirectives(
-      `${OUTPUT_CITATION}\n\n${ARTIFACT_TEMPLATE_DIRECTIVE}`,
-    );
-
-    expect(transformed).toContain("[issue-2387-sparse-diagonal.xlsx]");
-    expect(transformed).toContain("t3-artifact-template:");
-  });
-
-  it("keeps artifact-template replacements in their own Markdown blocks", () => {
-    const transformed = replaceCodexMarkdownDirectives(
-      `${ARTIFACT_TEMPLATE_DIRECTIVE}\nFollowing prose\n${ARTIFACT_TEMPLATE_DIRECTIVE}`,
-    );
-    const tree = unified().use(remarkParse).parse(transformed);
-
-    expect(tree).toMatchObject({
-      children: [
-        { type: "paragraph", children: [{ type: "link" }] },
-        { type: "paragraph", children: [{ type: "text", value: "Following prose" }] },
-        { type: "paragraph", children: [{ type: "link" }] },
-      ],
-    });
-  });
-
-  it.each([
-    '::artifact-template{skill_name="artifact-template-hello-world"}',
-    '::artifact-template{skill_name="hello-world" skill_directory="/templates/hello-world" display_name="Hello World" artifact_kind="document"}',
-    '::artifact-template{skill_name="artifact-template-hello-world" skill_directory="relative/template" display_name="Hello World" artifact_kind="document"}',
-    '::artifact-template{skill_name="artifact-template-hello-world" skill_directory="/templates/hello-world" display_name="Hello World" artifact_kind="unknown"}',
-    "::note",
-  ])("leaves invalid or unknown leaf directives literal: %s", (markdown) => {
-    expect(replaceCodexMarkdownDirectives(markdown)).toBe(markdown);
-  });
-
-  it("leaves artifact-template examples in escaped text and code literal", () => {
-    const markdown = `\\${ARTIFACT_TEMPLATE_DIRECTIVE}\n\n\`${ARTIFACT_TEMPLATE_DIRECTIVE}\`\n\n\`\`\`text\n${ARTIFACT_TEMPLATE_DIRECTIVE}\n\`\`\``;
-    expect(replaceCodexMarkdownDirectives(markdown)).toBe(markdown);
-  });
-
+describe("splitCodexArtifactTemplateMarkdown", () => {
   it("keeps the file-citation-only compatibility helper narrowly scoped", () => {
     expect(replaceCodexFileCitationsWithMarkdownLinks(ARTIFACT_TEMPLATE_DIRECTIVE)).toBe(
       ARTIFACT_TEMPLATE_DIRECTIVE,
