@@ -5,6 +5,7 @@ import {
   type MessageId,
   type ModelSelection,
   type OrchestrationV2ProjectedTurnItem,
+  type ProviderInteractionMode,
   type ProviderDriverKind,
   type ServerProvider,
   type ScopedProjectRef,
