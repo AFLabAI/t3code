@@ -242,6 +242,13 @@ PHASE 1 — CouncilCommandReactor COMPLETE ✓
   - Follows ProviderCommandReactor pattern (Effect.fn, drainable worker)
   - Decision routing implemented (PHASES 2-4 folded in)
 
+PHASE 1.5 — Contract Support COMPLETE ✓
+  Commit: 4339d3bd
+  - Added thread.council-goal-requested event type
+  - ThreadCouncilGoalRequestedPayload struct
+  - Event variant in OrchestrationEvent union
+  - Unblocks: type checking, build validation
+
 PHASE 2 — DECISION ROUTING COMPLETE ✓
   - Switch statement routes: EXECUTE, ASK_USER, BLOCKED, RESEARCH, MORE_EVIDENCE, REVISE
 
@@ -259,30 +266,9 @@ PHASE 4 — EXECUTION CANDIDATE COMPLETE ✓
 
 ## NEXT SESSION — EXACT BLOCKERS & TASKS
 
-### BLOCKER 1: Missing Contract Event Type
-
-Current state:
-- CouncilCommandReactor tries to emit "thread.council-goal-requested" event
-- Type not in @t3tools/contracts OrchestrationEvent union
-- Build will fail on contracts type check
-
-Fix:
-- Add to packages/contracts/src/orchestration.ts:
-  ```typescript
-  | {
-      type: "thread.council-goal-requested";
-      commandId: CommandId | null;
-      eventId: EventId;
-      payload: {
-        threadId: ThreadId;
-        goalText: string;
-        createdAt: string;
-      };
-      occurredAt: string;
-    }
-  ```
-
-Estimated effort: 5 minutes
+### BLOCKER 1: FIXED ✓ (4339d3bd)
+- Contract support added for thread.council-goal-requested
+- Unblocks type checking and build validation
 
 ### BLOCKER 2: Missing Provider Integration
 
