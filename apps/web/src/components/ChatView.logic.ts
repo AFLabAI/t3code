@@ -13,6 +13,11 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import {
+  appendCodexArtifactTemplateUsePrompt,
+  codexArtifactTemplateUsePrompt,
+  type CodexArtifactTemplate,
+} from "@t3tools/client-runtime/codex-artifact-templates";
+import {
   type ChatMessage,
   isImageAttachment,
   type SessionPhase,
@@ -38,6 +43,25 @@ export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+export type ArtifactTemplateUseInsertionResult = "already-present" | "inserted" | "rejected";
+
+export function tryInsertCodexArtifactTemplateUsePrompt(input: {
+  currentDraft: string;
+  template: CodexArtifactTemplate;
+  insertTextAtEnd: (text: string, options: { ensureLeadingBoundary: true }) => boolean;
+}): ArtifactTemplateUseInsertionResult {
+  if (
+    appendCodexArtifactTemplateUsePrompt(input.currentDraft, input.template) === input.currentDraft
+  ) {
+    return "already-present";
+  }
+  return input.insertTextAtEnd(codexArtifactTemplateUsePrompt(input.template), {
+    ensureLeadingBoundary: true,
+  })
+    ? "inserted"
+    : "rejected";
+}
 
 export function shouldDockDraftHeroForSubmission(input: {
   isDraftHeroState: boolean;

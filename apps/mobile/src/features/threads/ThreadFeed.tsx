@@ -2,7 +2,10 @@ import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { type LegendListRef } from "@legendapp/list/react-native";
 import type { EnvironmentId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
-import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
+import {
+  codexArtifactTemplatePresentationLabel,
+  type CodexArtifactTemplate,
+} from "@t3tools/client-runtime/codex-artifact-templates";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import { splitCodexArtifactTemplateMarkdown } from "@t3tools/client-runtime/codex-markdown-directives";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
@@ -438,19 +441,6 @@ const MarkdownExternalLink = memo(function MarkdownExternalLink(props: {
   );
 });
 
-const ARTIFACT_TEMPLATE_LABEL_BY_KIND: Record<CodexArtifactTemplate["artifactKind"], string> = {
-  document: "Document template",
-  presentation: "Presentation template",
-  spreadsheet: "Spreadsheet template",
-  site: "Site template",
-  "google-docs": "Google Doc template",
-  "google-slides": "Google Slides template",
-  "google-sheets": "Google Sheet template",
-  image: "Image template",
-  email: "Email template",
-  slack: "Slack template",
-};
-
 const ARTIFACT_TEMPLATE_SYMBOL_BY_KIND: Record<
   CodexArtifactTemplate["artifactKind"],
   AppSymbolName
@@ -494,7 +484,7 @@ function ArtifactTemplateCard(props: {
           {props.template.displayName}
         </Text>
         <Text className="text-xs text-foreground-muted">
-          {ARTIFACT_TEMPLATE_LABEL_BY_KIND[props.template.artifactKind]}
+          {codexArtifactTemplatePresentationLabel(props.template.artifactKind)}
         </Text>
       </View>
       {props.onUse ? (

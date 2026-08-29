@@ -258,6 +258,19 @@ describe("resolveAssistantMessageCopyState", () => {
     });
   });
 
+  it("copies artifact template cards as their visible presentation text", () => {
+    expect(
+      resolveAssistantMessageCopyState({
+        showCopyButton: true,
+        text: 'Before\n\n::artifact-template{skill_name="artifact-template-hello-world" skill_directory="/Users/test/.codex/skills/artifact-template-hello-world" display_name="Hello World" artifact_kind="document"}\n\nAfter',
+        streaming: false,
+      }),
+    ).toEqual({
+      text: "Before\n\nHello World (Document template)\n\nAfter",
+      visible: true,
+    });
+  });
+
   it("hides copy while an assistant message is still streaming", () => {
     expect(
       resolveAssistantMessageCopyState({

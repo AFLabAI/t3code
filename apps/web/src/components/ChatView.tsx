@@ -29,11 +29,7 @@ import {
   type EnvironmentConnectionPresentation,
 } from "@t3tools/client-runtime/connection";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
-import {
-  appendCodexArtifactTemplateUsePrompt,
-  codexArtifactTemplateUsePrompt,
-  type CodexArtifactTemplate,
-} from "@t3tools/client-runtime/codex-artifact-templates";
+import { type CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import {
   changeRequestAutoSettles,
   effectiveSettled,
@@ -373,6 +369,7 @@ import {
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
+  tryInsertCodexArtifactTemplateUsePrompt,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
@@ -3066,18 +3063,20 @@ function ChatViewContent(props: ChatViewProps) {
       if (!composer) return;
 
       const currentDraft = composer.getSendContext().prompt;
-      if (appendCodexArtifactTemplateUsePrompt(currentDraft, template) === currentDraft) {
-        scheduleComposerFocus();
+      const result = tryInsertCodexArtifactTemplateUsePrompt({
+        currentDraft,
+        template,
+        insertTextAtEnd: composer.insertTextAtEnd,
+      });
+      if (result === "rejected") {
+        toastManager.add({
+          type: "error",
+          title: "Unable to add to chat",
+          description: "The composer is busy; try again once it is ready.",
+        });
         return;
       }
-
-      if (
-        composer.insertTextAtEnd(codexArtifactTemplateUsePrompt(template), {
-          ensureLeadingBoundary: true,
-        })
-      ) {
-        scheduleComposerFocus();
-      }
+      scheduleComposerFocus();
     },
     [composerRef, scheduleComposerFocus],
   );

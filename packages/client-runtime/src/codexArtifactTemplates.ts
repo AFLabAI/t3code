@@ -26,6 +26,19 @@ export interface CodexArtifactTemplate {
   readonly skillName: string;
 }
 
+export const CODEX_ARTIFACT_TEMPLATE_LABEL_BY_KIND = {
+  document: "Document template",
+  presentation: "Presentation template",
+  spreadsheet: "Spreadsheet template",
+  site: "Site template",
+  "google-docs": "Google Doc template",
+  "google-slides": "Google Slides template",
+  "google-sheets": "Google Sheet template",
+  image: "Image template",
+  email: "Email template",
+  slack: "Slack template",
+} satisfies Record<CodexArtifactTemplateKind, string>;
+
 export type CodexArtifactTemplateAttributes = Readonly<Record<string, string | null | undefined>>;
 
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
@@ -96,6 +109,14 @@ const USE_PROMPT_BY_KIND: Record<CodexArtifactTemplateKind, (skill: string) => s
 
 export function codexArtifactTemplateUsePrompt(template: CodexArtifactTemplate): string {
   return USE_PROMPT_BY_KIND[template.artifactKind](`$${template.skillName}`);
+}
+
+export function codexArtifactTemplatePresentationLabel(kind: CodexArtifactTemplateKind): string {
+  return CODEX_ARTIFACT_TEMPLATE_LABEL_BY_KIND[kind];
+}
+
+export function codexArtifactTemplateCopyText(template: CodexArtifactTemplate): string {
+  return `${template.displayName} (${codexArtifactTemplatePresentationLabel(template.artifactKind)})`;
 }
 
 export function appendCodexArtifactTemplateUsePrompt(

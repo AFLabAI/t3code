@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Thread, ThreadShell } from "../types";
+import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -33,6 +34,7 @@ import {
   resolveDraftHeroState,
   scheduleEnvironmentReconnectWarning,
   startNewThreadForProject,
+  tryInsertCodexArtifactTemplateUsePrompt,
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -44,6 +46,44 @@ const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+const helloWorldTemplate: CodexArtifactTemplate = {
+  artifactKind: "document",
+  displayName: "Hello World",
+  skillDirectory: "/Users/test/.codex/skills/artifact-template-hello-world",
+  skillName: "artifact-template-hello-world",
+};
+
+describe("artifact template composer insertion", () => {
+  it("reports a rejected insertion so the caller can surface feedback", () => {
+    const insertTextAtEnd = vi.fn(() => false);
+
+    expect(
+      tryInsertCodexArtifactTemplateUsePrompt({
+        currentDraft: "",
+        template: helloWorldTemplate,
+        insertTextAtEnd,
+      }),
+    ).toBe("rejected");
+    expect(insertTextAtEnd).toHaveBeenCalledWith(
+      "Create a document using this $artifact-template-hello-world about…",
+      { ensureLeadingBoundary: true },
+    );
+  });
+
+  it("does not insert an already-present prompt", () => {
+    const prompt = "Create a document using this $artifact-template-hello-world about…";
+    const insertTextAtEnd = vi.fn(() => true);
+
+    expect(
+      tryInsertCodexArtifactTemplateUsePrompt({
+        currentDraft: prompt,
+        template: helloWorldTemplate,
+        insertTextAtEnd,
+      }),
+    ).toBe("already-present");
+    expect(insertTextAtEnd).not.toHaveBeenCalled();
+  });
+});
 
 describe("draft hero submission transition", () => {
   it("does not dock the composer before a background submission", () => {

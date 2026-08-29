@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   appendCodexArtifactTemplateUsePrompt,
+  codexArtifactTemplateCopyText,
+  codexArtifactTemplatePresentationLabel,
   codexArtifactTemplateUsePrompt,
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
@@ -13,6 +15,15 @@ const HELLO_WORLD_TEMPLATE: CodexArtifactTemplate = {
   skillDirectory: "/Users/test/.codex/skills/artifact-template-hello-world",
   skillName: "artifact-template-hello-world",
 };
+
+describe("artifact template presentation", () => {
+  it("shares labels and copy text across clients", () => {
+    expect(codexArtifactTemplatePresentationLabel("document")).toBe("Document template");
+    expect(codexArtifactTemplateCopyText(HELLO_WORLD_TEMPLATE)).toBe(
+      "Hello World (Document template)",
+    );
+  });
+});
 
 describe("resolveCodexArtifactTemplate", () => {
   it("accepts the template metadata emitted by Codex", () => {
