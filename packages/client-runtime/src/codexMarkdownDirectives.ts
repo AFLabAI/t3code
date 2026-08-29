@@ -10,10 +10,11 @@ import remarkParse from "remark-parse";
 import { unified, type Processor } from "unified";
 
 import {
+  codexArtifactTemplatePresentationLabel,
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
-} from "./codexArtifactTemplates.js";
-import { codexFileCitationMarkdown, resolveCodexFileCitationLink } from "./codexFileCitations.js";
+} from "./codexArtifactTemplates.ts";
+import { codexFileCitationMarkdown, resolveCodexFileCitationLink } from "./codexFileCitations.ts";
 
 const COLON = 58;
 const DASH = 45;
@@ -276,19 +277,43 @@ function collectDirectiveMatches(node: MarkdownAstNode, matches: DirectiveMatch[
   for (const child of node.children ?? []) collectDirectiveMatches(child, matches);
 }
 
-/** Native Markdown renderers use this adapter because they cannot consume a Remark tree. */
-export function renderCodexFileCitationsAsMarkdown(markdown: string): string {
-  if (!markdown.includes(`:${CODEX_FILE_CITATION_NAME}`)) return markdown;
-
+function renderDirectiveMatches(
+  markdown: string,
+  replacementFor: (match: DirectiveMatch) => string | undefined,
+): string {
   const matches: DirectiveMatch[] = [];
   collectDirectiveMatches(parseCodexMarkdown(markdown), matches);
   let rendered = markdown;
   for (const match of matches.sort((left, right) => right.start - left.start)) {
-    if (match.markdown !== undefined) {
-      rendered = rendered.slice(0, match.start) + match.markdown + rendered.slice(match.end);
+    const replacement = replacementFor(match);
+    if (replacement !== undefined) {
+      rendered = rendered.slice(0, match.start) + replacement + rendered.slice(match.end);
     }
   }
   return rendered;
+}
+
+/** Native Markdown renderers use this adapter because they cannot consume a Remark tree. */
+export function renderCodexFileCitationsAsMarkdown(markdown: string): string {
+  if (!markdown.includes(`:${CODEX_FILE_CITATION_NAME}`)) return markdown;
+
+  return renderDirectiveMatches(markdown, (match) => match.markdown);
+}
+
+/** Matches the Markdown emitted when users copy rendered Codex directive UI. */
+export function renderCodexDirectivesForCopy(markdown: string): string {
+  if (
+    !markdown.includes(`:${CODEX_FILE_CITATION_NAME}`) &&
+    !markdown.includes(`::${CODEX_ARTIFACT_TEMPLATE_NAME}`)
+  ) {
+    return markdown;
+  }
+
+  return renderDirectiveMatches(markdown, (match) => {
+    if (match.markdown !== undefined) return match.markdown;
+    if (match.template === undefined) return undefined;
+    return `${match.template.displayName} (${codexArtifactTemplatePresentationLabel(match.template.artifactKind)})`;
+  });
 }
 
 /** Native renderers split cards out because they cannot host a view inside Markdown text. */

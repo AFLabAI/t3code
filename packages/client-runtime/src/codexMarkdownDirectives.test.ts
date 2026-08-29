@@ -4,6 +4,7 @@ import { unified } from "unified";
 
 import {
   remarkCodexDirectives,
+  renderCodexDirectivesForCopy,
   renderCodexFileCitationsAsMarkdown,
   splitCodexArtifactTemplateMarkdown,
 } from "./codexMarkdownDirectives.js";
@@ -134,5 +135,22 @@ describe("native Markdown adapters", () => {
     expect(splitCodexArtifactTemplateMarkdown(code)).toEqual([
       { kind: "markdown", markdown: code, sourceOffset: 0 },
     ]);
+  });
+});
+
+describe("directive copy adapter", () => {
+  it("copies the Markdown representations shown by citation chips and template cards", () => {
+    expect(renderCodexDirectivesForCopy(`Created ${FILE_CITATION}.\n\n${ARTIFACT_TEMPLATE}`)).toBe(
+      "Created [report.xlsx](<outputs/report.xlsx>).\n\nHello World (Document template)",
+    );
+  });
+
+  it("leaves excluded and malformed directive source unchanged", () => {
+    const markdown = [
+      `\`${FILE_CITATION}\``,
+      '::artifact-template{display_name="Hello World"}',
+    ].join("\n\n");
+
+    expect(renderCodexDirectivesForCopy(markdown)).toBe(markdown);
   });
 });
