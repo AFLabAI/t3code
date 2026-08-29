@@ -250,7 +250,7 @@ vi.mock("./AgentBrowserCursor", () => ({ AgentBrowserCursor: () => null }));
 vi.mock("~/browser/BrowserSurfaceSlot", () => ({ BrowserSurfaceSlot: () => null }));
 vi.mock("./usePreviewSession", () => ({ usePreviewSession: vi.fn() }));
 
-import { PreviewView } from "./PreviewView";
+import { PreviewView, previewProfileName } from "./PreviewView";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 
 const TEST_THREAD_REF = {
@@ -346,6 +346,12 @@ describe("PreviewView navigation", () => {
     mocks.showEmptyState = false;
     mocks.loading = false;
     mocks.recordVisitForThread.mockClear();
+  });
+
+  it("labels a tab whose saved profile was removed", () => {
+    expect(previewProfileName(BUILT_IN_BROWSER_PROFILES, "profile-removed")).toBe(
+      "Removed profile",
+    );
   });
 
   it("does not rerender while loading time passes", async () => {
