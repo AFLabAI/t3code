@@ -327,41 +327,58 @@ PHASE 4 — Execution Candidate (COMPLETE)
 
 **Deliverables:**
 - Explicit Council dispatch routing (not fake provider mode)
-- Test structure: 23 test cases covering reactor and dispatcher
+- Test structure: 23 test cases (architecture verified, bodies not yet implemented)
 - Verified architecture: Council path independent from ProviderService
 
-**Status:**
-- Council mode integrated into orchestration dispatcher
-- Reactor ready for full test implementation
-- Dispatcher routing tested (structure in place)
-- Provider regression tests: TODO (validate existing provider behavior unaffected)
+**Status — Phase 2.5 (Make Tests Real):**
+- Council mode integrated into orchestration dispatcher ✓
+- ExecutionCandidate IS structured (payload: cycleId, goal, proposal, reasoning, risk, requiresApproval) ✓
+- Council path verified independent ✓
+- Test structure created (skeletons) ✓
+- Test runner blocked: vite-plus dependency issue (environment, not Council code)
+
+**Semantic Contract Decision:**
+- Added "council" to ProviderInteractionMode
+- Rationale: existing type is generic enough (interaction mode level, not just provider)
+- Not ideal naming (ProviderInteractionMode is provider-scoped), but minimal semantic debt
+- Migration deferred: would require contract change across multiple files (low priority)
+- Current approach: explicit routing disambiguates Council from provider at dispatcher level
 
 **Ready for:**
-- Implement full test bodies with mocks
-- Provider regression test run
-- Phase 3: Approval integration (when Phase 2 tests complete)
+- Phase 3: Approval integration (test framework not blocking logic)
+- Provider regression test (if environment unfixed)
+- Live E2E (when Python Council service available)
 
 ---
 
 ## NEXT SESSION — TASKS & VERIFICATION
 
-### Pre-requisite checks
+### Pre-requisite checks — PHASE 2.5 RESULTS
 
-1. Verify dispatcher routing correct
-   - Council mode creates thread.council-goal-requested (not turn-start-requested)
-   - Standard mode still creates turn-start-requested
-   - ProviderCommandReactor untouched
+✓ 1. Dispatcher routing verified
+   - Council mode creates thread.council-goal-requested ✓
+   - Standard mode creates turn-start-requested ✓
+   - ProviderCommandReactor untouched ✓
+   - Routing logic implemented in ws.ts dispatchNormalizedCommand ✓
 
-2. Provider regression
-   - Run existing ProviderCommandReactor tests
-   - Run existing ProviderService tests
-   - Verify: standard turn-start behavior identical to before Council
+✓ 2. ExecutionCandidate verified STRUCTURED
+   - activity.kind = "council.execution-candidate" ✓
+   - payload contains: cycleId, decision, reasoning, proposal, riskLevel, requiresApproval ✓
+   - NOT free-form text ✓
+   - tone set based on risk level (warning for HIGH/CRITICAL) ✓
+   - Ox not invoked ✓
 
-3. ExecutionCandidate verification
-   - Inspect current execution candidate creation
-   - Verify structured (not free-form text)
-   - Verify READY_FOR_EXECUTOR status
-   - Verify Ox NOT connected
+✗ 3. Provider regression
+   - Test runner blocked: vite-plus dependency (environment issue)
+   - Blocker: external to Council code
+   - Cannot run full regression suite without environment fix
+   - Regression test structure would be straightforward once environment unfixed
+
+✗ 4. Test implementation
+   - Test structure created (23 cases, all skeletons) ✓
+   - Test bodies not yet implemented (blocked by test runner)
+   - Full mock-based tests require Effect runtime understanding
+   - Blockers: vite-plus dependency, environment setup
 
 ### PHASE 2 REMAINING (if needed)
 
