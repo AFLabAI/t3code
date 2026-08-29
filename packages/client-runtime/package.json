@@ -23,9 +23,17 @@
       "types": "./src/codexFileCitations.ts",
       "default": "./src/codexFileCitations.ts"
     },
+    "./codex-artifact-templates": {
+      "types": "./src/codexArtifactTemplates.ts",
+      "default": "./src/codexArtifactTemplates.ts"
+    },
     "./codex-file-citation-markdown": {
       "types": "./src/codexFileCitationMarkdown.ts",
       "default": "./src/codexFileCitationMarkdown.ts"
+    },
+    "./codex-markdown-directives": {
+      "types": "./src/codexMarkdownDirectives.ts",
+      "default": "./src/codexMarkdownDirectives.ts"
     },
     "./errors": {
       "types": "./src/errors/index.ts",

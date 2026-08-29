@@ -2,10 +2,12 @@ import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { type LegendListRef } from "@legendapp/list/react-native";
 import type { EnvironmentId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
+import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
+import { splitCodexArtifactTemplateMarkdown } from "@t3tools/client-runtime/codex-markdown-directives";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import { formatElapsed } from "@t3tools/shared/orchestrationTiming";
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
 import {
@@ -173,6 +175,7 @@ export interface ThreadFeedProps {
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
   readonly onEndFollowEnabledChange?: (enabled: boolean) => void;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+  readonly onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   /** Non-null when older turns exist beyond the loaded window. */
   readonly loadEarlier?: {
     readonly loading: boolean;
@@ -432,6 +435,128 @@ const MarkdownExternalLink = memo(function MarkdownExternalLink(props: {
       )}
       {props.children}
     </NativeText>
+  );
+});
+
+const ARTIFACT_TEMPLATE_LABEL_BY_KIND: Record<CodexArtifactTemplate["artifactKind"], string> = {
+  document: "Document template",
+  presentation: "Presentation template",
+  spreadsheet: "Spreadsheet template",
+  site: "Site template",
+  "google-docs": "Google Doc template",
+  "google-slides": "Google Slides template",
+  "google-sheets": "Google Sheet template",
+  image: "Image template",
+  email: "Email template",
+  slack: "Slack template",
+};
+
+const ARTIFACT_TEMPLATE_SYMBOL_BY_KIND: Record<
+  CodexArtifactTemplate["artifactKind"],
+  AppSymbolName
+> = {
+  document: "doc.text",
+  presentation: "chart.bar.xaxis",
+  spreadsheet: "chart.bar.xaxis",
+  site: "safari",
+  "google-docs": "doc.text",
+  "google-slides": "chart.bar.xaxis",
+  "google-sheets": "chart.bar.xaxis",
+  image: "camera",
+  email: "text.bubble",
+  slack: "text.bubble",
+};
+
+function ArtifactTemplateCard(props: {
+  readonly template: CodexArtifactTemplate;
+  readonly onUse?: ((template: CodexArtifactTemplate) => void) | undefined;
+}) {
+  return (
+    <View
+      className="my-2 min-w-0 flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3"
+    >
+      <View className="relative h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-subtle">
+        <SymbolView
+          name={ARTIFACT_TEMPLATE_SYMBOL_BY_KIND[props.template.artifactKind]}
+          size={20}
+          tintColorClassName="accent-foreground-muted"
+          type="monochrome"
+        />
+        <View className="absolute -right-1 -bottom-1 h-4 w-4 items-center justify-center rounded-full bg-fuchsia-500">
+          <SymbolView
+            name={{ ios: "sparkles", android: "auto_awesome" }}
+            size={9}
+            tintColor="white"
+            type="monochrome"
+          />
+        </View>
+      </View>
+      <View className="min-w-0 flex-1">
+        <Text className="font-t3-bold text-sm text-foreground" numberOfLines={1}>
+          {props.template.displayName}
+        </Text>
+        <Text className="text-xs text-foreground-muted">
+          {ARTIFACT_TEMPLATE_LABEL_BY_KIND[props.template.artifactKind]}
+        </Text>
+      </View>
+      {props.onUse ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Use ${props.template.displayName} template`}
+          className="min-h-9 justify-center rounded-lg border border-border bg-subtle px-3 active:opacity-65"
+          onPress={() => props.onUse?.(props.template)}
+        >
+          <Text className="font-t3-bold text-xs text-foreground">Use template</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
+  readonly markdown: string;
+  readonly markdownStyles: MarkdownStyleSet;
+  readonly onLinkPress: (href: string) => void;
+  readonly onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
+  readonly renderImage: MarkdownImageRenderer;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
+}) {
+  const segments = useMemo(
+    () => splitCodexArtifactTemplateMarkdown(props.markdown),
+    [props.markdown],
+  );
+
+  return segments.map((segment) =>
+    segment.kind === "artifact-template" ? (
+      <ArtifactTemplateCard
+        key={`artifact-template:${segment.sourceOffset}`}
+        template={segment.template}
+        onUse={props.onUseArtifactTemplate}
+      />
+    ) : segment.markdown.trim().length > 0 ? (
+      hasNativeSelectableMarkdownText() ? (
+        <SelectableMarkdownText
+          key={`markdown:${segment.sourceOffset}`}
+          markdown={segment.markdown}
+          plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
+          skills={props.skills}
+          textStyle={props.markdownStyles.nativeTextStyle}
+          onLinkPress={props.onLinkPress}
+          renderImage={props.renderImage}
+        />
+      ) : (
+        <Markdown
+          key={`markdown:${segment.sourceOffset}`}
+          options={{ gfm: true }}
+          plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
+          renderers={props.markdownStyles.renderers}
+          styles={props.markdownStyles.styles}
+          theme={props.markdownStyles.theme}
+        >
+          {segment.markdown}
+        </Markdown>
+      )
+    ) : null,
   );
 });
 
@@ -966,7 +1091,7 @@ function useMarkdownStyles(
 
 function renderFeedEntry(
   info: { item: ThreadFeedEntry; index: number },
-  props: Pick<ThreadFeedProps, "environmentId" | "skills"> & {
+  props: Pick<ThreadFeedProps, "environmentId" | "onUseArtifactTemplate" | "skills"> & {
     readonly copiedRowId: string | null;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
@@ -1128,26 +1253,14 @@ function renderFeedEntry(
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
         {renderedText.trim().length > 0 ? (
-          hasNativeSelectableMarkdownText() ? (
-            <SelectableMarkdownText
-              markdown={renderedText}
-              plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
-              skills={props.skills}
-              textStyle={styles.nativeTextStyle}
-              onLinkPress={props.onMarkdownLinkPress}
-              renderImage={props.renderMarkdownImage}
-            />
-          ) : (
-            <Markdown
-              options={{ gfm: true }}
-              plugins={CODEX_FILE_CITATION_MARKDOWN_PLUGINS}
-              renderers={styles.renderers}
-              styles={styles.styles}
-              theme={styles.theme}
-            >
-              {renderedText}
-            </Markdown>
-          )
+          <AssistantMarkdownContent
+            markdown={renderedText}
+            markdownStyles={styles}
+            onLinkPress={props.onMarkdownLinkPress}
+            onUseArtifactTemplate={props.onUseArtifactTemplate}
+            renderImage={props.renderMarkdownImage}
+            skills={props.skills}
+          />
         ) : null}
         {attachments.map((attachment) => {
           return (
@@ -2034,6 +2147,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         reviewCommentBubbleWidth,
         userBubbleMaxWidth,
         skills: props.skills,
+        onUseArtifactTemplate: props.onUseArtifactTemplate,
       }),
     [
       copiedRowId,
@@ -2053,6 +2167,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       props.environmentId,
+      props.onUseArtifactTemplate,
       props.skills,
       renderMarkdownImage,
     ],

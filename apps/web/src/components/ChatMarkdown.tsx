@@ -3,15 +3,23 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CopyIcon,
+  FileSpreadsheetIcon,
+  FileTextIcon,
   GlobeIcon,
+  ImageIcon,
   InfoIcon,
   LightbulbIcon,
+  MailIcon,
   Maximize2Icon,
+  MessageSquareIcon,
   MessageSquareWarningIcon,
   Minimize2Icon,
   OctagonAlertIcon,
+  PresentationIcon,
+  SparklesIcon,
   TriangleAlertIcon,
   WrapTextIcon,
+  type LucideIcon,
 } from "lucide-react";
 import type {
   EnvironmentId,
@@ -24,7 +32,13 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { replaceCodexFileCitationsWithMarkdownLinks } from "@t3tools/client-runtime/codex-file-citation-markdown";
+import {
+  codexArtifactTemplateUsePrompt,
+  parseCodexArtifactTemplateMarkdownHref,
+  type CodexArtifactTemplate,
+  type CodexArtifactTemplateKind,
+} from "@t3tools/client-runtime/codex-artifact-templates";
+import { replaceCodexMarkdownDirectives } from "@t3tools/client-runtime/codex-markdown-directives";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -150,6 +164,8 @@ interface ChatMarkdownProps {
   lineBreaks?: boolean;
   /** Parse sanitized raw HTML instead of displaying its source text. */
   parseRawHtml?: boolean;
+  /** Append a prompt that invokes a newly created artifact-template skill. */
+  onUseArtifactTemplate?: ((prompt: string) => void) | undefined;
 }
 
 export function canUseMarkdownFileShellActions(
@@ -182,6 +198,73 @@ export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+
+const ARTIFACT_TEMPLATE_PRESENTATIONS = {
+  document: { label: "Document template", Icon: FileTextIcon },
+  presentation: { label: "Presentation template", Icon: PresentationIcon },
+  spreadsheet: { label: "Spreadsheet template", Icon: FileSpreadsheetIcon },
+  site: { label: "Site template", Icon: GlobeIcon },
+  "google-docs": { label: "Google Doc template", Icon: FileTextIcon },
+  "google-slides": { label: "Google Slides template", Icon: PresentationIcon },
+  "google-sheets": { label: "Google Sheet template", Icon: FileSpreadsheetIcon },
+  image: { label: "Image template", Icon: ImageIcon },
+  email: { label: "Email template", Icon: MailIcon },
+  slack: { label: "Slack template", Icon: MessageSquareIcon },
+} satisfies Record<
+  CodexArtifactTemplateKind,
+  { readonly label: string; readonly Icon: LucideIcon }
+>;
+
+function CodexArtifactTemplateCard(props: {
+  readonly template: CodexArtifactTemplate;
+  readonly onUse?: ((prompt: string) => void) | undefined;
+}) {
+  const presentation = ARTIFACT_TEMPLATE_PRESENTATIONS[props.template.artifactKind];
+
+  return (
+    <div
+      role="group"
+      aria-label={`${props.template.displayName} template`}
+      className="chat-markdown-artifact-template my-[0.65rem] flex w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-foreground shadow-xs"
+      data-artifact-kind={props.template.artifactKind}
+      data-skill-name={props.template.skillName}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="relative flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground shadow-xs">
+          <presentation.Icon aria-hidden className="size-5" />
+          <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full border border-background bg-fuchsia-500 text-white shadow-xs">
+            <SparklesIcon aria-hidden className="size-2.5" />
+          </span>
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {props.template.displayName}
+          </span>
+          <span className="block text-xs text-muted-foreground">{presentation.label}</span>
+        </span>
+      </div>
+      {props.onUse ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          onClick={() => props.onUse?.(codexArtifactTemplateUsePrompt(props.template))}
+        >
+          Use template
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function artifactTemplateFromMarkdownChildren(children: ReactNode): CodexArtifactTemplate | null {
+  const childNodes = Children.toArray(children);
+  if (childNodes.length !== 1) return null;
+  const child = childNodes[0];
+  if (!isValidElement<{ href?: string }>(child)) return null;
+  return parseCodexArtifactTemplateMarkdownHref(child.props.href);
+}
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
@@ -278,7 +361,7 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "file"],
+    href: [...(defaultSchema.protocols?.href ?? []), "file", "t3-artifact-template"],
     src: [...(defaultSchema.protocols?.src ?? []), "file"],
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
@@ -1637,12 +1720,13 @@ function ChatMarkdown({
   className,
   lineBreaks = false,
   parseRawHtml = true,
+  onUseArtifactTemplate,
 }: ChatMarkdownProps) {
   // Keep directive grammar isolated so ordinary chat Markdown retains its existing parse rules.
   // Editable file previews report offsets into the parsed source, so they must retain the original.
   const editsSourceByOffset = onTaskListChange !== undefined;
   const markdownText = useMemo(
-    () => (editsSourceByOffset ? text : replaceCodexFileCitationsWithMarkdownLinks(text)),
+    () => (editsSourceByOffset ? text : replaceCodexMarkdownDirectives(text)),
     [editsSourceByOffset, text],
   );
   const { resolvedTheme } = useTheme();
@@ -1737,6 +1821,7 @@ function ChatMarkdown({
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [inlineCodeFileLinkMetaByText, markdownFileLinkMetaByHref]);
   const markdownUrlTransform = useCallback((href: string) => {
+    if (parseCodexArtifactTemplateMarkdownHref(href)) return href;
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
   // Re-emit highlighted content as markdown so copying out of the rendered
@@ -1952,6 +2037,12 @@ function ChatMarkdown({
 
     return {
       p({ node: _node, children, ...props }) {
+        const artifactTemplate = artifactTemplateFromMarkdownChildren(children);
+        if (artifactTemplate) {
+          return (
+            <CodexArtifactTemplateCard template={artifactTemplate} onUse={onUseArtifactTemplate} />
+          );
+        }
         return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
       },
       blockquote({ node: _node, children, ...props }) {
@@ -2226,6 +2317,7 @@ function ChatMarkdown({
     isStreaming,
     markdownFileLinkMetaByHref,
     onTaskListChange,
+    onUseArtifactTemplate,
     openFileInPanel,
     openInPreferredEditor,
     openChangeRequestLink,

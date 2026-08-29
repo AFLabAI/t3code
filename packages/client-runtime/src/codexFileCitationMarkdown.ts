@@ -2,11 +2,17 @@ import {
   codexFileCitationMarkdown,
   resolveCodexFileCitationLink,
 } from "@t3tools/client-runtime/codex-file-citations";
+import {
+  codexArtifactTemplateMarkdown,
+  resolveCodexArtifactTemplate,
+  type CodexArtifactTemplate,
+} from "@t3tools/client-runtime/codex-artifact-templates";
 import remarkDirective from "remark-directive";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 const CODEX_FILE_CITATION_NAME = "codex-file-citation";
+const CODEX_ARTIFACT_TEMPLATE_NAME = "artifact-template";
 
 interface MarkdownPosition {
   readonly start: { readonly offset?: number };
@@ -21,20 +27,39 @@ interface MarkdownDirectiveNode {
   readonly children?: ReadonlyArray<MarkdownDirectiveNode>;
 }
 
-interface CitationReplacement {
+interface DirectiveReplacement {
   readonly start: number;
   readonly end: number;
   readonly markdown: string;
+  readonly artifactTemplate?: CodexArtifactTemplate;
 }
 
-const citationParser = unified().use(remarkParse).use(remarkDirective).freeze();
+export type CodexArtifactTemplateMarkdownSegment =
+  | { readonly kind: "markdown"; readonly markdown: string; readonly sourceOffset: number }
+  | {
+      readonly kind: "artifact-template";
+      readonly sourceOffset: number;
+      readonly template: CodexArtifactTemplate;
+    };
 
-function collectCitationReplacements(
+interface CodexDirectiveKinds {
+  readonly artifactTemplates: boolean;
+  readonly fileCitations: boolean;
+}
+
+const directiveParser = unified().use(remarkParse).use(remarkDirective).freeze();
+
+function collectDirectiveReplacements(
   node: MarkdownDirectiveNode,
-  replacements: CitationReplacement[],
+  replacements: DirectiveReplacement[],
+  kinds: CodexDirectiveKinds,
   insideLink = false,
 ): void {
-  if (node.type === "textDirective" && node.name === CODEX_FILE_CITATION_NAME) {
+  if (
+    kinds.fileCitations &&
+    node.type === "textDirective" &&
+    node.name === CODEX_FILE_CITATION_NAME
+  ) {
     const citation = resolveCodexFileCitationLink(node.attributes);
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
@@ -44,20 +69,43 @@ function collectCitationReplacements(
     return;
   }
 
+  if (
+    kinds.artifactTemplates &&
+    node.type === "leafDirective" &&
+    node.name === CODEX_ARTIFACT_TEMPLATE_NAME
+  ) {
+    const template = resolveCodexArtifactTemplate(node.attributes);
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (!insideLink && template && start !== undefined && end !== undefined) {
+      replacements.push({
+        start,
+        end,
+        markdown: codexArtifactTemplateMarkdown(template),
+        artifactTemplate: template,
+      });
+    }
+    return;
+  }
+
   const childInsideLink = insideLink || node.type === "link" || node.type === "linkReference";
   for (const child of node.children ?? []) {
-    collectCitationReplacements(child, replacements, childInsideLink);
+    collectDirectiveReplacements(child, replacements, kinds, childInsideLink);
   }
 }
 
-/** Uses remark's directive grammar to produce links for Markdown renderers without directives. */
-export function replaceCodexFileCitationsWithMarkdownLinks(markdown: string): string {
-  if (!markdown.includes(`:${CODEX_FILE_CITATION_NAME}`)) return markdown;
+function replaceCodexDirectives(markdown: string, kinds: CodexDirectiveKinds): string {
+  const mayContainFileCitation =
+    kinds.fileCitations && markdown.includes(`:${CODEX_FILE_CITATION_NAME}`);
+  const mayContainArtifactTemplate =
+    kinds.artifactTemplates && markdown.includes(`::${CODEX_ARTIFACT_TEMPLATE_NAME}`);
+  if (!mayContainFileCitation && !mayContainArtifactTemplate) return markdown;
 
-  const replacements: CitationReplacement[] = [];
-  collectCitationReplacements(
-    citationParser.parse(markdown) as MarkdownDirectiveNode,
+  const replacements: DirectiveReplacement[] = [];
+  collectDirectiveReplacements(
+    directiveParser.parse(markdown) as MarkdownDirectiveNode,
     replacements,
+    kinds,
   );
 
   let transformed = markdown;
@@ -68,4 +116,71 @@ export function replaceCodexFileCitationsWithMarkdownLinks(markdown: string): st
       transformed.slice(replacement.end);
   }
   return transformed;
+}
+
+/** Uses remark's directive grammar to produce links for Markdown renderers without directives. */
+export function replaceCodexFileCitationsWithMarkdownLinks(markdown: string): string {
+  return replaceCodexDirectives(markdown, {
+    artifactTemplates: false,
+    fileCitations: true,
+  });
+}
+
+/** Resolves only the Codex directives T3 knows how to render, leaving every other token literal. */
+export function replaceCodexMarkdownDirectives(markdown: string): string {
+  return replaceCodexDirectives(markdown, {
+    artifactTemplates: true,
+    fileCitations: true,
+  });
+}
+
+/** Splits block cards from Markdown for native renderers that cannot host a view inside text. */
+export function splitCodexArtifactTemplateMarkdown(
+  markdown: string,
+): ReadonlyArray<CodexArtifactTemplateMarkdownSegment> {
+  if (!markdown.includes(`::${CODEX_ARTIFACT_TEMPLATE_NAME}`)) {
+    return [{ kind: "markdown", markdown, sourceOffset: 0 }];
+  }
+
+  const replacements: DirectiveReplacement[] = [];
+  collectDirectiveReplacements(
+    directiveParser.parse(markdown) as MarkdownDirectiveNode,
+    replacements,
+    { artifactTemplates: true, fileCitations: false },
+  );
+  const artifactReplacements = replacements
+    .filter(
+      (
+        replacement,
+      ): replacement is DirectiveReplacement & {
+        readonly artifactTemplate: CodexArtifactTemplate;
+      } => replacement.artifactTemplate !== undefined,
+    )
+    .sort((left, right) => left.start - right.start);
+
+  if (artifactReplacements.length === 0) {
+    return [{ kind: "markdown", markdown, sourceOffset: 0 }];
+  }
+
+  const segments: CodexArtifactTemplateMarkdownSegment[] = [];
+  let cursor = 0;
+  for (const replacement of artifactReplacements) {
+    if (replacement.start > cursor) {
+      segments.push({
+        kind: "markdown",
+        markdown: markdown.slice(cursor, replacement.start),
+        sourceOffset: cursor,
+      });
+    }
+    segments.push({
+      kind: "artifact-template",
+      sourceOffset: replacement.start,
+      template: replacement.artifactTemplate,
+    });
+    cursor = replacement.end;
+  }
+  if (cursor < markdown.length) {
+    segments.push({ kind: "markdown", markdown: markdown.slice(cursor), sourceOffset: cursor });
+  }
+  return segments;
 }
