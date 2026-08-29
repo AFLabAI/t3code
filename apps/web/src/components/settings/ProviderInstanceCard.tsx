@@ -844,14 +844,16 @@ export function ProviderInstanceCard({
       </div>
 
       <div className="lg:min-h-0 lg:flex-1">
-        <div
-          className="space-y-5 px-4 py-5 lg:h-full lg:overflow-y-auto"
+        <ScrollArea
+          scrollFade
+          chainVerticalScroll
+          className="lg:h-full"
           hidden={visibleTab !== "configuration"}
         >
           <div
             inert={readOnly}
             aria-disabled={readOnly || undefined}
-            className={cn("space-y-5", readOnly && "opacity-50 select-none")}
+            className={cn("space-y-5 px-4 py-5", readOnly && "opacity-50 select-none")}
           >
             <div>
               <label htmlFor={`provider-instance-${instanceId}-display-name`} className="block">
@@ -908,7 +910,7 @@ export function ProviderInstanceCard({
               </div>
             ) : null}
           </div>
-        </div>
+        </ScrollArea>
         {driverOption !== undefined ? (
           <div
             inert={readOnly}

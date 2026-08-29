@@ -881,13 +881,15 @@ export function EnvironmentProviderSettings({
         <div className="space-y-1">
           <div className="mx-3 overflow-hidden rounded-lg border border-border/70 sm:mx-4 lg:grid lg:h-[min(38rem,calc(100dvh-16rem))] lg:min-h-[30rem] lg:grid-cols-[20rem_minmax(0,1fr)]">
             <div className="border-b border-border/70 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-b-0">
-              <div className="divide-y divide-border/60 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-                {rows.map((row) => (
-                  <div key={row.instanceId} className="p-1">
-                    {renderProviderInstance(row, "list")}
-                  </div>
-                ))}
-              </div>
+              <ScrollArea scrollFade chainVerticalScroll className="lg:min-h-0 lg:flex-1">
+                <div className="divide-y divide-border/60">
+                  {rows.map((row) => (
+                    <div key={row.instanceId} className="p-1">
+                      {renderProviderInstance(row, "list")}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
             </div>
 
             <div className="min-w-0 lg:min-h-0">
