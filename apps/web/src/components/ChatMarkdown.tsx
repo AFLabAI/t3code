@@ -2115,6 +2115,10 @@ function ChatMarkdown({
         );
       },
       a({ node, href, children, title: _title, ...props }) {
+        const artifactTemplate = parseCodexArtifactTemplateMarkdownHref(href);
+        if (artifactTemplate) {
+          return <>{artifactTemplate.displayName}</>;
+        }
         const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
         const fileLinkMeta = normalizedHref
           ? (markdownFileLinkMetaByHref.get(normalizedHref) ??

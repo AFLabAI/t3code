@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import { parseCodexArtifactTemplateMarkdownHref } from "./codexArtifactTemplates.js";
 import {
@@ -63,7 +65,7 @@ const ARTIFACT_TEMPLATE_DIRECTIVE =
 describe("replaceCodexMarkdownDirectives", () => {
   it("turns a valid artifact-template leaf directive into a private Markdown link", () => {
     const transformed = replaceCodexMarkdownDirectives(ARTIFACT_TEMPLATE_DIRECTIVE);
-    const href = /^\[Hello World\]\(<(.+)>\)$/.exec(transformed)?.[1];
+    const href = /^\[Hello World\]\(<(.+)>\)$/.exec(transformed.trim())?.[1];
 
     expect(href).toBeDefined();
     expect(parseCodexArtifactTemplateMarkdownHref(href)).toEqual({
@@ -81,6 +83,21 @@ describe("replaceCodexMarkdownDirectives", () => {
 
     expect(transformed).toContain("[issue-2387-sparse-diagonal.xlsx]");
     expect(transformed).toContain("t3-artifact-template:");
+  });
+
+  it("keeps artifact-template replacements in their own Markdown blocks", () => {
+    const transformed = replaceCodexMarkdownDirectives(
+      `${ARTIFACT_TEMPLATE_DIRECTIVE}\nFollowing prose\n${ARTIFACT_TEMPLATE_DIRECTIVE}`,
+    );
+    const tree = unified().use(remarkParse).parse(transformed);
+
+    expect(tree).toMatchObject({
+      children: [
+        { type: "paragraph", children: [{ type: "link" }] },
+        { type: "paragraph", children: [{ type: "text", value: "Following prose" }] },
+        { type: "paragraph", children: [{ type: "link" }] },
+      ],
+    });
   });
 
   it.each([

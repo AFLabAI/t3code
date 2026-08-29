@@ -298,6 +298,33 @@ describe("ChatMarkdown artifact-template cards", () => {
     expect(html).not.toContain("Use template");
   });
 
+  it("keeps a template followed by prose as a card instead of a private link", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={`${ARTIFACT_TEMPLATE_DIRECTIVE}\nFollowing prose`}
+        onUseArtifactTemplate={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("chat-markdown-artifact-template");
+    expect(html).toContain("Following prose");
+    expect(html).not.toContain('href="t3-artifact-template:');
+  });
+
+  it("renders consecutive artifact templates as separate cards", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={`${ARTIFACT_TEMPLATE_DIRECTIVE}\n${ARTIFACT_TEMPLATE_DIRECTIVE}`}
+        onUseArtifactTemplate={() => undefined}
+      />,
+    );
+
+    expect(html.match(/chat-markdown-artifact-template/g)).toHaveLength(2);
+    expect(html).not.toContain('href="t3-artifact-template:');
+  });
+
   it("leaves malformed and unfinished artifact-template directives literal", () => {
     const malformed =
       '::artifact-template{skill_name="artifact-template-hello-world" display_name="Hello World" artifact_kind="document"}';

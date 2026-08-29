@@ -81,7 +81,7 @@ function collectDirectiveReplacements(
       replacements.push({
         start,
         end,
-        markdown: codexArtifactTemplateMarkdown(template),
+        markdown: `\n\n${codexArtifactTemplateMarkdown(template)}\n\n`,
         artifactTemplate: template,
       });
     }
