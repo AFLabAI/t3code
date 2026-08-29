@@ -200,7 +200,13 @@ function serializeNode(node: Node): string {
     return serializeDetails(element);
   }
   const markdownCopy = element.getAttribute("data-markdown-copy");
-  if (markdownCopy !== null) return markdownCopy;
+  if (markdownCopy !== null) {
+    return element.tagName === "DIV" ||
+      element.tagName === "SECTION" ||
+      element.tagName === "ARTICLE"
+      ? `${markdownCopy}\n`
+      : markdownCopy;
+  }
   if (isSkippedElement(element)) return "";
 
   const headingLevel = /^H([1-6])$/.exec(element.tagName)?.[1];

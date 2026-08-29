@@ -108,4 +108,17 @@ describe("serializeRenderedMarkdownFragment", () => {
       "Hello World (Document template)",
     );
   });
+
+  it("separates a rendered card's Markdown copy from adjacent blocks", () => {
+    const card = (name: string) =>
+      new FakeElement("DIV", [], {
+        "data-markdown-copy": `${name} (Document template)`,
+      });
+    const paragraph = new FakeElement("P").append(new FakeText("Following prose"));
+    const container = new FakeElement("DIV").append(card("Hello World"), paragraph, card("Second"));
+
+    expect(serializeRenderedMarkdownFragment(asNode(container))).toBe(
+      "Hello World (Document template)\nFollowing prose\n\nSecond (Document template)",
+    );
+  });
 });
