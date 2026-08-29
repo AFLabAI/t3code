@@ -546,3 +546,47 @@ Then:
 **Baseline:** v0.0.33 (3b72d17cbca691f0b64e6d4a10c9e349f42873a5)  
 **Checkpoint:** 57c9a7aa  
 **Status:** READY FOR RESUME
+
+---
+
+## PHASE 2.5B — TEST ENVIRONMENT RESTORATION ATTEMPT
+
+**Blocker: MACHINE RAM EXHAUSTION**
+
+Diagnostic attempt:
+- Discovered vite-plus in catalog: 0.2.2 (@voidzero-dev/vite-plus-core@0.2.2)
+- Catalog defined in pnpm-workspace.yaml
+- Attempted: pnpm install
+- Result: FATAL ERROR: JavaScript heap out of memory
+- Failure point: 35MB allocation, many uninstalled dependencies
+- Root cause: Machine insufficient RAM for full monorepo dependency install
+
+**Impact:**
+- Test framework inaccessible (vite-plus/vp command not available)
+- Test runners cannot start
+- Regression test suite unreachable
+- Test bodies remain unimplemented (only skeletons created)
+
+**Code verification possible without test framework:**
+- ExecutionCandidate: STRUCTURED ✓ (inspected source code)
+- Dispatcher routing: IMPLEMENTED ✓ (code review completed)
+- Council path independence: VERIFIED ✓ (architecture audit passed)
+- Ox disconnected: CONFIRMED ✓ (code inspection)
+
+**Cannot verify without test execution:**
+- Planner event emission (runtime)
+- Critic event emission (runtime)
+- Revision event emission (runtime)
+- Judge event emission (runtime)
+- Decision routing correctness (runtime)
+- Provider regression (needs test suite)
+- Type checking (needs build infrastructure)
+
+**Decision:**
+Phase 2.5 = BLOCKED by environmental constraint (RAM)
+
+Do NOT proceed to Phase 3 approval integration until test framework accessible.
+
+Phase 2.5B end status: BLOCKED
+Next step: Provision machine resources or alternate test environment
+OR proceed with Phase 3 understanding that Unit/Regression tests cannot yet validate implementation
