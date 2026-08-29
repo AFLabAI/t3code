@@ -94,7 +94,6 @@ describe("ComposerStashMenu", () => {
   it("labels mixed file and image stashes without treating images as files", () => {
     const markup = renderToStaticMarkup(
       <ComposerStashMenu
-        stashShortcutLabel={null}
         entries={[
           {
             id: "mixed-attachments",
@@ -122,6 +121,7 @@ describe("ComposerStashMenu", () => {
             droppedImageNames: [],
           },
         ]}
+        stashShortcutLabel={null}
         onRestore={() => {}}
         onDelete={() => {}}
         onClose={() => {}}
