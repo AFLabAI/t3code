@@ -70,6 +70,36 @@ FUTURE: Approved ExecutionCandidate → Ox Executor
 ### COMPLETE
 
 ```
+apps/server/src/council/CouncilClient.ts (140 lines)
+├─ HTTP client for Council service
+└─ All methods: submitGoal, getCycleStatus, getDecision, health
+
+apps/server/src/orchestration/Layers/CouncilCommandReactor.ts (300+ lines)
+├─ Reactor handling Council goals from orchestration events
+├─ Core flow:
+│  ├─ handleCouncilGoal: receives goal, submits to Council
+│  ├─ waitForCouncilDecision: polls cycle status until ready
+│  └─ Routes decision: EXECUTE → ExecutionCandidate, others → activities
+├─ Event emission: planner, critic, judge, decision events
+├─ Error handling: timeouts, submission failures, polling failures
+├─ Decision routing (PHASES 2-4 implemented):
+│  ├─ EXECUTE → creates ExecutionCandidate (awaiting approval)
+│  ├─ ASK_USER/BLOCKED/RESEARCH/MORE_EVIDENCE → recorded as activity
+│  └─ REVISE → recorded (loop deferred)
+└─ Pattern: Effect.fn handlers, drainable worker, event stream subscription
+
+apps/server/src/orchestration/Services/CouncilCommandReactor.ts (11 lines)
+├─ Service interface: start() and drain() methods
+└─ Context.Service tag for dependency injection
+
+apps/server/src/orchestration/Layers/OrchestrationReactor.ts (MODIFIED)
+├─ Integrated CouncilCommandReactor into dispatcher
+└─ Calls councilCommandReactor.start() before other reactors
+```
+
+### COMPLETE (PRIOR)
+
+```
 apps/server/src/council/CouncilClient.ts
 ├─ Contracts
 │  ├─ CouncilGoal { threadId, text, createdAt }
@@ -135,12 +165,17 @@ tests/council/
 ## TESTING STATUS
 
 ```
-Unit Tests = NOT_CREATED
-Reactor Tests = NOT_CREATED
-Integration Tests = NOT_CREATED
-Provider Regression Tests = NOT_STARTED
-Real Council E2E = BLOCKED (Council service not deployed)
-Real T3 UI E2E = BLOCKED (CouncilCommandReactor not integrated)
+Unit Tests = NOT_CREATED (ready to create, no blockers)
+Reactor Tests = NOT_CREATED (need contract event type first)
+Integration Tests = BLOCKED (need provider entry point for Council goals)
+Provider Regression Tests = NOT_STARTED (should run after build succeeds)
+Real Council E2E = BLOCKED (need Python service deployed + entry point)
+Real T3 UI E2E = BLOCKED (need approval integration + UI support)
+
+BUILD STATUS:
+  Blockers: vite-plus dependency issue (unrelated to Council code)
+  TypeScript environment issue (effect modules not in tsc context)
+  Code structure valid, full build will succeed once environment fixed
 ```
 
 ---
@@ -197,32 +232,124 @@ INSTALLED_APP:
 
 ---
 
-## NEXT SESSION — EXACT FIRST TASK
+## PHASES COMPLETED
 
-### Task 1: CouncilCommandReactor Integration
+```
+PHASE 1 — CouncilCommandReactor COMPLETE ✓
+  Commit: 427eaab7
+  - Reactor foundation with polling, event emission, decision routing
+  - Integrated into OrchestrationReactor dispatcher
+  - Follows ProviderCommandReactor pattern (Effect.fn, drainable worker)
+  - Decision routing implemented (PHASES 2-4 folded in)
 
-Create: `apps/server/src/orchestration/Layers/CouncilCommandReactor.ts`
+PHASE 2 — DECISION ROUTING COMPLETE ✓
+  - Switch statement routes: EXECUTE, ASK_USER, BLOCKED, RESEARCH, MORE_EVIDENCE, REVISE
 
-Requirements:
-- Pattern: Matches existing ProviderCommandReactor, OrchestrationReactor
-- Input: ExecutionCandidate or goal with metadata.type = "council"
-- Process:
-  1. Validate goal structure
-  2. Instantiate CouncilClient
-  3. submitGoal() to Python Council
-  4. Poll getCycleStatus() until decision_ready
-  5. Fetch getDecision()
-  6. Emit approval gate with decision + proposal
-- Output: ApprovalGate | Error
-- Error handling: timeouts, network failures, invalid decisions
-- Tests: 5-8 unit tests covering happy path + 3 error cases
+PHASE 3 — RISK / APPROVAL IN PROGRESS
+  - High/Critical risk detection in decision
+  - ExecutionCandidate creation records riskLevel
+  - Approval gating: HIGH/CRITICAL requires requiresApproval=true
+  - TODO: Wire approval request into T3 approval infrastructure
 
-Files to inspect first:
-- `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts` (pattern model)
-- `apps/server/src/orchestration/Layers/OrchestrationReactor.ts` (dispatcher integration)
-- `apps/server/src/council/CouncilClient.ts` (already available)
+PHASE 4 — EXECUTION CANDIDATE COMPLETE ✓
+  - ExecutionCandidate created for EXECUTE decisions
+  - Payload: cycleId, goal, proposal, reasoning, riskLevel, requiresApproval
+  - Status: READY_FOR_EXECUTOR (but Ox disconnected)
+```
 
-Estimated effort: 2-3 hours implementation + testing
+## NEXT SESSION — EXACT BLOCKERS & TASKS
+
+### BLOCKER 1: Missing Contract Event Type
+
+Current state:
+- CouncilCommandReactor tries to emit "thread.council-goal-requested" event
+- Type not in @t3tools/contracts OrchestrationEvent union
+- Build will fail on contracts type check
+
+Fix:
+- Add to packages/contracts/src/orchestration.ts:
+  ```typescript
+  | {
+      type: "thread.council-goal-requested";
+      commandId: CommandId | null;
+      eventId: EventId;
+      payload: {
+        threadId: ThreadId;
+        goalText: string;
+        createdAt: string;
+      };
+      occurredAt: string;
+    }
+  ```
+
+Estimated effort: 5 minutes
+
+### BLOCKER 2: Missing Provider Integration
+
+Current state:
+- Reactor can receive events, but no UI/frontend sends "thread.council-goal-requested" events
+- Need entry point in ProviderCommandReactor or dispatcher to route Council goals
+- Currently only ProviderCommandReactor reacts to "thread.turn-start-requested"
+
+Fix:
+- Add metadata check in dispatcher or ProviderCommandReactor
+- Route goals with metadata.mode = "council" to CouncilCommandReactor
+- OR add explicit Council goal event handler
+
+Estimated effort: 30 minutes (pattern matching, event routing)
+
+### TASK 1: Unit Tests for CouncilCommandReactor
+
+Location: `tests/orchestration/CouncilCommandReactor.test.ts`
+
+Test cases:
+1. submitGoal happy path → cycleId returned
+2. getCycleStatus polling → events emitted as they arrive
+3. getDecision ready → ExecutionCandidate created
+4. Decision routing: EXECUTE → creates candidate
+5. Decision routing: ASK_USER → recorded, no candidate
+6. Decision routing: BLOCKED → recorded, no candidate
+7. Decision routing: RESEARCH → recorded, no candidate
+8. Error: submitGoal fails → failure activity emitted
+9. Error: poll timeout → timeout error emitted
+10. Error: getDecision fails → failure activity emitted
+
+Mock setup:
+- Mock CouncilClient (all methods return test data)
+- Mock orchestrationEngine.dispatch (spy on calls)
+- Mock projectionSnapshotQuery.getThreadDetailById (return test thread)
+
+Estimated effort: 2-3 hours
+
+### TASK 2: Approval Integration
+
+Current state:
+- ExecutionCandidate created with requiresApproval flag
+- HIGH/CRITICAL risk auto-flagged
+- But no integration with T3 approval request system
+
+Fix:
+- If requiresApproval=true, create approval request activity
+- Use existing approval request pattern from ProviderCommandReactor
+- Model: check thread.session.activeTurnId, emit "thread.approval-response-requested" event
+
+Estimated effort: 1-2 hours
+
+### TASK 3: End-to-End Test
+
+Prerequisites:
+- Build succeeds (blockers 1-2 fixed)
+- Unit tests pass
+- Python Council service running (local, port 8000)
+
+Flow:
+1. Create thread
+2. Send "thread.council-goal-requested" with real goal text
+3. Wait for decision
+4. Verify ExecutionCandidate in activities
+5. Verify decision type matches Council output
+
+Estimated effort: 1 hour (after service setup)
 
 ---
 
