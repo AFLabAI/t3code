@@ -12,6 +12,7 @@ import {
 } from "micromark-util-character";
 import type { Construct, Extension, Tokenizer } from "micromark-util-types";
 import type { Processor } from "unified";
+import { sourceForRecoveredMarkdownNode } from "./markdown-list-indentation";
 
 const COLON = 58;
 const DASH = 45;
@@ -139,7 +140,8 @@ const CODEX_DIRECTIVE_FROM_MARKDOWN = directiveFromMarkdown();
 function sourceForNode(node: MarkdownAstNode, source: string): string {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
-  return start === undefined || end === undefined ? "" : source.slice(start, end);
+  const nodeSource = sourceForRecoveredMarkdownNode(node) ?? source;
+  return start === undefined || end === undefined ? "" : nodeSource.slice(start, end);
 }
 
 function restoreTextDirective(node: MarkdownAstNode, source: string): void {

@@ -364,18 +364,18 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
 
 const CHAT_MARKDOWN_REMARK_PLUGINS = [
   remarkGfm,
-  remarkCodexDirectives,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
+  remarkCodexDirectives,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
 
 const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkGfm,
-  remarkCodexDirectives,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
+  remarkCodexDirectives,
   remarkBreaks,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,

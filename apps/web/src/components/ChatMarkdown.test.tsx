@@ -237,6 +237,31 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("chat-markdown-file-link");
   });
 
+  it("renders file citations created by over-indented list recovery", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={'-       Created :codex-file-citation{path="/tmp/project/outputs/report.xlsx"}'}
+      />,
+    );
+
+    expect(html).not.toContain("<pre>");
+    expect(html).toContain("Created ");
+    expect(html).toContain("chat-markdown-file-link");
+    expect(html).toContain("report.xlsx");
+  });
+
+  it("preserves unresolved citations created by over-indented list recovery", () => {
+    const directive = ':codex-file-citation{purpose="output"}';
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={`-       Created ${directive}`} />,
+    );
+
+    expect(html).not.toContain("<pre>");
+    expect(html).toContain(`Created ${directive.replaceAll('"', "&quot;")}`);
+    expect(html).not.toContain("chat-markdown-file-link");
+  });
+
   it("keeps Markdown semantics inside unknown container-like text", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown

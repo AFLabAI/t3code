@@ -26,6 +26,18 @@ interface RecoveredMarkdown {
 }
 
 const INLINE_PARSE_PREFIX = "t3-markdown-inline-prefix:";
+const recoveredMarkdownSourceByNode = new WeakMap<object, string>();
+
+function retainRecoveredMarkdownSource(node: MarkdownAstNode, source: string): void {
+  recoveredMarkdownSourceByNode.set(node, source);
+  for (const child of node.children ?? []) {
+    retainRecoveredMarkdownSource(child, source);
+  }
+}
+
+export function sourceForRecoveredMarkdownNode(node: object): string | undefined {
+  return recoveredMarkdownSourceByNode.get(node);
+}
 
 function isSameLineOverIndentedCode(
   node: MarkdownAstNode,
@@ -95,13 +107,17 @@ function blocksFromIndentedCode(node: MarkdownAstNode, parser: MarkdownParser): 
   const value = typeof node.value === "string" ? node.value.trim() : "";
   const recovered = parseRecoveredMarkdown(value, parser);
   const first = recovered.blocks[0];
-  return {
+  const result = {
     ...recovered,
     blocks:
       first && node.position
         ? [{ ...first, position: node.position }, ...recovered.blocks.slice(1)]
         : recovered.blocks,
   };
+  for (const block of result.blocks) {
+    retainRecoveredMarkdownSource(block, result.source);
+  }
+  return result;
 }
 
 /**
