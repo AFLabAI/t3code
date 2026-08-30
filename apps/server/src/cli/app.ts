@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 
 import {
   DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
+  DesktopAppActivationErrorCode,
   DesktopAppActivationResponse,
   type DesktopAppActivationPlatform,
   type DesktopAppActivationRequest,
@@ -22,7 +23,6 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Argument, Command } from "effect/unstable/cli";
-import * as CliError from "effect/unstable/cli/CliError";
 
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 import { baseDirFlag } from "./config.ts";
@@ -31,8 +31,50 @@ const CLI_RESPONSE_TIMEOUT_MS = 17_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const isDesktopAppActivationResponse = Schema.is(DesktopAppActivationResponse);
 
-function desktopAppCommandError(message: string, options?: ErrorOptions): CliError.UserError {
-  return new CliError.UserError({ cause: new Error(message, options) });
+export class DesktopAppSshUnsupportedError extends Schema.TaggedErrorClass<DesktopAppSshUnsupportedError>()(
+  "DesktopAppSshUnsupportedError",
+  {},
+) {
+  override get message(): string {
+    return "`t3 app` only controls a desktop app on the same machine. It cannot run over SSH.";
+  }
+}
+
+export class DesktopAppPlatformUnsupportedError extends Schema.TaggedErrorClass<DesktopAppPlatformUnsupportedError>()(
+  "DesktopAppPlatformUnsupportedError",
+  { platform: Schema.String },
+) {
+  override get message(): string {
+    return `\`t3 app\` is not supported on ${this.platform}.`;
+  }
+}
+
+export class DesktopAppUnreachableError extends Schema.TaggedErrorClass<DesktopAppUnreachableError>()(
+  "DesktopAppUnreachableError",
+  {
+    candidateAddresses: Schema.Array(Schema.String),
+    requestId: Schema.String,
+    workspaceRoot: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.";
+  }
+}
+
+export class DesktopAppRequestFailedError extends Schema.TaggedErrorClass<DesktopAppRequestFailedError>()(
+  "DesktopAppRequestFailedError",
+  {
+    code: DesktopAppActivationErrorCode,
+    requestId: Schema.String,
+    workspaceRoot: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `T3 Code could not open ${this.workspaceRoot} (${this.code}).`;
+  }
 }
 
 function isDesktopPlatform(platform: NodeJS.Platform): platform is DesktopAppActivationPlatform {
@@ -148,12 +190,10 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   const environment = yield* appEnvironment;
   const hostPlatform = yield* HostProcessPlatform;
   if (Option.isSome(environment.sshConnection) || Option.isSome(environment.sshTty)) {
-    return yield* desktopAppCommandError(
-      "`t3 app` only controls a desktop app on the same machine. It cannot run over SSH.",
-    );
+    return yield* new DesktopAppSshUnsupportedError({});
   }
   if (!isDesktopPlatform(hostPlatform)) {
-    return yield* desktopAppCommandError(`\`t3 app\` is not supported on ${hostPlatform}.`);
+    return yield* new DesktopAppPlatformUnsupportedError({ platform: hostPlatform });
   }
 
   const path = yield* Path.Path;
@@ -179,22 +219,31 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
     workspaceRoot,
     platform: hostPlatform,
   };
+  const address = resolveAddress("userdata");
+  const fallbackAddress = allowDevFallback ? resolveAddress("dev") : undefined;
 
   const response = yield* Effect.tryPromise({
     try: () =>
       sendDesktopAppActivationRequest({
-        address: resolveAddress("userdata"),
-        ...(allowDevFallback ? { fallbackAddress: resolveAddress("dev") } : {}),
+        address,
+        ...(fallbackAddress === undefined ? {} : { fallbackAddress }),
         request,
       }),
     catch: (cause) =>
-      desktopAppCommandError(
-        "Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.",
-        { cause },
-      ),
+      new DesktopAppUnreachableError({
+        candidateAddresses: fallbackAddress === undefined ? [address] : [address, fallbackAddress],
+        requestId: request.requestId,
+        workspaceRoot,
+        cause,
+      }),
   });
   if (!response.ok) {
-    return yield* desktopAppCommandError(response.message);
+    return yield* new DesktopAppRequestFailedError({
+      code: response.code,
+      requestId: response.requestId,
+      workspaceRoot,
+      cause: response,
+    });
   }
 
   yield* Console.log(`Opened ${workspaceRoot} in T3 Code.`);

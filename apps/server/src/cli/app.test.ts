@@ -140,11 +140,9 @@ describe("t3 app", () => {
         }).pipe(Effect.flip);
 
         expect(error).toMatchObject({
-          _tag: "UserError",
-          cause: {
-            message:
-              "`t3 app` only controls a desktop app on the same machine. It cannot run over SSH.",
-          },
+          _tag: "DesktopAppSshUnsupportedError",
+          message:
+            "`t3 app` only controls a desktop app on the same machine. It cannot run over SSH.",
         });
         expect(yield* pathExists(baseDir)).toBe(false);
       }),
@@ -158,11 +156,11 @@ describe("t3 app", () => {
         const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
 
         expect(error).toMatchObject({
-          _tag: "UserError",
-          cause: {
-            message: expect.stringContaining("Could not reach the T3 Code desktop app."),
-            cause: { code: "ENOENT" },
-          },
+          _tag: "DesktopAppUnreachableError",
+          candidateAddresses: [expect.any(String)],
+          workspaceRoot: yield* HostProcessWorkingDirectory,
+          message: expect.stringContaining("Could not reach the T3 Code desktop app."),
+          cause: { code: "ENOENT" },
         });
         expect(yield* pathExists(baseDir)).toBe(false);
       }),
@@ -232,8 +230,8 @@ describe("t3 app", () => {
         const flagError = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
         const envError = yield* runCli(["app"], { T3CODE_HOME: baseDir }).pipe(Effect.flip);
 
-        expect(flagError).toMatchObject({ _tag: "UserError" });
-        expect(envError).toMatchObject({ _tag: "UserError" });
+        expect(flagError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
+        expect(envError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
         expect(development.received).toHaveLength(0);
       }).pipe(Effect.scoped),
     ),
@@ -262,9 +260,27 @@ describe("t3 app", () => {
 
           const error = yield* runCli(["app"]).pipe(Effect.flip);
 
-          expect(error).toMatchObject({ _tag: "UserError" });
           expect(desktop.received).toHaveLength(1);
           expect(development.received).toHaveLength(0);
+          if (responseKind === "failure") {
+            expect(error).toMatchObject({
+              _tag: "DesktopAppRequestFailedError",
+              code: "project-create-failed",
+              requestId: desktop.received[0]?.requestId,
+              workspaceRoot: yield* HostProcessWorkingDirectory,
+              message: expect.stringContaining("project-create-failed"),
+              cause: {
+                ok: false,
+                code: "project-create-failed",
+                message: "The project path is not available.",
+              },
+            });
+          } else {
+            expect(error).toMatchObject({
+              _tag: "DesktopAppUnreachableError",
+              cause: { message: "The desktop app response is invalid." },
+            });
+          }
         }).pipe(Effect.scoped),
       ),
     );
