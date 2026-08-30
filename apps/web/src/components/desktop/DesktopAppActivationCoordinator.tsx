@@ -82,6 +82,7 @@ export function DesktopAppActivationCoordinator() {
   useEffect(() => {
     if (!ready || activation === undefined) return;
 
+    let subscribed = true;
     const unsubscribe = activation.onRequest((request) => {
       queueRef.current = queueRef.current.then(async () => {
         const response = await processRequest(request);
@@ -89,8 +90,15 @@ export function DesktopAppActivationCoordinator() {
       });
       queueRef.current = queueRef.current.catch(() => undefined);
     });
-    void activation.ready().catch(() => undefined);
-    return unsubscribe;
+    // Skip readiness if React runs cleanup before this subscription can receive requests.
+    queueMicrotask(() => {
+      if (subscribed) void activation.setReady(true).catch(() => undefined);
+    });
+    return () => {
+      subscribed = false;
+      void activation.setReady(false).catch(() => undefined);
+      unsubscribe();
+    };
   }, [activation, ready]);
 
   return null;

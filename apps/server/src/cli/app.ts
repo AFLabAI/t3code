@@ -31,8 +31,8 @@ const CLI_RESPONSE_TIMEOUT_MS = 17_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const isDesktopAppActivationResponse = Schema.is(DesktopAppActivationResponse);
 
-function desktopAppCommandError(message: string): CliError.UserError {
-  return new CliError.UserError({ cause: new Error(message) });
+function desktopAppCommandError(message: string, options?: ErrorOptions): CliError.UserError {
+  return new CliError.UserError({ cause: new Error(message, options) });
 }
 
 function isDesktopPlatform(platform: NodeJS.Platform): platform is DesktopAppActivationPlatform {
@@ -41,6 +41,7 @@ function isDesktopPlatform(platform: NodeJS.Platform): platform is DesktopAppAct
 
 export function sendDesktopAppActivationRequest(input: {
   readonly address: string;
+  readonly fallbackAddress?: string;
   readonly request: DesktopAppActivationRequest;
   readonly timeoutMs?: number;
 }): Promise<DesktopAppActivationResponse> {
@@ -49,6 +50,7 @@ export function sendDesktopAppActivationRequest(input: {
     socket.setEncoding("utf8");
     let buffer = "";
     let settled = false;
+    let connected = false;
 
     const finish = (
       result:
@@ -71,6 +73,7 @@ export function sendDesktopAppActivationRequest(input: {
     }, input.timeoutMs ?? CLI_RESPONSE_TIMEOUT_MS);
 
     socket.once("connect", () => {
+      connected = true;
       socket.write(`${JSON.stringify(input.request)}\n`);
     });
     socket.on("data", (chunk) => {
@@ -105,7 +108,27 @@ export function sendDesktopAppActivationRequest(input: {
       }
       finish({ type: "success", response: parsed });
     });
-    socket.once("error", (error) => finish({ type: "failure", error }));
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      if (
+        !settled &&
+        !connected &&
+        input.fallbackAddress !== undefined &&
+        (error.code === "ENOENT" || error.code === "ECONNREFUSED")
+      ) {
+        settled = true;
+        clearTimeout(timeout);
+        socket.destroy();
+        resolve(
+          sendDesktopAppActivationRequest({
+            address: input.fallbackAddress,
+            request: input.request,
+            ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+          }),
+        );
+        return;
+      }
+      finish({ type: "failure", error });
+    });
     socket.once("end", () => {
       finish({ type: "failure", error: new Error("The desktop app closed the connection.") });
     });
@@ -136,17 +159,19 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   const path = yield* Path.Path;
   const configuredBaseDir = Option.getOrUndefined(flags.baseDir) ?? environment.t3Home;
   const baseDir = yield* resolveBaseDir(configuredBaseDir);
-  const stateDir = path.join(baseDir, "userdata");
+  const allowDevFallback = Option.isNone(flags.baseDir) && !environment.t3Home?.trim();
   const rawWorkspaceRoot =
     Option.getOrUndefined(flags.workspaceRoot) ?? (yield* HostProcessWorkingDirectory);
   const workspaceRoot = path.resolve(yield* expandHomePath(rawWorkspaceRoot));
-  const address = resolveDesktopAppControlAddress({
-    stateDir,
-    platform: hostPlatform,
-    tempDir: NodeOS.tmpdir(),
-    userId: yield* HostProcessUserId,
-    joinPath: path.join,
-  });
+  const userId = yield* HostProcessUserId;
+  const resolveAddress = (stateSubdirectory: "userdata" | "dev") =>
+    resolveDesktopAppControlAddress({
+      stateDir: path.join(baseDir, stateSubdirectory),
+      platform: hostPlatform,
+      tempDir: NodeOS.tmpdir(),
+      userId,
+      joinPath: path.join,
+    }).address;
   const request: DesktopAppActivationRequest = {
     version: DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
     requestId: NodeCrypto.randomUUID(),
@@ -156,10 +181,16 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   };
 
   const response = yield* Effect.tryPromise({
-    try: () => sendDesktopAppActivationRequest({ address: address.address, request }),
-    catch: () =>
+    try: () =>
+      sendDesktopAppActivationRequest({
+        address: resolveAddress("userdata"),
+        ...(allowDevFallback ? { fallbackAddress: resolveAddress("dev") } : {}),
+        request,
+      }),
+    catch: (cause) =>
       desktopAppCommandError(
         "Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.",
+        { cause },
       ),
   });
   if (!response.ok) {

@@ -6,13 +6,13 @@ import * as DesktopAppActivation from "../../app/DesktopAppActivation.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
-export const ready = DesktopIpc.makeIpcMethod({
+export const setReady = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.DESKTOP_APP_ACTIVATION_READY_CHANNEL,
-  payload: Schema.Void,
+  payload: Schema.Boolean,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.appActivation.ready")(function* () {
+  handler: Effect.fn("desktop.ipc.appActivation.setReady")(function* (ready) {
     const activation = yield* DesktopAppActivation.DesktopAppActivation;
-    yield* activation.rendererReady;
+    yield* activation.setRendererReady(ready);
   }),
 });
 

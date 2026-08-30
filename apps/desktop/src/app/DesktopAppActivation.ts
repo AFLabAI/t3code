@@ -9,6 +9,7 @@ import {
   type DesktopAppActivationResponse,
 } from "@t3tools/contracts";
 import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
+import { HostProcessUserId } from "@t3tools/shared/hostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -205,24 +206,25 @@ export class DesktopAppActivation extends Context.Service<
   DesktopAppActivation,
   {
     readonly start: Effect.Effect<void, DesktopAppActivationStartError, Scope.Scope>;
-    readonly rendererReady: Effect.Effect<void>;
+    readonly setRendererReady: (ready: boolean) => Effect.Effect<void>;
     readonly complete: (response: DesktopAppActivationResponse) => Effect.Effect<void>;
   }
 >()("@t3tools/desktop/app/DesktopAppActivation") {}
 
 const { logWarning } = makeComponentLogger("desktop-app-activation");
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const desktopEnvironment = yield* DesktopEnvironment.DesktopEnvironment;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const path = yield* Path.Path;
+  const userId = yield* HostProcessUserId;
   const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
   const address = resolveDesktopAppControlAddress({
     stateDir: path.resolve(desktopEnvironment.stateDir),
     platform: desktopEnvironment.platform,
     tempDir: NodeOS.tmpdir(),
-    userId: process.getuid?.(),
+    userId,
     joinPath: path.join,
   });
   let registeredWebContents: Electron.WebContents | null = null;
@@ -252,7 +254,7 @@ const make = Effect.gen(function* () {
         try: () =>
           startDesktopAppControlServer({
             ...address,
-            userId: process.getuid?.(),
+            userId,
             handle: (request) => broker.request(request),
             cancel: (requestId) => broker.cancel(requestId),
           }),
@@ -266,7 +268,11 @@ const make = Effect.gen(function* () {
           Effect.ensuring(Effect.sync(() => broker.close())),
         ),
     ).pipe(Effect.asVoid),
-    rendererReady: Effect.gen(function* () {
+    setRendererReady: Effect.fn("DesktopAppActivation.setRendererReady")(function* (ready) {
+      if (!ready) {
+        clearRegisteredRenderer();
+        return;
+      }
       const main = yield* electronWindow.main;
       if (Option.isNone(main)) return;
       const webContents = main.value.webContents;
@@ -276,10 +282,15 @@ const make = Effect.gen(function* () {
         clearRegisteredRenderer();
         registeredWebContents = webContents;
         const onUnavailable = () => clearRegisteredRenderer();
-        webContents.once("did-start-loading", onUnavailable);
+        const onNavigation = (
+          event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+        ) => {
+          if (event.isMainFrame && !event.isSameDocument) clearRegisteredRenderer();
+        };
+        webContents.on("did-start-navigation", onNavigation);
         webContents.once("destroyed", onUnavailable);
         detachRendererListeners = () => {
-          webContents.removeListener("did-start-loading", onUnavailable);
+          webContents.removeListener("did-start-navigation", onNavigation);
           webContents.removeListener("destroyed", onUnavailable);
         };
       }

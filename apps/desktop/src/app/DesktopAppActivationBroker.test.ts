@@ -49,6 +49,31 @@ describe("DesktopAppActivationBroker", () => {
     broker.close();
   });
 
+  it("queues requests after unsubscribe until a new renderer registers", async () => {
+    const previousSend = vi.fn();
+    const nextSend = vi.fn();
+    const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate: vi.fn() });
+    broker.registerRenderer(previousSend);
+    broker.clearRenderer();
+
+    const response = broker.request(request);
+    expect(previousSend).not.toHaveBeenCalled();
+    expect(nextSend).not.toHaveBeenCalled();
+
+    broker.registerRenderer(nextSend);
+    expect(nextSend).toHaveBeenCalledWith(request);
+    broker.complete({
+      version: 1,
+      requestId: request.requestId,
+      ok: true,
+      projectId: ProjectId.make("project-1"),
+      threadId: ThreadId.make("thread-1"),
+    });
+
+    await expect(response).resolves.toMatchObject({ ok: true });
+    broker.close();
+  });
+
   it("removes a queued request when its CLI connection closes", async () => {
     const send = vi.fn();
     const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate: vi.fn() });
