@@ -43,6 +43,7 @@ import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/unstable/http";
 
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
+import { getPrimaryBearerToken } from "../environments/primary/auth";
 import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import {
   readPrimaryEnvironmentTarget,
@@ -214,7 +215,15 @@ const capabilitiesLayer = Layer.effectContext(
             reason: "remote-unavailable",
             detail: `Could not load the desktop primary credential: ${String(cause)}`,
           }),
-      }).pipe(Effect.map(Option.fromNullishOr)),
+      }).pipe(
+        Effect.map((token) => {
+          if (token) {
+            return Option.some(token);
+          }
+          const devToken = getPrimaryBearerToken();
+          return devToken ? Option.some(devToken) : Option.none();
+        }),
+      ),
     });
     const ssh = SshEnvironmentGateway.of({
       provision: Effect.fn("web.connectionPlatform.ssh.provision")(function* (target) {

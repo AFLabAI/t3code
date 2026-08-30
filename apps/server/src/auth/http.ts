@@ -36,6 +36,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
+import * as ServerConfig from "../config.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
@@ -427,6 +428,31 @@ export const authHttpApiLayer = HttpApiBuilder.group(
           },
           Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
             failEnvironmentInternal("client_session_revoke_failed", error),
+          ),
+        ),
+      )
+      .handle(
+        "devBootstrap",
+        Effect.fn("environment.auth.devBootstrap")(
+          function* (args) {
+            yield* annotateEnvironmentRequest(args.endpoint.name);
+            const config = yield* ServerConfig.ServerConfig;
+            if (!config.devUrl) {
+              return yield* failEnvironmentInternal("dev_bootstrap_not_available");
+            }
+            yield* appendCredentialResponseHeaders;
+            const credential = yield* serverAuth.issuePairingCredential({
+              label: "dev-browser-bootstrap",
+            });
+            const token = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+              credential.credential,
+              AuthStandardClientScopes,
+              deriveAuthClientMetadata({ request: yield* HttpServerRequest.HttpServerRequest }),
+            );
+            return { ...credential, access_token: token.access_token };
+          },
+          Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+            failEnvironmentInternal("dev_bootstrap_issuance_failed", error),
           ),
         ),
       );

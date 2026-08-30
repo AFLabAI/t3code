@@ -81,6 +81,8 @@ export const EnvironmentInternalErrorReason = Schema.Literals([
   "pairing_link_revoke_failed",
   "client_sessions_load_failed",
   "client_session_revoke_failed",
+  "dev_bootstrap_not_available",
+  "dev_bootstrap_issuance_failed",
   "orchestration_snapshot_failed",
   "orchestration_thread_snapshot_failed",
   "orchestration_dispatch_failed",
@@ -451,6 +453,12 @@ export class EnvironmentAuthHttpApi extends HttpApiGroup.make("auth")
       success: AuthOtherClientSessionsRevokeResult,
       error: EnvironmentScopedOperationErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("devBootstrap", "/api/auth/dev/bootstrap", {
+      success: AuthPairingCredentialResult,
+      error: [EnvironmentInternalError],
+    }),
   ) {}
 
 const EnvironmentOrchestrationThreadSnapshotParams = Schema.Struct({

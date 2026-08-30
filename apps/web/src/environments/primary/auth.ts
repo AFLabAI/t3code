@@ -150,8 +150,13 @@ type ServerAuthGateState =
 
 let bootstrapPromise: Promise<ServerAuthGateState> | null = null;
 let resolvedAuthenticatedGateState: ServerAuthGateState | null = null;
+let devBootstrapToken: string | null = null;
 const AUTH_SESSION_ESTABLISH_TIMEOUT_MS = 2_000;
 const AUTH_SESSION_ESTABLISH_STEP_MS = 100;
+
+export function getPrimaryBearerToken(): string | null {
+  return devBootstrapToken;
+}
 
 export function peekPairingTokenFromUrl(): string | null {
   return getPairingTokenFromUrl(new URL(window.location.href));
@@ -324,7 +329,24 @@ async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
     return { status: "authenticated" };
   }
 
-  if (!bootstrapCredential) {
+  let credentialToUse = bootstrapCredential;
+
+  // In dev mode (loopback), try to get a bootstrap credential from the server
+  if (!credentialToUse && currentSession.auth.policy === "loopback-browser") {
+    try {
+      const devBootstrap = await runPrimaryHttp(
+        PrimaryEnvironmentHttpClient.pipe(
+          Effect.flatMap((client) => client.auth.devBootstrap({ headers: {} })),
+        ),
+      );
+      credentialToUse = devBootstrap.credential;
+      devBootstrapToken = (devBootstrap as any).access_token ?? null;
+    } catch {
+      // dev bootstrap failed, fall through to auth screen
+    }
+  }
+
+  if (!credentialToUse) {
     return {
       status: "requires-auth",
       auth: currentSession.auth,
@@ -332,7 +354,7 @@ async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
   }
 
   try {
-    await exchangeBootstrapCredential(bootstrapCredential);
+    await exchangeBootstrapCredential(credentialToUse);
     await waitForAuthenticatedSessionAfterBootstrap();
     return { status: "authenticated" };
   } catch (error) {

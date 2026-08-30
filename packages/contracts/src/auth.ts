@@ -204,6 +204,7 @@ export const AuthPairingCredentialResult = Schema.Struct({
   credential: TrimmedNonEmptyString,
   label: Schema.optionalKey(TrimmedNonEmptyString),
   expiresAt: Schema.DateTimeUtc,
+  access_token: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthPairingCredentialResult = typeof AuthPairingCredentialResult.Type;
 
