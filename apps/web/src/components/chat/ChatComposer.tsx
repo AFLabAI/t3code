@@ -611,6 +611,7 @@ export interface ChatComposerProps {
   isConnecting: boolean;
   isSendBusy: boolean;
   isPreparingWorktree: boolean;
+  queuedRunsControl?: ReactNode;
   bannerItems: readonly ComposerBannerStackItem[];
   environmentUnavailable: {
     readonly label: string;
@@ -3483,6 +3484,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       className="mx-auto w-full min-w-0 max-w-(--chat-content-max-width)"
       data-chat-composer-form="true"
     >
+      {props.queuedRunsControl}
       {isStashMenuOpen &&
       !composerMenuOpen &&
       !isComposerApprovalState &&
