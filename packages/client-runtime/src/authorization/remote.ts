@@ -3,6 +3,7 @@ import {
   type AuthClientPresentationMetadata,
   AuthEnvironmentBootstrapTokenType,
   AuthTokenExchangeGrantType,
+  type ClientConnectionMethod,
   type AuthEnvironmentScope,
 } from "@t3tools/contracts";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
@@ -174,6 +175,8 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
   readonly wsBaseUrl: string;
   readonly httpBaseUrl: string;
   readonly bearerToken: string;
+  readonly clientMetadata?: AuthClientPresentationMetadata;
+  readonly connectionMethod?: ClientConnectionMethod;
   readonly timeoutMs?: number;
 }) {
   const issued = yield* issueRemoteWebSocketTicket({
@@ -187,6 +190,7 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
     url.pathname = "/ws";
   }
   url.searchParams.set("wsTicket", issued.ticket);
+  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
   return url.toString();
 });
 
@@ -197,6 +201,8 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
   readonly httpBaseUrl: string;
   readonly accessToken: string;
   readonly dpopProof: string;
+  readonly clientMetadata?: AuthClientPresentationMetadata;
+  readonly connectionMethod?: ClientConnectionMethod;
   readonly timeoutMs?: number;
 }) {
   const issued = yield* issueRemoteDpopWebSocketTicket({
@@ -210,5 +216,6 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
     url.pathname = "/ws";
   }
   url.searchParams.set("wsTicket", issued.ticket);
+  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
   return url.toString();
 });
