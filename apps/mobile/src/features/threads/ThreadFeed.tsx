@@ -11,7 +11,6 @@ import {
   type RunId,
 } from "@t3tools/contracts";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
-import { formatElapsed } from "@t3tools/shared/orchestrationTiming";
 import { SymbolView } from "../../components/AppSymbol";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -53,7 +52,13 @@ import {
 import { TouchableOpacity } from "react-native-gesture-handler";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { FadeIn, FadeInUp, type SharedValue } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  FadeInUp,
+  FadeOut,
+  LinearTransition,
+  type SharedValue,
+} from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { useFontFamily } from "../../lib/useFontFamily";
@@ -104,7 +109,11 @@ import {
   resolveThreadFeedLiveFollow,
   type ThreadFeedLiveFollowEvent,
 } from "./thread-feed-live-follow";
-import { ThreadWorkGroupToggle, ThreadWorkLog } from "./thread-work-log";
+import {
+  THREAD_DISCLOSURE_TRANSITION_MS,
+  ThreadWorkGroupToggle,
+  ThreadWorkLog,
+} from "./thread-work-log";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl, useAssetUrlState } from "../../state/assets";
@@ -132,6 +141,11 @@ function formatMessageTime(input: string): string {
   }
   return MESSAGE_TIME_FORMATTER.format(timestamp);
 }
+
+const THREAD_FEED_LAYOUT_TRANSITION = LinearTransition.duration(THREAD_DISCLOSURE_TRANSITION_MS);
+const THREAD_FEED_DISCLOSURE_ENTER_TRANSITION = FadeIn.duration(140);
+const THREAD_FEED_DISCLOSURE_EXIT_TRANSITION = FadeOut.duration(120);
+const EMPTY_DISCLOSURE_ENTRY_IDS: ReadonlySet<string> = new Set();
 
 // Entering animations must only play for rows born just now — LegendList
 // remounts rows when they scroll back into view, and replaying an entrance for
@@ -1035,12 +1049,11 @@ function renderFeedEntry(
   info: { item: ThreadFeedEntry; index: number },
   props: Pick<ThreadFeedProps, "environmentId" | "skills" | "threadId" | "workspaceRoot"> & {
     readonly copiedRowId: string | null;
-    readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
     readonly unsettledTurnId: RunId | null;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
-    readonly onToggleWorkGroup: (groupId: string) => void;
+    readonly onToggleWorkGroup: (groupId: string, anchorKey?: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey?: string) => void;
     readonly onToggleTurnFold: (runId: RunId) => void;
     readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
@@ -1056,10 +1069,6 @@ function renderFeedEntry(
 ) {
   const entry = info.item;
   const { markdownStyles, iconSubtleColor, userBubbleColor } = props;
-
-  if (entry.type === "working") {
-    return <WorkingTimelineRow startedAt={entry.createdAt} />;
-  }
 
   if (entry.type === "run-fold") {
     return (
@@ -1089,8 +1098,11 @@ function renderFeedEntry(
         expanded={entry.expanded}
         hiddenCount={entry.hiddenCount}
         iconSubtleColor={iconSubtleColor}
-        onlyToolActivities={entry.onlyToolActivities}
-        onToggle={() => props.onToggleWorkGroup(entry.groupId)}
+        summary={entry.summary}
+        summaryKind={entry.summaryKind}
+        hasFailure={entry.hasFailure}
+        shimmer={entry.shimmer}
+        onToggle={() => props.onToggleWorkGroup(entry.groupId, entry.id)}
       />
     );
   }
@@ -1282,42 +1294,14 @@ function renderFeedEntry(
       copiedRowId={props.copiedRowId}
       currentThreadId={props.threadId}
       environmentId={props.environmentId}
-      expanded={props.expandedWorkGroups[entry.id] ?? false}
       expandedRows={props.expandedWorkRows}
       iconSubtleColor={iconSubtleColor}
       onCopyRow={props.onCopyWorkRow}
-      onToggleGroup={() => props.onToggleWorkGroup(entry.id)}
       onToggleRow={(rowId) => props.onToggleWorkRow(rowId, entry.id)}
       workspaceRoot={props.workspaceRoot}
     />
   );
 }
-
-const WorkingTimelineRow = memo(function WorkingTimelineRow(props: { readonly startedAt: string }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      setNowMs(Date.now());
-    }, 1_000);
-    return () => clearInterval(intervalId);
-  }, [props.startedAt]);
-
-  const durationLabel = formatElapsed(props.startedAt, new Date(nowMs).toISOString()) ?? "0s";
-
-  return (
-    <View className="mb-4 flex-row items-center gap-2 px-1.5 py-1">
-      <View className="flex-row items-center gap-1">
-        <View className="h-1 w-1 rounded-full bg-adaptive-neutral-400-500" />
-        <View className="h-1 w-1 rounded-full bg-adaptive-neutral-400-a80-500-a80" />
-        <View className="h-1 w-1 rounded-full bg-adaptive-neutral-400-a60-500-a60" />
-      </View>
-      <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
-        Working for {durationLabel}
-      </Text>
-    </View>
-  );
-});
 
 function UserMessageContent(props: {
   readonly text: string;
@@ -1625,14 +1609,14 @@ function ThreadFeedPlaceholder(props: {
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const navigation = useNavigation();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const foldSettleFrameRef = useRef<number | null>(null);
-  const foldSettleSecondFrameRef = useRef<number | null>(null);
+  const disclosureSettleFrameRef = useRef<number | null>(null);
+  const disclosureSettleSecondFrameRef = useRef<number | null>(null);
+  const disclosureAnchorKeyRef = useRef<string | null>(null);
+  const previousPresentedFeedRef = useRef<ReadonlyArray<ThreadFeedEntry> | null>(null);
   const previousLatestTurnRef = useRef(props.latestRun);
   const userScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disclosureAnchorKeyRef = useRef<string | null>(null);
   const headerMaterialVisibleRef = useRef(false);
   const { width: windowWidth } = useWindowDimensions();
-  const { appearance } = useAppearancePreferences();
   const [viewportWidth, setViewportWidth] = useState(() =>
     props.layoutVariant === "split" ? 0 : windowWidth,
   );
@@ -1893,6 +1877,32 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       ),
     [expandedTurnIds, expandedWorkGroups, props.activeWorkStartedAt, props.feed, props.latestRun],
   );
+  const disclosureEnteringEntryIds = useMemo(() => {
+    const anchorKey = disclosureAnchorKeyRef.current;
+    const previousPresentedFeed = previousPresentedFeedRef.current;
+    if (!disclosureToggleSettling || anchorKey === null || previousPresentedFeed === null) {
+      return EMPTY_DISCLOSURE_ENTRY_IDS;
+    }
+
+    const previousIds = new Set(previousPresentedFeed.map((entry) => entry.id));
+    const anchorIndex = presentedFeed.findIndex((entry) => entry.id === anchorKey);
+    const enteringIds = new Set<string>();
+    if (anchorIndex < 0) {
+      return enteringIds;
+    }
+    for (let index = anchorIndex + 1; index < presentedFeed.length; index += 1) {
+      const entryId = presentedFeed[index]!.id;
+      if (previousIds.has(entryId)) {
+        break;
+      }
+      enteringIds.add(entryId);
+    }
+    return enteringIds;
+  }, [disclosureToggleSettling, presentedFeed]);
+
+  useLayoutEffect(() => {
+    previousPresentedFeedRef.current = presentedFeed;
+  }, [presentedFeed]);
 
   // The empty↔filled key below remounts the list, which resets its imperative
   // content-inset override — and useKeyboardChatComposerInset (mounted above
@@ -1961,33 +1971,51 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       if (copyFeedbackTimeoutRef.current) {
         clearTimeout(copyFeedbackTimeoutRef.current);
       }
-      if (foldSettleFrameRef.current !== null) {
-        cancelAnimationFrame(foldSettleFrameRef.current);
+      if (disclosureSettleFrameRef.current !== null) {
+        cancelAnimationFrame(disclosureSettleFrameRef.current);
       }
-      if (foldSettleSecondFrameRef.current !== null) {
-        cancelAnimationFrame(foldSettleSecondFrameRef.current);
+      if (disclosureSettleSecondFrameRef.current !== null) {
+        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
       }
     };
+  }, []);
+
+  const settleDisclosureAfterLayout = useCallback(() => {
+    if (disclosureSettleFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleFrameRef.current);
+    }
+    if (disclosureSettleSecondFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+    }
+    disclosureSettleFrameRef.current = requestAnimationFrame(() => {
+      disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
+        disclosureAnchorKeyRef.current = null;
+        setDisclosureToggleSettling(false);
+        disclosureSettleFrameRef.current = null;
+        disclosureSettleSecondFrameRef.current = null;
+      });
+    });
   }, []);
 
   const suspendEndScrollMaintenanceForDisclosure = useCallback((anchorKey: string | null) => {
     disclosureAnchorKeyRef.current = anchorKey;
     setDisclosureToggleSettling(true);
-    if (foldSettleFrameRef.current !== null) {
-      cancelAnimationFrame(foldSettleFrameRef.current);
-    }
-    if (foldSettleSecondFrameRef.current !== null) {
-      cancelAnimationFrame(foldSettleSecondFrameRef.current);
-    }
-    foldSettleFrameRef.current = requestAnimationFrame(() => {
-      foldSettleSecondFrameRef.current = requestAnimationFrame(() => {
-        disclosureAnchorKeyRef.current = null;
-        setDisclosureToggleSettling(false);
-        foldSettleFrameRef.current = null;
-        foldSettleSecondFrameRef.current = null;
-      });
-    });
   }, []);
+
+  // Start the quiet-frame countdown after React has committed the disclosure.
+  // Every measured item-size change restarts it, so end maintenance cannot
+  // wake between the data mutation and LegendList's final layout correction.
+  useLayoutEffect(() => {
+    if (disclosureAnchorKeyRef.current !== null) {
+      settleDisclosureAfterLayout();
+    }
+  }, [expandedTurnIds, expandedWorkGroups, expandedWorkRows, settleDisclosureAfterLayout]);
+
+  const handleItemSizeChanged = useCallback(() => {
+    if (disclosureAnchorKeyRef.current !== null) {
+      settleDisclosureAfterLayout();
+    }
+  }, [settleDisclosureAfterLayout]);
 
   const shouldRestoreVisibleContentPosition = useCallback((entry: ThreadFeedEntry) => {
     const disclosureAnchorKey = disclosureAnchorKeyRef.current;
@@ -2021,8 +2049,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   }, []);
 
   const onToggleWorkGroup = useCallback(
-    (groupId: string) => {
-      suspendEndScrollMaintenanceForDisclosure(`work-toggle:${groupId}`);
+    (groupId: string, anchorKey?: string) => {
+      suspendEndScrollMaintenanceForDisclosure(anchorKey ?? `work-toggle:${groupId}`);
       setInteractionState((current) => ({
         ...current,
         expandedWorkGroups: {
@@ -2078,39 +2106,49 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // link, so marking them fixed would make LegendList skip their measurement
   // and position the next message inside the card.
   const getFixedItemSize = useCallback(
-    (entry: ThreadFeedEntry) => resolveThreadFeedFixedItemSize(entry.type, appearance.baseFontSize),
-    [appearance.baseFontSize],
+    (entry: ThreadFeedEntry) => resolveThreadFeedFixedItemSize(entry.type),
+    [],
   );
 
   const renderItem = useCallback(
-    (info: { item: ThreadFeedEntry; index: number }) =>
-      renderFeedEntry(info, {
-        environmentId: props.environmentId,
-        threadId: props.threadId,
-        copiedRowId,
-        expandedWorkGroups,
-        expandedWorkRows,
-        terminalAssistantMessageIds,
-        unsettledTurnId,
-        onCopyWorkRow,
-        onToggleWorkGroup,
-        onToggleWorkRow,
-        onToggleTurnFold,
-        onPressImage,
-        onMarkdownLinkPress,
-        iconSubtleColor,
-        userBubbleColor,
-        markdownStyles,
-        reviewCommentColors,
-        reviewCommentBubbleWidth,
-        userBubbleMaxWidth,
-        threadTitle: props.threadTitle,
-        skills: props.skills,
-        workspaceRoot: props.workspaceRoot,
-      }),
+    (info: { item: ThreadFeedEntry; index: number }) => (
+      <Animated.View
+        key={info.item.id}
+        entering={
+          disclosureEnteringEntryIds.has(info.item.id)
+            ? THREAD_FEED_DISCLOSURE_ENTER_TRANSITION
+            : undefined
+        }
+        exiting={THREAD_FEED_DISCLOSURE_EXIT_TRANSITION}
+      >
+        {renderFeedEntry(info, {
+          environmentId: props.environmentId,
+          threadId: props.threadId,
+          copiedRowId,
+          expandedWorkRows,
+          terminalAssistantMessageIds,
+          unsettledTurnId,
+          onCopyWorkRow,
+          onToggleWorkGroup,
+          onToggleWorkRow,
+          onToggleTurnFold,
+          onPressImage,
+          onMarkdownLinkPress,
+          iconSubtleColor,
+          userBubbleColor,
+          markdownStyles,
+          reviewCommentColors,
+          reviewCommentBubbleWidth,
+          userBubbleMaxWidth,
+          threadTitle: props.threadTitle,
+          skills: props.skills,
+          workspaceRoot: props.workspaceRoot,
+        })}
+      </Animated.View>
+    ),
     [
       copiedRowId,
-      expandedWorkGroups,
+      disclosureEnteringEntryIds,
       expandedWorkRows,
       terminalAssistantMessageIds,
       unsettledTurnId,
@@ -2223,6 +2261,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               entry.type === "message" ? `message:${entry.message.role}` : entry.type
             }
             getFixedItemSize={getFixedItemSize}
+            itemLayoutAnimation={THREAD_FEED_LAYOUT_TRANSITION}
+            onItemSizeChanged={handleItemSizeChanged}
             // Measure rows well before they scroll into view so estimate→actual
             // corrections land offscreen instead of under the user's finger.
             drawDistance={500}
