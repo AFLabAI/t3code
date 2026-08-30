@@ -27,8 +27,8 @@ example, an agent cannot settle a thread while work or a user request is still p
 
 An agent can also ask T3 Code to settle or archive its own thread after the current run finishes.
 The request is saved by the server, but it is applied only when that run completes successfully
-and no newer, queued, or approval-blocked work remains. A new message or unresolved request keeps
-the thread visible and discards the stale organization request.
+and no newer, queued, or approval-blocked work remains. A new message that creates a newer run, or
+an unresolved request, keeps the thread visible and discards the stale organization request.
 
 If reordering is unavailable for one environment, update the T3 Code server running in that
 environment. Older servers can still pin and unpin threads, but do not understand synced ordering;
