@@ -1657,29 +1657,32 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const body = yield* responseJsonEffect<{ readonly authenticated: boolean }>(response);
 
       assert.equal(body.authenticated, true);
-      assert.match(response.headers["set-cookie"] ?? "", /^t3_session_[a-f0-9]{12}=/);
+      assert.equal(response.headers["set-cookie"], cookie);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("does not migrate a stale legacy cookie when bearer auth succeeds", () =>
-    Effect.gen(function* () {
-      yield* buildAppUnderTest({ config: { mode: "web", host: "192.168.1.50" } });
+  for (const source of ["cookie", "bearer"]) {
+    it.effect(`does not migrate a stale legacy cookie when ${source} auth succeeds`, () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest({ config: { mode: "web", host: "192.168.1.50" } });
 
-      const { cookie } = yield* bootstrapBrowserSession();
-      const sessionToken = cookie?.split(";")[0]?.split("=")[1] ?? "";
-      const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
-      const response = yield* fetchEffect(sessionUrl, {
-        headers: {
-          authorization: `Bearer ${sessionToken}`,
-          cookie: "t3_session=stale",
-        },
-      });
-      const body = yield* responseJsonEffect<{ readonly authenticated: boolean }>(response);
+        const { cookie } = yield* bootstrapBrowserSession();
+        const sessionCookie = cookie?.split(";")[0] ?? "";
+        const sessionToken = extractSessionTokenFromSetCookie(cookie ?? "");
+        const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
+        const response = yield* fetchEffect(sessionUrl, {
+          headers:
+            source === "cookie"
+              ? { cookie: `${sessionCookie}; t3_session=stale` }
+              : { authorization: `Bearer ${sessionToken}`, cookie: "t3_session=stale" },
+        });
+        const body = yield* responseJsonEffect<{ readonly authenticated: boolean }>(response);
 
-      assert.equal(body.authenticated, true);
-      assert.isUndefined(response.headers["set-cookie"]);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
+        assert.equal(body.authenticated, true);
+        assert.isUndefined(response.headers["set-cookie"]);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    );
+  }
 
   it.effect("exchanges a bootstrap grant for a scoped bearer access token", () =>
     Effect.gen(function* () {

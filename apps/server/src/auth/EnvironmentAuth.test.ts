@@ -125,6 +125,27 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
   );
 
+  for (const cookieToken of ["stale", ""]) {
+    it.effect(
+      `does not fall back to a legacy cookie when the current cookie is ${cookieToken ? "invalid" : "empty"}`,
+      () =>
+        Effect.gen(function* () {
+          const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+          const sessions = yield* SessionStore.SessionStore;
+          const legacySession = yield* sessions.issue();
+          const state = yield* serverAuth.getSessionState({
+            cookies: {
+              [sessions.cookieName]: cookieToken,
+              t3_session: legacySession.token,
+            },
+            headers: {},
+          } as never);
+
+          expect(state.authenticated).toBe(false);
+        }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
+    );
+  }
+
   it.effect("does not exchange ordinary pairing grants for administrative access tokens", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
