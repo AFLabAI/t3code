@@ -2350,13 +2350,10 @@ export const make = Effect.gen(function* () {
                   })),
                 ),
           ),
-          Effect.zipWith(
-            textGenerationPromptResolver.resolve(input.cwd),
-            (settings, prompts): SourceControlTextGenerationSettings => ({
-              ...settings,
-              ...(prompts ? { prompts } : {}),
-            }),
-          ),
+          Effect.zipWith(textGenerationPromptResolver.resolve(input.cwd), (settings, prompts) => ({
+            ...settings,
+            ...(prompts ? { prompts } : {}),
+          })),
           Effect.mapError(
             (cause) =>
               new GitManagerError({
