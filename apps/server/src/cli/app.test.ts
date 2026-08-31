@@ -149,6 +149,25 @@ describe("t3 app", () => {
     ),
   );
 
+  it.effect("rejects unsupported platforms without creating state", () =>
+    withTempDirectory("t3-app-platform-test-", (root) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(root, "missing-t3-home");
+        const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(
+          Effect.provideService(HostProcessPlatform, "freebsd"),
+          Effect.flip,
+        );
+
+        expect(error).toMatchObject({
+          _tag: "DesktopAppPlatformUnsupportedError",
+          platform: "freebsd",
+          message: "`t3 app` is not supported on freebsd.",
+        });
+        expect(yield* pathExists(baseDir)).toBe(false);
+      }),
+    ),
+  );
+
   it.effect("does not create state when only a server or no desktop app is running", () =>
     withTempDirectory("t3-app-missing-test-", (root) =>
       Effect.gen(function* () {
