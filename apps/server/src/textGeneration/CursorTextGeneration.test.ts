@@ -230,11 +230,40 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGeneration", (it) => {
               model: "composer-2",
             },
           });
-
           expect(generated.title).toBe("Trim reconnect spinner status after resume.");
         }),
     ),
   );
+
+  it.effect("forwards custom title behavior through Cursor ACP text generation", () => {
+    const requestLogDir = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "t3code-cursor-custom-title-log-"),
+    );
+    const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
+    return withFakeAcpAgent(
+      {
+        T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+        T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
+          title: '"Trim reconnect spinner status after resume."',
+        }),
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Fix the reconnect spinner after a resumed session.",
+            prompts: { threadTitle: "Keep title punctuation." },
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("cursor"),
+              model: "composer-2",
+            },
+          });
+
+          expect(generated.title).toBe('"Trim reconnect spinner status after resume."');
+          expect(NodeFS.readFileSync(requestLogPath, "utf8")).toContain("Keep title punctuation.");
+        }),
+    );
+  });
 
   it.effect("closes the ACP child process after text generation completes", () => {
     const exitLogDir = NodeFS.mkdtempSync(

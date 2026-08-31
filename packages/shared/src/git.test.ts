@@ -7,8 +7,21 @@ import {
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+  resolveAvailableGeneratedBranchName,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+
+describe("resolveAvailableGeneratedBranchName", () => {
+  it("preserves spelling and appends a suffix only for an exact collision", () => {
+    expect(
+      resolveAvailableGeneratedBranchName(
+        ["Theo/Fix.v2", "Theo/Fix.v2-1", "theo/fix.v2"],
+        "Theo/Fix.v2",
+      ),
+    ).toBe("Theo/Fix.v2-2");
+    expect(resolveAvailableGeneratedBranchName(["theo/fix.v2"], "Theo/Fix.v2")).toBe("Theo/Fix.v2");
+  });
+});
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
