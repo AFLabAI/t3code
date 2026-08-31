@@ -42,6 +42,13 @@ export class ServerEnvironment extends Context.Service<
   }
 >()("t3/environment/ServerEnvironment") {}
 
+export class ServerEnvironmentIdentity extends Context.Service<
+  ServerEnvironmentIdentity,
+  {
+    readonly getEnvironmentId: Effect.Effect<EnvironmentId>;
+  }
+>()("t3/environment/ServerEnvironment/ServerEnvironmentIdentity") {}
+
 function platformOs(platform: NodeJS.Platform): ExecutionEnvironmentDescriptor["platform"]["os"] {
   switch (platform) {
     case "darwin":
@@ -68,14 +75,10 @@ function platformArch(
   }
 }
 
-export const make = Effect.gen(function* () {
+const makeIdentity = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
-  const secrets = yield* ServerSecretStore.ServerSecretStore;
   const crypto = yield* Crypto.Crypto;
-  const hostPlatform = yield* HostProcessPlatform;
-  const hostArchitecture = yield* HostProcessArchitecture;
 
   const readPersistedEnvironmentId = Effect.gen(function* () {
     const exists = yield* fileSystem.exists(serverConfig.environmentIdPath).pipe(
@@ -131,6 +134,19 @@ export const make = Effect.gen(function* () {
   });
 
   const environmentId = EnvironmentId.make(environmentIdRaw);
+  return ServerEnvironmentIdentity.of({
+    getEnvironmentId: Effect.succeed(environmentId),
+  });
+});
+
+export const make = Effect.gen(function* () {
+  const path = yield* Path.Path;
+  const serverConfig = yield* ServerConfig.ServerConfig;
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  const identity = yield* ServerEnvironmentIdentity;
+  const hostPlatform = yield* HostProcessPlatform;
+  const hostArchitecture = yield* HostProcessArchitecture;
+  const environmentId = yield* identity.getEnvironmentId;
   const cwdBaseName = path.basename(serverConfig.cwd).trim();
   const label = yield* resolveServerEnvironmentLabel({ cwdBaseName });
   const launcher = yield* resolveServiceLauncherMode();
@@ -185,4 +201,9 @@ export const make = Effect.gen(function* () {
  * provide the external platform services, a ServerConfig, and the
  * ServerSecretStore backing the descriptor's publishing capability.
  */
-export const layer = Layer.effect(ServerEnvironment, make).pipe(Layer.provide(ProcessRunner.layer));
+export const identityLayer = Layer.effect(ServerEnvironmentIdentity, makeIdentity);
+
+export const layer = Layer.effect(ServerEnvironment, make).pipe(
+  Layer.provideMerge(identityLayer),
+  Layer.provide(ProcessRunner.layer),
+);

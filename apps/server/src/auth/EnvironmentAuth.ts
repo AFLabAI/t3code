@@ -1023,5 +1023,5 @@ export const storageLayer = Layer.mergeAll(ServerSecretStore.layer, SqlitePersis
 
 export const runtimeLayer = layer.pipe(
   Layer.provideMerge(storageLayer),
-  Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+  Layer.provideMerge(ServerEnvironment.identityLayer),
 );

@@ -28,9 +28,8 @@ const makeServerConfigLayer = (overrides?: Partial<ServerConfig.ServerConfig["Se
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-session-test-" })));
 
 const makeServerEnvironmentLayer = (environmentId: EnvironmentId) =>
-  Layer.succeed(ServerEnvironment.ServerEnvironment, {
+  Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
     getEnvironmentId: Effect.succeed(environmentId),
-    getDescriptor: Effect.die(new Error("unused in SessionStore tests")),
   });
 
 const makeSessionStoreLayer = (

@@ -292,9 +292,8 @@ const makeAuthTestLayer = () =>
     Layer.provide(SqlitePersistenceMemory),
     Layer.provide(ServerSecretStore.layer),
     Layer.provide(
-      Layer.mock(ServerEnvironment.ServerEnvironment)({
+      Layer.mock(ServerEnvironment.ServerEnvironmentIdentity)({
         getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
-        getDescriptor: Effect.succeed(testEnvironmentDescriptor),
       }),
     ),
   );
