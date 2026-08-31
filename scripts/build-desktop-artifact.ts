@@ -287,6 +287,124 @@ export class BuildCommandFailedError extends Schema.TaggedErrorClass<BuildComman
   }
 }
 
+export const LINUX_DESKTOP_BUILD_PREREQUISITES = [
+  { id: "cargo", description: "Rust compiler and Cargo", packages: ["cargo", "rustc"] },
+  { id: "cc", description: "C/C++ build toolchain", packages: ["build-essential"] },
+  { id: "make", description: "Make", packages: ["build-essential"] },
+  { id: "x11", description: "X11 headers and linker library", packages: ["libx11-dev"] },
+  {
+    id: "xrandr",
+    description: "Xrandr headers and linker library",
+    packages: ["libxrandr-dev"],
+  },
+  { id: "xtst", description: "Xtst headers and linker library", packages: ["libxtst-dev"] },
+  { id: "xt", description: "Xt headers and linker library", packages: ["libxt-dev"] },
+] as const;
+
+type LinuxDesktopBuildPrerequisiteId = (typeof LINUX_DESKTOP_BUILD_PREREQUISITES)[number]["id"];
+
+export class LinuxDesktopBuildPrerequisitesMissingError extends Schema.TaggedErrorClass<LinuxDesktopBuildPrerequisitesMissingError>()(
+  "LinuxDesktopBuildPrerequisitesMissingError",
+  {
+    missing: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    const missingRequirements = LINUX_DESKTOP_BUILD_PREREQUISITES.filter((requirement) =>
+      this.missing.includes(requirement.id),
+    );
+    const details = missingRequirements
+      .map((requirement) => `  - ${requirement.description} (${requirement.packages.join(", ")})`)
+      .join("\n");
+    const packages = [
+      ...new Set(missingRequirements.flatMap((requirement) => requirement.packages)),
+    ];
+    return [
+      "Linux desktop build prerequisites are missing:",
+      details,
+      "",
+      "On Ubuntu/Debian, install them with:",
+      `  sudo apt-get install ${packages.join(" ")}`,
+      "",
+      "For other distributions, see docs/internals/scripts.md#linux-appimage-prerequisites.",
+      "Then rerun `vp run dist:desktop:linux`.",
+    ].join("\n");
+  }
+}
+
+const MAC_DESKTOP_BUILD_PREREQUISITES = [
+  { id: "rust", description: "Rust/Cargo and the requested Rust target" },
+  { id: "clang", description: "Xcode Command Line Tools (clang)" },
+  { id: "make", description: "Xcode Command Line Tools (make)" },
+  { id: "sips", description: "macOS image tool (sips)" },
+  { id: "iconutil", description: "macOS icon tool (iconutil)" },
+  { id: "lipo", description: "Xcode universal-binary tool (lipo)" },
+] as const;
+
+export class MacDesktopBuildPrerequisitesMissingError extends Schema.TaggedErrorClass<MacDesktopBuildPrerequisitesMissingError>()(
+  "MacDesktopBuildPrerequisitesMissingError",
+  {
+    missing: Schema.Array(Schema.String),
+    rustTargets: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    const details = MAC_DESKTOP_BUILD_PREREQUISITES.filter((requirement) =>
+      this.missing.includes(requirement.id),
+    )
+      .map((requirement) => `  - ${requirement.description}`)
+      .join("\n");
+    return [
+      "macOS desktop build prerequisites are missing:",
+      details,
+      "",
+      "Install Apple's build tools with:",
+      "  xcode-select --install",
+      "Install Rust from https://rustup.rs, then add the requested target(s):",
+      `  rustup target add ${this.rustTargets.join(" ")}`,
+      "",
+      "Then rerun the desktop artifact command.",
+    ].join("\n");
+  }
+}
+
+const WINDOWS_DESKTOP_BUILD_PREREQUISITES = [
+  { id: "rust", description: "Rust/Cargo and the requested MSVC Rust target" },
+  { id: "python", description: "Python 3 for node-gyp" },
+  {
+    id: "msvc",
+    description: "Visual Studio Build Tools with C++, Windows SDK, and Spectre libraries",
+  },
+  { id: "tar", description: "tar for the bundled WSL runtime" },
+] as const;
+
+export class WindowsDesktopBuildPrerequisitesMissingError extends Schema.TaggedErrorClass<WindowsDesktopBuildPrerequisitesMissingError>()(
+  "WindowsDesktopBuildPrerequisitesMissingError",
+  {
+    missing: Schema.Array(Schema.String),
+    rustTarget: Schema.String,
+  },
+) {
+  override get message(): string {
+    const details = WINDOWS_DESKTOP_BUILD_PREREQUISITES.filter((requirement) =>
+      this.missing.includes(requirement.id),
+    )
+      .map((requirement) => `  - ${requirement.description}`)
+      .join("\n");
+    return [
+      "Windows desktop build prerequisites are missing:",
+      details,
+      "",
+      "Install Rust from https://rustup.rs and add the requested target:",
+      `  rustup target add ${this.rustTarget}`,
+      "Install Python 3 and the Visual Studio Build Tools components listed in",
+      "docs/internals/scripts.md#windows-installer-prerequisites.",
+      "",
+      "Then rerun the desktop artifact command.",
+    ].join("\n");
+  }
+}
+
 export class ResourceMonitorBuildOutputMissingError extends Schema.TaggedErrorClass<ResourceMonitorBuildOutputMissingError>()(
   "ResourceMonitorBuildOutputMissingError",
   {
@@ -1467,6 +1585,196 @@ const runCommand = Effect.fn("runCommand")(function* (
     });
   }
 });
+
+const desktopBuildProbeSucceeds = Effect.fn("desktopBuildProbeSucceeds")(function* (
+  command: ChildProcess.Command,
+  label: string,
+) {
+  return yield* runCommand(command, { label, verbose: false }).pipe(
+    Effect.as(true),
+    Effect.catch(() => Effect.succeed(false)),
+  );
+});
+
+export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
+    Config.withDefault(false),
+  );
+  const probeDir = yield* fs.makeTempDirectoryScoped({
+    prefix: "t3code-linux-build-preflight-",
+  });
+  const sourcePath = path.join(probeDir, "probe.c");
+  yield* fs.writeFileString(sourcePath, "int main(void) { return 0; }\n");
+
+  const commandChecks = yield* Effect.all(
+    {
+      cargo: reuseResourceMonitor
+        ? Effect.succeed(true)
+        : desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
+      cc: desktopBuildProbeSucceeds(ChildProcess.make("cc", ["--version"]), "cc"),
+      make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
+    },
+    { concurrency: "unbounded" },
+  );
+
+  const nativeChecks = commandChecks.cc
+    ? yield* Effect.all(
+        {
+          x11: desktopBuildProbeSucceeds(
+            ChildProcess.make("cc", [
+              sourcePath,
+              "-include",
+              "X11/keysym.h",
+              "-lX11",
+              "-o",
+              path.join(probeDir, "x11"),
+            ]),
+            "X11 build prerequisite probe",
+          ),
+          xrandr: desktopBuildProbeSucceeds(
+            ChildProcess.make("cc", [
+              sourcePath,
+              "-include",
+              "X11/extensions/Xrandr.h",
+              "-lXrandr",
+              "-o",
+              path.join(probeDir, "xrandr"),
+            ]),
+            "Xrandr build prerequisite probe",
+          ),
+          xtst: desktopBuildProbeSucceeds(
+            ChildProcess.make("cc", [
+              sourcePath,
+              "-include",
+              "X11/extensions/XTest.h",
+              "-lXtst",
+              "-o",
+              path.join(probeDir, "xtst"),
+            ]),
+            "Xtst build prerequisite probe",
+          ),
+          xt: desktopBuildProbeSucceeds(
+            ChildProcess.make("cc", [
+              sourcePath,
+              "-include",
+              "X11/Intrinsic.h",
+              "-lXt",
+              "-o",
+              path.join(probeDir, "xt"),
+            ]),
+            "Xt build prerequisite probe",
+          ),
+        },
+        { concurrency: "unbounded" },
+      )
+    : { x11: true, xrandr: true, xtst: true, xt: true };
+
+  const checks: Record<LinuxDesktopBuildPrerequisiteId, boolean> = {
+    ...commandChecks,
+    ...nativeChecks,
+  };
+  const missing = LINUX_DESKTOP_BUILD_PREREQUISITES.filter(
+    (requirement) => !checks[requirement.id],
+  ).map((requirement) => requirement.id);
+
+  if (missing.length > 0) {
+    return yield* new LinuxDesktopBuildPrerequisitesMissingError({ missing });
+  }
+});
+
+export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(function* (
+  arch: typeof BuildArch.Type,
+) {
+  const rustTargets = resolveResourceMonitorRustTargets("mac", arch);
+  const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
+    Config.withDefault(false),
+  );
+  const checks = yield* Effect.all(
+    {
+      rust: reuseResourceMonitor
+        ? Effect.succeed(true)
+        : Effect.all([
+            desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
+            Effect.forEach(rustTargets, (target) =>
+              desktopBuildProbeSucceeds(
+                ChildProcess.make("rustc", ["--print", "target-libdir", "--target", target]),
+                `Rust target ${target}`,
+              ),
+            ).pipe(Effect.map((results) => results.every(Boolean))),
+          ]).pipe(Effect.map(([cargo, targets]) => cargo && targets)),
+      clang: desktopBuildProbeSucceeds(ChildProcess.make("clang", ["--version"]), "clang"),
+      make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
+      sips: desktopBuildProbeSucceeds(ChildProcess.make("sips", ["--help"]), "sips"),
+      iconutil: desktopBuildProbeSucceeds(ChildProcess.make("iconutil", ["--help"]), "iconutil"),
+      lipo:
+        arch === "universal"
+          ? desktopBuildProbeSucceeds(ChildProcess.make("lipo", ["-version"]), "lipo")
+          : Effect.succeed(true),
+    },
+    { concurrency: "unbounded" },
+  );
+  const missing = MAC_DESKTOP_BUILD_PREREQUISITES.filter(
+    (requirement) => !checks[requirement.id],
+  ).map((requirement) => requirement.id);
+  if (missing.length > 0) {
+    return yield* new MacDesktopBuildPrerequisitesMissingError({ missing, rustTargets });
+  }
+});
+
+const WINDOWS_VSWHERE_PREREQUISITE_SCRIPT = [
+  "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
+  "if (!(Test-Path $vswhere)) { exit 1 }",
+  "$install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre -property installationPath",
+  "if (!$install) { exit 1 }",
+  "$kitsRoot = Get-ItemPropertyValue 'HKLM:\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots' -Name KitsRoot10 -ErrorAction SilentlyContinue",
+  "if (!$kitsRoot -or !(Test-Path (Join-Path $kitsRoot 'Lib'))) { exit 1 }",
+].join("; ");
+
+export const preflightWindowsDesktopBuild = Effect.fn("preflightWindowsDesktopBuild")(
+  function* (input: { readonly arch: typeof BuildArch.Type; readonly bundlesWslRuntime: boolean }) {
+    const rustTarget = resolveResourceMonitorRustTargets("win", input.arch)[0]!;
+    const reuseResourceMonitor = yield* Config.boolean(
+      "T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR",
+    ).pipe(Config.withDefault(false));
+    const python = yield* resolvePythonForNodeGyp();
+    const checks = yield* Effect.all(
+      {
+        rust: reuseResourceMonitor
+          ? Effect.succeed(true)
+          : Effect.all([
+              desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
+              desktopBuildProbeSucceeds(
+                ChildProcess.make("rustc", ["--print", "target-libdir", "--target", rustTarget]),
+                `Rust target ${rustTarget}`,
+              ),
+            ]).pipe(Effect.map(([cargo, target]) => cargo && target)),
+        python: Effect.succeed(python !== undefined),
+        msvc: desktopBuildProbeSucceeds(
+          ChildProcess.make("powershell.exe", [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            WINDOWS_VSWHERE_PREREQUISITE_SCRIPT,
+          ]),
+          "Visual Studio Build Tools",
+        ),
+        tar: input.bundlesWslRuntime
+          ? desktopBuildProbeSucceeds(ChildProcess.make("tar.exe", ["--version"]), "tar")
+          : Effect.succeed(true),
+      },
+      { concurrency: "unbounded" },
+    );
+    const missing = WINDOWS_DESKTOP_BUILD_PREREQUISITES.filter(
+      (requirement) => !checks[requirement.id],
+    ).map((requirement) => requirement.id);
+    if (missing.length > 0) {
+      return yield* new WindowsDesktopBuildPrerequisitesMissingError({ missing, rustTarget });
+    }
+  },
+);
 
 /**
  * Every `node_modules` directory that would be visible from `startDir`.
@@ -2899,6 +3207,21 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const hostPlatform = yield* HostProcessPlatform;
+  if (hostPlatform === "linux" && options.platform === "linux") {
+    yield* preflightLinuxDesktopBuild();
+  }
+  if (hostPlatform === "darwin" && options.platform === "mac") {
+    yield* preflightMacDesktopBuild(options.arch);
+  }
+  if (hostPlatform === "win32" && options.platform === "win") {
+    yield* preflightWindowsDesktopBuild({
+      arch: options.arch,
+      bundlesWslRuntime: bundlesWslRuntime({
+        arch: options.arch,
+        prebuildPath: options.wslPrebuild,
+      }),
+    });
+  }
   const workspaceConfig = yield* readWorkspaceConfig();
   const workspaceCatalog = workspaceConfig.catalog ?? {};
   const workspaceOverrides = workspaceConfig.overrides ?? {};
