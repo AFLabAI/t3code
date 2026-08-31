@@ -242,10 +242,11 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             yield* annotateEnvironmentRequest(args.endpoint.name);
             const request = yield* HttpServerRequest.HttpServerRequest;
             const result = yield* serverAuth.getSessionState(request);
-            const legacyToken =
-              sessions.legacyCookieName && !request.cookies[sessions.cookieName]
-                ? request.cookies[sessions.legacyCookieName]
-                : undefined;
+            const legacyToken = EnvironmentAuth.selectedLegacySessionCookieToken(
+              request,
+              sessions.cookieName,
+              sessions.legacyCookieName,
+            );
             if (
               legacyToken &&
               result.authenticated &&

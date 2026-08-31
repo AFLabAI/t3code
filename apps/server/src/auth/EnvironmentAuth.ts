@@ -30,6 +30,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -562,6 +563,20 @@ function parseDpopToken(request: HttpServerRequest.HttpServerRequest): string | 
   return token.length > 0 ? token : null;
 }
 
+export function selectedLegacySessionCookieToken(
+  request: HttpServerRequest.HttpServerRequest,
+  cookieName: string,
+  legacyCookieName: string | undefined,
+): string | undefined {
+  const legacyToken = legacyCookieName ? request.cookies[legacyCookieName] : undefined;
+  return legacyToken &&
+    !request.cookies[cookieName] &&
+    !parseBearerToken(request) &&
+    !parseDpopToken(request)
+    ? legacyToken
+    : undefined;
+}
+
 export const make = Effect.gen(function* () {
   const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
   const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1006,4 +1021,7 @@ export const layer = Layer.effect(EnvironmentAuth, make).pipe(
 
 export const storageLayer = Layer.mergeAll(ServerSecretStore.layer, SqlitePersistenceLayer);
 
-export const runtimeLayer = layer.pipe(Layer.provideMerge(storageLayer));
+export const runtimeLayer = layer.pipe(
+  Layer.provideMerge(storageLayer),
+  Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+);

@@ -16,8 +16,8 @@ const SESSION_COOKIE_NAME = "t3_session";
  * clobbers the first's session and both sides see "Invalid session token
  * signature" until someone clears cookies by hand.
  *
- * Web servers use a state-specific name. Remote servers omit the port so the
- * name stays stable when their public port changes.
+ * Remote web servers use their persisted environment identity and omit the
+ * port, so the name survives state-directory moves and public port changes.
  *
  * Desktop scans upward from 3773 for a free port and binds
  *   127.0.0.1, so a second instance lands on a different port and the same host.
@@ -27,6 +27,7 @@ export function resolveSessionCookieName(input: {
   readonly port: number;
   readonly host: string | undefined;
   readonly instanceKey: string;
+  readonly environmentId: string;
   readonly development: boolean;
 }): string {
   if (input.mode === "desktop") {
@@ -34,7 +35,11 @@ export function resolveSessionCookieName(input: {
   }
 
   const instanceHash = NodeCrypto.createHash("sha256")
-    .update(input.instanceKey)
+    .update(
+      !input.development && isRemoteReachableHost(input.host)
+        ? input.environmentId
+        : input.instanceKey,
+    )
     .digest("hex")
     .slice(0, 12);
 

@@ -21,6 +21,7 @@ import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import {
@@ -472,6 +473,7 @@ function toAuthClientSession(input: Omit<AuthClientSession, "current">): AuthCli
 export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* ServerConfig.ServerConfig;
+  const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const authSessions = yield* AuthSessions.AuthSessionRepository;
   const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
@@ -482,6 +484,7 @@ export const make = Effect.gen(function* () {
     port: serverConfig.port,
     host: serverConfig.host,
     instanceKey: serverConfig.stateDir,
+    environmentId: yield* serverEnvironment.getEnvironmentId,
     development: serverConfig.devUrl !== undefined,
   } as const;
   const cookieName = resolveSessionCookieName(cookieInput);

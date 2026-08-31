@@ -4,12 +4,15 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
+import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 const makeEnvironmentAuthPolicyLayer = (
   overrides?: Partial<ServerConfig.ServerConfig["Service"]>,
 ) =>
   EnvironmentAuthPolicy.layer.pipe(
+    Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
     Layer.provide(
       Layer.effect(
         ServerConfig.ServerConfig,
