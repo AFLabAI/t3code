@@ -195,14 +195,14 @@ export const make = Effect.gen(function* () {
   });
 });
 
+export const identityLayer = Layer.effect(ServerEnvironmentIdentity, makeIdentity);
+
 /**
  * ServerEnvironment is acquired from persisted filesystem and host-process
  * state. It intentionally has no fallback Layer.succeed value: callers must
  * provide the external platform services, a ServerConfig, and the
  * ServerSecretStore backing the descriptor's publishing capability.
  */
-export const identityLayer = Layer.effect(ServerEnvironmentIdentity, makeIdentity);
-
 export const layer = Layer.effect(ServerEnvironment, make).pipe(
   Layer.provideMerge(identityLayer),
   Layer.provide(ProcessRunner.layer),
