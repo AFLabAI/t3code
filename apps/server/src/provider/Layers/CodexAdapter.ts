@@ -17,6 +17,9 @@ import {
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
   type ThreadTokenUsageSnapshot,
+  type ToolActivityIcon,
+  type ToolActivityNativeAppReference,
+  type ToolActivitySource,
   type ProviderUserInputAnswers,
   RuntimeItemId,
   RuntimeRequestId,
@@ -150,6 +153,276 @@ function trimText(value: string | undefined | null): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
+function asUnknownRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+function normalizeMcpIntentTitle(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/\s+/gu, " ");
+  if (!normalized) return undefined;
+  return normalized.length <= 80 ? normalized : `${normalized.slice(0, 79)}…`;
+}
+
+function normalizedHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 4096) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedImageUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 4096) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "data:"
+      ? url.href
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedAppId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const appId = value.trim();
+  return appId.length > 0 && appId.length <= 512 && /^[A-Za-z0-9._-]+$/u.test(appId)
+    ? appId
+    : undefined;
+}
+
+function normalizedDisplayName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const displayName = value.trim().replace(/\s+/gu, " ");
+  return displayName && displayName.length <= 160 ? displayName : undefined;
+}
+
+function normalizedSourceKeyPart(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+}
+
+function browserDisplayName(value: unknown): string | undefined {
+  const normalized = normalizedDisplayName(value)?.toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized.includes("chrome") || normalized === "chromium") return "Chrome";
+  if (normalized.includes("edge")) return "Microsoft Edge";
+  if (normalized.includes("firefox")) return "Firefox";
+  if (normalized.includes("safari")) return "Safari";
+  if (normalized.includes("arc")) return "Arc";
+  if (normalized === "iab" || normalized.includes("in-app")) return "Browser";
+  return normalizedDisplayName(value);
+}
+
+function browserNativeAppReference(name: string): ToolActivityNativeAppReference | undefined {
+  switch (name) {
+    case "Chrome":
+      return { _tag: "display-name", displayName: "Google Chrome" };
+    case "Microsoft Edge":
+    case "Firefox":
+    case "Safari":
+    case "Arc":
+      return { _tag: "display-name", displayName: name };
+    default:
+      return undefined;
+  }
+}
+
+function appDisplayNameFromId(appId: string): string | undefined {
+  const knownNames: Readonly<Record<string, string>> = {
+    "com.apple.finder": "Finder",
+    "com.apple.safari": "Safari",
+    "com.google.chrome": "Chrome",
+    "com.microsoft.edgemac": "Microsoft Edge",
+    "org.mozilla.firefox": "Firefox",
+    "company.thebrowser.browser": "Arc",
+  };
+  return knownNames[appId.toLowerCase()];
+}
+
+function nativeAppReference(value: unknown): ToolActivityNativeAppReference | undefined {
+  const app = asUnknownRecord(value);
+  if (app?.kind === "appId") {
+    const appId = normalizedAppId(app.appId);
+    return appId ? { _tag: "app-id", appId } : undefined;
+  }
+  if (app?.kind === "displayName") {
+    const displayName = normalizedDisplayName(app.displayName);
+    return displayName ? { _tag: "display-name", displayName } : undefined;
+  }
+  return undefined;
+}
+
+function invocationNativeAppReference(
+  args: Record<string, unknown> | undefined,
+): ToolActivityNativeAppReference | undefined {
+  const explicit =
+    nativeAppReference(args?.app) ??
+    nativeAppReference({ kind: "appId", appId: args?.appId }) ??
+    nativeAppReference({ kind: "displayName", displayName: args?.appName ?? args?.application });
+  if (explicit) return explicit;
+  if (typeof args?.app === "string") {
+    const displayName = normalizedDisplayName(args.app);
+    if (displayName) return { _tag: "display-name", displayName };
+  }
+  const code = typeof args?.code === "string" ? args.code : "";
+  const codeApp = /\bapp\s*:\s*["'](?<name>[^"'\r\n]{1,160})["']/u.exec(code)?.groups?.name;
+  const displayName = normalizedDisplayName(codeApp);
+  return displayName ? { _tag: "display-name", displayName } : undefined;
+}
+
+function themedLogoIcon(
+  ...records: ReadonlyArray<Record<string, unknown> | undefined>
+): ToolActivityIcon | undefined {
+  for (const record of records) {
+    const logoUrl = normalizedImageUrl(record?.logoUrl);
+    if (!logoUrl) continue;
+    const logoUrlDark = normalizedImageUrl(record?.logoUrlDark ?? record?.logoDarkUrl);
+    return {
+      _tag: "themed-logo",
+      logoUrl,
+      ...(logoUrlDark ? { logoUrlDark } : {}),
+    };
+  }
+  return undefined;
+}
+
+interface McpToolPresentation {
+  readonly toolSurface?: "browser" | "computer";
+  readonly toolIcon?: ToolActivityIcon;
+  readonly toolSource?: ToolActivitySource;
+}
+
+function mcpToolPresentation(
+  item: Extract<CodexLifecycleItem, { readonly type: "mcpToolCall" }>,
+): McpToolPresentation {
+  const result = asUnknownRecord(item.result);
+  const metadata = asUnknownRecord(result?._meta);
+  const surface = asUnknownRecord(metadata?.["codex/toolSurface"]);
+  const sourceMetadata = asUnknownRecord(metadata?.source);
+  const appContext = asUnknownRecord(item.appContext);
+  const sourceLogo = themedLogoIcon(surface, sourceMetadata, appContext);
+  if (surface?.kind === "browserUse") {
+    const screenshot = asUnknownRecord(surface.screenshot);
+    const browserUse = asUnknownRecord(metadata?.browser_use);
+    const openTabs = Array.isArray(surface.openTabs) ? surface.openTabs : [];
+    const latestOpenTab = openTabs
+      .toReversed()
+      .map(asUnknownRecord)
+      .find((tab) => normalizedHttpUrl(tab?.url) !== undefined);
+    const pageUrl =
+      normalizedHttpUrl(screenshot?.pageUrl) ??
+      normalizedHttpUrl(browserUse?.url) ??
+      normalizedHttpUrl(latestOpenTab?.url);
+    const faviconUrl =
+      normalizedImageUrl(screenshot?.faviconUrl ?? screenshot?.favIconUrl) ??
+      normalizedImageUrl(browserUse?.faviconUrl ?? browserUse?.favIconUrl) ??
+      normalizedImageUrl(latestOpenTab?.faviconUrl ?? latestOpenTab?.favIconUrl);
+    const faviconUrlDark =
+      normalizedImageUrl(screenshot?.faviconUrlDark ?? screenshot?.favIconUrlDark) ??
+      normalizedImageUrl(browserUse?.faviconUrlDark ?? browserUse?.favIconUrlDark) ??
+      normalizedImageUrl(latestOpenTab?.faviconUrlDark ?? latestOpenTab?.favIconUrlDark);
+    const name =
+      browserDisplayName(appContext?.appName) ??
+      browserDisplayName(surface.browserFamily) ??
+      browserDisplayName(surface.backend) ??
+      "Browser";
+    const nativeBrowserIcon = browserNativeAppReference(name);
+    const sourceIcon =
+      sourceLogo ??
+      (nativeBrowserIcon ? ({ _tag: "native-app", app: nativeBrowserIcon } as const) : undefined);
+    const sourceKeyPart = normalizedSourceKeyPart(name) || "browser";
+    return {
+      toolSurface: "browser",
+      ...(pageUrl
+        ? {
+            toolIcon: {
+              _tag: "website",
+              pageUrl,
+              ...(faviconUrl ? { faviconUrl } : {}),
+              ...(faviconUrlDark ? { faviconUrlDark } : {}),
+            } as const,
+          }
+        : {}),
+      toolSource: {
+        key: `browser-use:${sourceKeyPart}`,
+        name,
+        kind: name === "Browser" ? "browser" : "integration",
+        ...(sourceIcon ? { icon: sourceIcon } : {}),
+      },
+    };
+  }
+  if (surface?.kind === "computerUse") {
+    const app = nativeAppReference(surface.app);
+    const args = asUnknownRecord(item.arguments);
+    const argumentAppName =
+      normalizedDisplayName(args?.appName) ??
+      normalizedDisplayName(args?.application) ??
+      normalizedDisplayName(typeof args?.app === "string" ? args.app : undefined);
+    const name =
+      normalizedDisplayName(appContext?.appName) ??
+      argumentAppName ??
+      (app?._tag === "display-name" ? app.displayName : undefined) ??
+      (app?._tag === "app-id" ? appDisplayNameFromId(app.appId) : undefined) ??
+      "Computer Use";
+    const sourceIcon = sourceLogo ?? (app ? ({ _tag: "native-app", app } as const) : undefined);
+    const sourceKey = app
+      ? app._tag === "app-id"
+        ? `native-app:${app.appId.toLowerCase()}`
+        : `native-app-name:${normalizedSourceKeyPart(app.displayName)}`
+      : "computer-use";
+    return {
+      toolSurface: "computer",
+      ...(app ? { toolIcon: { _tag: "native-app", app } as const } : {}),
+      toolSource: {
+        key: sourceKey,
+        name,
+        kind: "computer",
+        ...(sourceIcon ? { icon: sourceIcon } : {}),
+      },
+    };
+  }
+
+  const args = asUnknownRecord(item.arguments);
+  const code = typeof args?.code === "string" ? args.code : "";
+  if (
+    /\b(?:setupBrowserRuntime|agent\.browsers|browser\.tabs|(?:tab|chrome|edge|iab)\.)/u.test(code)
+  ) {
+    return {
+      toolSurface: "browser",
+      toolSource: { key: "browser-use:browser", name: "Browser", kind: "browser" },
+    };
+  }
+  if (/(?:@oai\/sky|\bsky\.)/u.test(code)) {
+    const app = invocationNativeAppReference(args);
+    const name =
+      (app?._tag === "display-name" ? app.displayName : undefined) ??
+      (app?._tag === "app-id" ? appDisplayNameFromId(app.appId) : undefined) ??
+      "Computer Use";
+    return {
+      toolSurface: "computer",
+      ...(app ? { toolIcon: { _tag: "native-app", app } as const } : {}),
+      toolSource: app
+        ? {
+            key:
+              app._tag === "app-id"
+                ? `native-app:${app.appId.toLowerCase()}`
+                : `native-app-name:${normalizedSourceKeyPart(app.displayName)}`,
+            name,
+            kind: "computer",
+            icon: { _tag: "native-app", app },
+          }
+        : { key: "computer-use", name: "Computer Use", kind: "computer" },
+    };
+  }
+  return {};
+}
+
 const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
 
 function isFatalCodexProcessStderrMessage(message: string): boolean {
@@ -239,8 +512,86 @@ function toCanonicalItemType(raw: string | undefined | null): CanonicalItemType 
   return "unknown";
 }
 
-function itemTitle(itemType: CanonicalItemType, item?: CodexLifecycleItem): string | undefined {
+function boundedToolArgument(value: unknown): string | undefined {
+  const normalized = typeof value === "string" ? value.trim().replace(/\s+/gu, " ") : "";
+  if (!normalized) return undefined;
+  return normalized.length <= 48 ? normalized : `${normalized.slice(0, 47)}…`;
+}
+
+function normalizedMcpToolName(value: string): string {
+  return (
+    value
+      .split(/__|[./:]/u)
+      .at(-1)
+      ?.trim() ?? value.trim()
+  );
+}
+
+function computerUseToolTitle(
+  item: Extract<CodexLifecycleItem, { readonly type: "mcpToolCall" }>,
+  presentation: McpToolPresentation,
+): string | undefined {
+  if (normalizeItemType(item.server) !== "computer use") return undefined;
+  const tool = normalizeItemType(normalizedMcpToolName(item.tool)).replace(/ /gu, "_");
+  const inProgress = item.status === "inProgress";
+  const args = asUnknownRecord(item.arguments);
+  const appName =
+    (presentation.toolSource?.kind === "computer" && presentation.toolSource.name !== "Computer Use"
+      ? presentation.toolSource.name
+      : undefined) ??
+    normalizedDisplayName(args?.appName) ??
+    normalizedDisplayName(args?.application) ??
+    normalizedDisplayName(typeof args?.app === "string" ? args.app : undefined);
+  const withApp = (label: string) => (appName ? `${label} in ${appName}` : label);
+  const withDetail = (label: string, value: unknown) => {
+    const detail = boundedToolArgument(value);
+    return `${label}${detail ? ` “${detail}”` : ""}${appName ? ` in ${appName}` : ""}`;
+  };
+
+  switch (tool) {
+    case "list_apps":
+      return inProgress ? "Listing apps" : "Listed apps";
+    case "click":
+      return withApp(inProgress ? "Clicking" : "Clicked");
+    case "drag":
+      return withApp(inProgress ? "Dragging" : "Dragged");
+    case "get_app_state":
+    case "get_state":
+      return appName
+        ? `${inProgress ? "Looking at" : "Looked at"} ${appName}`
+        : inProgress
+          ? "Looking at the screen"
+          : "Looked at the screen";
+    case "perform_accessibility_action":
+    case "perform_secondary_action":
+      return inProgress ? "Performing accessibility action" : "Performed accessibility action";
+    case "press_key":
+      return withApp(inProgress ? "Pressing key" : "Pressed key");
+    case "scroll": {
+      const direction = boundedToolArgument(args?.direction)?.toLowerCase();
+      return withApp(`${inProgress ? "Scrolling" : "Scrolled"}${direction ? ` ${direction}` : ""}`);
+    }
+    case "set_value":
+      return withDetail(inProgress ? "Setting to" : "Set to", args?.value);
+    case "type_text":
+      return withDetail(inProgress ? "Typing text" : "Typed text", args?.text ?? args?.value);
+    default:
+      return undefined;
+  }
+}
+
+function itemTitle(
+  itemType: CanonicalItemType,
+  item?: CodexLifecycleItem,
+  presentation: McpToolPresentation = {},
+): string | undefined {
   if (itemType === "mcp_tool_call" && item?.type === "mcpToolCall") {
+    if (normalizedMcpToolName(item.tool) === "js") {
+      const intentTitle = normalizeMcpIntentTitle(asUnknownRecord(item.arguments)?.title);
+      if (intentTitle) return intentTitle;
+    }
+    const computerUseTitle = computerUseToolTitle(item, presentation);
+    if (computerUseTitle) return computerUseTitle;
     return `${item.server} · ${item.tool}`;
   }
   switch (itemType) {
@@ -481,6 +832,8 @@ function mapItemLifecycle(
   }
 
   const detail = itemDetail(itemType, item);
+  const toolPresentation = item.type === "mcpToolCall" ? mcpToolPresentation(item) : {};
+  const title = itemTitle(itemType, item, toolPresentation);
   const status =
     lifecycle === "item.started"
       ? "inProgress"
@@ -496,8 +849,9 @@ function mapItemLifecycle(
     payload: {
       itemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(itemType, item) ? { title: itemTitle(itemType, item) } : {}),
+      ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
+      ...toolPresentation,
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };

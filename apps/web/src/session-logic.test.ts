@@ -1229,7 +1229,15 @@ describe("deriveWorkLogEntries", () => {
       tool: "preview_status",
       arguments: {},
       status: "completed",
-      result: { content: [{ type: "text", text: "attached" }] },
+      result: {
+        _meta: {
+          "codex/toolSurface": {
+            kind: "browserUse",
+            screenshot: { pageUrl: "https://example.com/checkout" },
+          },
+        },
+        content: [{ type: "text", text: "attached" }],
+      },
     };
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1239,6 +1247,7 @@ describe("deriveWorkLogEntries", () => {
         payload: {
           itemType: "mcp_tool_call",
           title: "t3-code · preview_status",
+          toolSurface: "browser",
           data: { item },
         },
       }),
@@ -1246,6 +1255,16 @@ describe("deriveWorkLogEntries", () => {
 
     const [entry] = deriveWorkLogEntries(activities);
     expect(entry?.toolTitle).toBe("t3-code · preview_status");
+    expect(entry?.toolSurface).toBe("browser");
+    expect(entry?.toolIcon).toEqual({
+      _tag: "website",
+      pageUrl: "https://example.com/checkout",
+    });
+    expect(entry?.toolSource).toEqual({
+      key: "browser-use:browser",
+      name: "Browser",
+      kind: "browser",
+    });
     expect(entry?.toolData).toEqual(item);
   });
 
@@ -1265,6 +1284,7 @@ describe("deriveWorkLogEntries", () => {
         payload: {
           itemType: "mcp_tool_call",
           toolCallId: "call-1",
+          toolSurface: "browser",
           data: { item },
         },
       }),
@@ -1275,6 +1295,7 @@ describe("deriveWorkLogEntries", () => {
         payload: {
           itemType: "mcp_tool_call",
           toolCallId: "call-1",
+          toolIcon: { _tag: "website", pageUrl: "https://example.com/result" },
         },
       }),
     ];
@@ -1282,6 +1303,11 @@ describe("deriveWorkLogEntries", () => {
     const [entry] = deriveWorkLogEntries(activities);
     expect(entry?.toolData).toEqual(item);
     expect(entry?.toolCallId).toBe("call-1");
+    expect(entry?.toolSurface).toBe("browser");
+    expect(entry?.toolIcon).toEqual({
+      _tag: "website",
+      pageUrl: "https://example.com/result",
+    });
   });
 
   it("collapses interleaved lifecycle updates by tool call id", () => {

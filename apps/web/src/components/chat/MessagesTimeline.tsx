@@ -4,6 +4,7 @@ import {
   type MessageId,
   type ScopedThreadRef,
   type ServerProviderSkill,
+  type ToolActivityIcon,
   type TurnId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -20,6 +21,7 @@ const NOOP_OPEN_AGENTS = () => {};
 const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 import {
   createContext,
   Fragment,
@@ -127,6 +129,7 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { useAssetUrlState } from "../../assets/assetUrls";
 
 import {
   buildInlineTerminalContextText,
@@ -1451,10 +1454,12 @@ function ActivityShimmerOverlay({ children }: { children: ReactNode }) {
 function LiveActivityRow({
   label,
   iconName,
+  toolIcon,
   failed = false,
 }: {
   label: string;
   iconName?: WorkEntryIconName;
+  toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean;
 }) {
   return (
@@ -1462,11 +1467,18 @@ function LiveActivityRow({
       <LiveActivityContent
         label={label}
         iconName={iconName}
+        toolIcon={toolIcon}
         failed={failed}
         announceFailure={failed}
       />
       <ActivityShimmerOverlay>
-        <LiveActivityContent label={label} iconName={iconName} failed={failed} highlighted />
+        <LiveActivityContent
+          label={label}
+          iconName={iconName}
+          toolIcon={toolIcon}
+          failed={failed}
+          highlighted
+        />
       </ActivityShimmerOverlay>
     </div>
   );
@@ -1475,12 +1487,14 @@ function LiveActivityRow({
 function LiveActivityContent({
   label,
   iconName,
+  toolIcon,
   failed = false,
   announceFailure = false,
   highlighted = false,
 }: {
   label: string;
   iconName: WorkEntryIconName | undefined;
+  toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean;
   announceFailure?: boolean;
   highlighted?: boolean;
@@ -1504,8 +1518,9 @@ function LiveActivityContent({
           role={announceFailure ? "img" : undefined}
           aria-label={announceFailure ? "Tool call failed" : undefined}
         >
-          <WorkEntryIconSvg
-            name={resolvedIconName}
+          <ToolActivityIconView
+            icon={failed ? undefined : toolIcon}
+            fallbackName={resolvedIconName}
             className={cn("block size-4 shrink-0 stroke-[1.8]", !highlighted && "opacity-70")}
           />
         </span>
@@ -1529,12 +1544,18 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
     >
       {row.active ? (
-        <LiveActivityRow label={label} iconName={workEntryIconName(row.entry)} failed={failed} />
+        <LiveActivityRow
+          label={label}
+          iconName={workEntryIconName(row.entry)}
+          toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
+          failed={failed}
+        />
       ) : (
         <div className="min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed">
           <LiveActivityContent
             label={label}
             iconName={workEntryIconName(row.entry)}
+            toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
             failed={failed}
             announceFailure={failed}
           />
@@ -1587,8 +1608,9 @@ function WorkGroupToggleTimelineRow({
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
     >
       <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
-        <WorkEntryIconSvg
-          name={toolGroupSummaryIconName(row.summaryKind)}
+        <ToolActivityIconView
+          icon={row.toolIcon}
+          fallbackName={row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)}
           className="size-4 shrink-0 stroke-[1.8] opacity-70"
         />
       </span>
@@ -2119,8 +2141,10 @@ function formatWorkingTimerNow(startIso: string): string {
 
 type WorkEntryIconName =
   | "bot"
+  | "browser"
   | "check"
   | "circle-alert"
+  | "computer"
   | "eye"
   | "globe"
   | "hammer"
@@ -2132,14 +2156,164 @@ type WorkEntryIconName =
   | "x"
   | "zap";
 
+function BrowserAppIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M8.5 19H7.2C4.4 19 3 17.5 3 14.6V7.4C3 4.5 4.5 3 7.4 3h8.2C18.5 3 20 4.5 20 7.4v2.4" />
+      <circle cx="7.4" cy="7.2" r="0.75" fill="currentColor" stroke="none" />
+      <path d="M11.2 7.2h4.3" />
+      <path d="m12.4 11.4 7.5 2.6-3.4 1.6-1.5 3.6z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function ComputerUseAppIcon({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <defs>
+        <linearGradient id="computer-use-app-gradient" x1="2" y1="2" x2="22" y2="22">
+          <stop offset="0" stopColor="#00dff0" />
+          <stop offset="0.42" stopColor="#3b9cff" />
+          <stop offset="0.72" stopColor="#b044f5" />
+          <stop offset="1" stopColor="#ff78b6" />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="22" height="22" rx="5" fill="url(#computer-use-app-gradient)" />
+      <path
+        d="m7.2 6.2 10.5 4.1-4.2 2.1-2 4.7z"
+        fill="white"
+        stroke="#315cff"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ToolActivityIconView({
+  icon,
+  fallbackName,
+  className,
+}: {
+  icon: ToolActivityIcon | undefined;
+  fallbackName: WorkEntryIconName;
+  className: string;
+}) {
+  const { resolvedTheme } = use(TimelineRowCtx);
+  if (!icon) return <WorkEntryIconSvg name={fallbackName} className={className} />;
+  if (icon._tag === "website") {
+    const src = toolActivityFaviconUrl(icon, resolvedTheme, 32);
+    return src ? (
+      <ToolActivityImageIcon
+        key={src}
+        src={src}
+        fallbackName={fallbackName}
+        className={className}
+      />
+    ) : (
+      <WorkEntryIconSvg name={fallbackName} className={className} />
+    );
+  }
+  if (icon._tag === "themed-logo") {
+    const src = resolvedTheme === "dark" ? (icon.logoUrlDark ?? icon.logoUrl) : icon.logoUrl;
+    return (
+      <ToolActivityImageIcon
+        key={src}
+        src={src}
+        fallbackName={fallbackName}
+        className={className}
+      />
+    );
+  }
+  return (
+    <NativeAppToolActivityIcon app={icon.app} fallbackName={fallbackName} className={className} />
+  );
+}
+
+function NativeAppToolActivityIcon({
+  app,
+  fallbackName,
+  className,
+}: {
+  app: Extract<ToolActivityIcon, { readonly _tag: "native-app" }>["app"];
+  fallbackName: WorkEntryIconName;
+  className: string;
+}) {
+  const { activeThreadEnvironmentId } = use(TimelineRowCtx);
+  const asset = useAssetUrlState(activeThreadEnvironmentId, {
+    _tag: "native-app-icon",
+    app,
+  });
+  return asset._tag === "Success" ? (
+    <ToolActivityImageIcon
+      key={asset.url}
+      src={asset.url}
+      fallbackName={fallbackName}
+      className={className}
+    />
+  ) : (
+    <WorkEntryIconSvg name={fallbackName} className={className} />
+  );
+}
+
+function ToolActivityImageIcon({
+  src,
+  fallbackName,
+  className,
+}: {
+  src: string;
+  fallbackName: WorkEntryIconName;
+  className: string;
+}) {
+  const [status, setStatus] = useState<"loading" | "loaded" | "failed">("loading");
+  return (
+    <>
+      {status !== "loaded" ? <WorkEntryIconSvg name={fallbackName} className={className} /> : null}
+      {status !== "failed" ? (
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className={cn(
+            className,
+            "rounded-[3px] bg-background object-contain opacity-100",
+            status !== "loaded" && "hidden",
+          )}
+          onLoad={() => {
+            setStatus("loaded");
+          }}
+          onError={() => {
+            setStatus("failed");
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function WorkEntryIconSvg({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
     case "bot":
       return <BotIcon className={className} aria-hidden />;
+    case "browser":
+      return <BrowserAppIcon className={className} />;
     case "check":
       return <CheckIcon className={className} aria-hidden />;
     case "circle-alert":
       return <CircleAlertIcon className={className} aria-hidden />;
+    case "computer":
+      return <ComputerUseAppIcon className={className} />;
     case "eye":
       return <EyeIcon className={className} aria-hidden />;
     case "globe":
@@ -2274,6 +2448,8 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   ) {
     return "message-circle";
   }
+  if (workEntry.toolSurface) return workEntry.toolSurface;
+
   const action = toolGroupAction(workEntry);
   if (action !== "other") return toolGroupSummaryIconName(action);
 
@@ -2461,7 +2637,6 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       : workLogEntryIsToolLike(workEntry)
         ? "text-secondary-label"
         : "text-foreground/80";
-  const showEntryIcon = !isExpandedToolGroupEntry || showWarningIndicator || showFailedIndicator;
   const accessibleDisplayText = showFailedIndicator
     ? `${displayText}, tool call failed`
     : displayText;
@@ -2493,13 +2668,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     >
       <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
         <span
-          className={cn(iconWrapperClass, !showEntryIcon && "invisible")}
+          className={iconWrapperClass}
           role={showFailedIndicator ? "img" : undefined}
           aria-label={showFailedIndicator ? "Tool call failed" : undefined}
-          aria-hidden={!showEntryIcon}
+          aria-hidden={showFailedIndicator ? undefined : true}
         >
-          <WorkEntryIconSvg
-            name={entryIconName}
+          <ToolActivityIconView
+            icon={
+              showWarningIndicator || showFailedIndicator
+                ? undefined
+                : (workEntry.toolIcon ?? workEntry.toolSource?.icon)
+            }
+            fallbackName={entryIconName}
             className="block size-4 shrink-0 stroke-[1.8] opacity-70"
           />
         </span>

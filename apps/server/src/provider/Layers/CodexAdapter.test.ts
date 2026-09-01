@@ -802,6 +802,195 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("presents browser and computer-use calls with Codex-style titles and sources", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 3)).pipe(
+        Effect.forkChild,
+      );
+
+      yield* runtime.emit({
+        id: asEventId("evt-computer-start"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/started",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("computer_1"),
+        payload: {
+          startedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "mcpToolCall",
+            id: "computer_1",
+            server: "node_repl",
+            tool: "js",
+            arguments: {
+              code: 'await sky.click({ app: "Finder", x: 10, y: 20 })',
+              title: "  Open   the Finder menu  ",
+            },
+            durationMs: null,
+            error: null,
+            result: {
+              _meta: {
+                "codex/toolSurface": {
+                  kind: "computerUse",
+                  app: { kind: "appId", appId: "com.apple.finder" },
+                },
+              },
+              content: [],
+            },
+            status: "inProgress",
+          },
+        },
+      });
+      yield* runtime.emit({
+        id: asEventId("evt-browser-complete"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("browser_1"),
+        payload: {
+          completedAtMs: 1_778_000_001_000,
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "mcpToolCall",
+            id: "browser_1",
+            server: "node_repl",
+            tool: "js",
+            arguments: { code: "await tab.playwright.domSnapshot()", title: "Inspect checkout" },
+            durationMs: 12,
+            error: null,
+            result: {
+              _meta: {
+                "codex/toolSurface": {
+                  kind: "browserUse",
+                  backend: "chrome",
+                  screenshot: {
+                    pageUrl: "https://www.mathworks.com/help/matlab/",
+                    faviconUrl: "https://www.mathworks.com/favicon.ico",
+                    faviconUrlDark: "https://www.mathworks.com/favicon-dark.ico",
+                  },
+                },
+              },
+              content: [],
+            },
+            status: "completed",
+          },
+        },
+      });
+      yield* runtime.emit({
+        id: asEventId("evt-computer-use-complete"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:02.000Z",
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("computer_2"),
+        payload: {
+          completedAtMs: 1_778_000_002_000,
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "mcpToolCall",
+            id: "computer_2",
+            server: "computer-use",
+            tool: "type_text",
+            arguments: { text: "Hello world", app: "TextEdit" },
+            durationMs: 12,
+            error: null,
+            result: {
+              _meta: {
+                "codex/toolSurface": {
+                  kind: "computerUse",
+                  app: { kind: "displayName", displayName: "TextEdit" },
+                },
+              },
+              content: [],
+            },
+            status: "completed",
+          },
+        },
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.deepStrictEqual(
+        events.map((event) => ({
+          type: event.type,
+          title: "title" in event.payload ? event.payload.title : undefined,
+          toolSurface: "toolSurface" in event.payload ? event.payload.toolSurface : undefined,
+          toolIcon: "toolIcon" in event.payload ? event.payload.toolIcon : undefined,
+          toolSource: "toolSource" in event.payload ? event.payload.toolSource : undefined,
+        })),
+        [
+          {
+            type: "item.started",
+            title: "Open the Finder menu",
+            toolSurface: "computer",
+            toolIcon: {
+              _tag: "native-app",
+              app: { _tag: "app-id", appId: "com.apple.finder" },
+            },
+            toolSource: {
+              key: "native-app:com.apple.finder",
+              name: "Finder",
+              kind: "computer",
+              icon: {
+                _tag: "native-app",
+                app: { _tag: "app-id", appId: "com.apple.finder" },
+              },
+            },
+          },
+          {
+            type: "item.completed",
+            title: "Inspect checkout",
+            toolSurface: "browser",
+            toolIcon: {
+              _tag: "website",
+              pageUrl: "https://www.mathworks.com/help/matlab/",
+              faviconUrl: "https://www.mathworks.com/favicon.ico",
+              faviconUrlDark: "https://www.mathworks.com/favicon-dark.ico",
+            },
+            toolSource: {
+              key: "browser-use:chrome",
+              name: "Chrome",
+              kind: "integration",
+              icon: {
+                _tag: "native-app",
+                app: { _tag: "display-name", displayName: "Google Chrome" },
+              },
+            },
+          },
+          {
+            type: "item.completed",
+            title: "Typed text “Hello world” in TextEdit",
+            toolSurface: "computer",
+            toolIcon: {
+              _tag: "native-app",
+              app: { _tag: "display-name", displayName: "TextEdit" },
+            },
+            toolSource: {
+              key: "native-app-name:textedit",
+              name: "TextEdit",
+              kind: "computer",
+              icon: {
+                _tag: "native-app",
+                app: { _tag: "display-name", displayName: "TextEdit" },
+              },
+            },
+          },
+        ],
+      );
+    }),
+  );
+
   it.effect("preserves failed and declined outcomes on completed tool items", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

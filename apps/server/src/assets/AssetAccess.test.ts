@@ -239,6 +239,22 @@ describe("AssetAccess", () => {
       });
     }).pipe(Effect.provide(testLayer)),
   );
+  it.effect("issues signed native application icon capabilities", () =>
+    Effect.gen(function* () {
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "native-app-icon",
+          app: { _tag: "app-id", appId: "com.example.Editor" },
+        },
+      });
+
+      expect(result.relativeUrl).toMatch(
+        new RegExp(`^${ASSET_ROUTE_PREFIX}/[^/]+/native-app-icon\\.png$`, "u"),
+      );
+      expect(result.expiresAt).toBeGreaterThan(0);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("issues project favicon capabilities with a signed fallback", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
