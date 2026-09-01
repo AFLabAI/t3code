@@ -34,6 +34,7 @@ describe("usage pricing", () => {
   it("prices Claude Fable 5.1 before LiteLLM publishes it", () => {
     const table = parseRateTable({});
 
+    expect(table.size).toBe(0);
     expect(lookupRate(table, "claude-fable-5-1")).toEqual({
       inputCostPerToken: 10e-6,
       outputCostPerToken: 50e-6,

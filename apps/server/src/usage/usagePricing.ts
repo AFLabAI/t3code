@@ -84,12 +84,6 @@ export function parseRateTable(document: unknown): RateTable {
     });
   }
 
-  // Same-day model launches can precede LiteLLM's rate-table update. Keep a
-  // documented canonical fallback until the remote table publishes its own.
-  for (const [key, rate] of BUILT_IN_RATES) {
-    if (!table.has(key)) table.set(key, rate);
-  }
-
   // `null` marks a bare name claimed at conflicting rates: no alias for it.
   const aliasCandidates = new Map<string, ModelRate | null>();
   for (const [key, rate] of table) {
@@ -157,7 +151,9 @@ export function lookupRate(table: RateTable, model: string): ModelRate | null {
   const key = normalizeRateKey(model);
   const bareName = bareModelName(key);
   if (bareName.length === 0 || UNPRICEABLE_MODELS.has(bareName)) return null;
-  return table.get(key) ?? null;
+  // Same-day model launches can precede LiteLLM's rate-table update. Keep the
+  // remote table authoritative while filling missing canonical rates.
+  return table.get(key) ?? BUILT_IN_RATES.get(key) ?? null;
 }
 
 export interface PricedUsage {
