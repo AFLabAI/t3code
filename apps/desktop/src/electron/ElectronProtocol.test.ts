@@ -113,6 +113,71 @@ describe("ElectronProtocol", () => {
     }).pipe(Effect.provide(ElectronProtocol.layer)),
   );
 
+  it.effect("forwards video byte ranges and streams the response without buffering the file", () =>
+    Effect.gen(function* () {
+      let handler: ((request: Request) => Promise<Response>) | undefined;
+      let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+      handleMock.mockImplementation((_scheme, nextHandler) => {
+        handler = nextHandler;
+      });
+      netFetchMock.mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(nextController) {
+              controller = nextController;
+              controller.enqueue(new Uint8Array([2, 3]));
+            },
+          }),
+          {
+            status: 206,
+            headers: {
+              "content-type": "video/mp4",
+              "content-range": "bytes 2-5/10",
+              "accept-ranges": "bytes",
+            },
+          },
+        ),
+      );
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const protocol = yield* ElectronProtocol.ElectronProtocol;
+          yield* protocol.registerDesktopProtocol({
+            scheme: "t3code",
+            targetOrigin: new URL("http://127.0.0.1:3773/"),
+            backendOrigin: new URL("http://127.0.0.1:3773/"),
+            clerkFrontendApiHostname: undefined,
+          });
+          const response = yield* Effect.promise(() =>
+            handler!(
+              new Request("t3code://app/api/assets/signed-token/recording.mp4", {
+                headers: { range: "bytes=2-5" },
+              }),
+            ),
+          );
+          const forwardedHeaders = new Headers(netFetchMock.mock.calls[0]?.[1]?.headers);
+          assert.equal(forwardedHeaders.get("range"), "bytes=2-5");
+          assert.equal(response.status, 206);
+          assert.equal(response.headers.get("content-range"), "bytes 2-5/10");
+          assert.equal(response.headers.get("accept-ranges"), "bytes");
+          assert.equal(response.headers.get("content-type"), "video/mp4");
+          const reader = response.body!.getReader();
+          assert.deepEqual(yield* Effect.promise(() => reader.read()), {
+            done: false,
+            value: new Uint8Array([2, 3]),
+          });
+          controller!.enqueue(new Uint8Array([4, 5]));
+          controller!.close();
+          assert.deepEqual(yield* Effect.promise(() => reader.read()), {
+            done: false,
+            value: new Uint8Array([4, 5]),
+          });
+          assert.isTrue((yield* Effect.promise(() => reader.read())).done);
+        }),
+      );
+    }).pipe(Effect.provide(ElectronProtocol.layer)),
+  );
+
   it.effect("retries transient renderer target failures", () =>
     Effect.gen(function* () {
       let handler: ((request: Request) => Promise<Response>) | undefined;
@@ -225,7 +290,7 @@ describe("ElectronProtocol", () => {
       "http:",
       "https:",
     ]);
-    assert.deepEqual(directives["media-src"], ["'self'", "t3code:", "blob:"]);
+    assert.deepEqual(directives["media-src"], ["'self'", "t3code:", "blob:", "http:", "https:"]);
     assert.deepEqual(directives["font-src"], ["'self'", "t3code:", "data:"]);
   });
 });

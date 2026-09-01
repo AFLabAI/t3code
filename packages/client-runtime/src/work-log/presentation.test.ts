@@ -58,7 +58,7 @@ describe("resolveViewedImageAsset", () => {
       }),
     ).toEqual({
       resource: {
-        _tag: "workspace-file",
+        _tag: "media-file",
         threadId,
         path: "/workspace/screens/logo.svg",
       },
@@ -66,5 +66,18 @@ describe("resolveViewedImageAsset", () => {
       srcFragment: "#mark",
     });
     expect(resolveViewedImageAsset("https://example.com/logo.png", { threadId })).toBeNull();
+  });
+
+  it("loads viewed images outside the workspace without copying them into attachments", () => {
+    expect(
+      resolveViewedImageAsset("file:///tmp/screenshot%20one.png", {
+        threadId,
+        workspaceRoot: "/workspace",
+      }),
+    ).toEqual({
+      resource: { _tag: "media-file", threadId, path: "/tmp/screenshot one.png" },
+      alt: "screenshot one.png",
+      srcFragment: "",
+    });
   });
 });

@@ -4,7 +4,10 @@ import type {
   ResolvedKeybindingsConfig,
   ScopedThreadRef,
 } from "@t3tools/contracts";
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import {
+  isWorkspaceImagePreviewPath,
+  isWorkspaceVideoPreviewPath,
+} from "@t3tools/shared/filePreview";
 import { VirtualizedFile, type SelectedLineRange } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
 import { EditProvider, File, type FileOptions, Virtualizer } from "@pierre/diffs/react";
@@ -165,6 +168,76 @@ function WorkspaceImagePreview(props: {
         src={imageUrl}
         alt={props.alt}
         onError={() => setFailedUrl(imageUrl)}
+      />
+    </div>
+  ) : (
+    <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+      <LoaderCircle className="size-5 animate-spin" />
+    </div>
+  );
+}
+
+function WorkspaceVideoPreview(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef;
+  readonly absolutePath: string;
+  readonly name: string;
+  readonly workspaceMutationId: string | null;
+}) {
+  const assetUrl = useAssetUrlState(props.environmentId, {
+    _tag: "media-file",
+    threadId: props.threadRef.threadId,
+    path: props.absolutePath,
+  });
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const revisionSuffix =
+    props.workspaceMutationId === null
+      ? ""
+      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
+  const latestUrl = assetUrl._tag === "Success" ? `${assetUrl.url}${revisionSuffix}` : null;
+  // Renewing a signed URL must not reset a video that is already playing.
+  const videoUrl = playbackUrl ?? latestUrl;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const pauseWhenHidden = () => {
+      if (document.hidden) video?.pause();
+    };
+    document.addEventListener("visibilitychange", pauseWhenHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", pauseWhenHidden);
+      video?.pause();
+    };
+  }, [videoUrl]);
+
+  if (
+    (assetUrl._tag === "Failure" && videoUrl === null) ||
+    (videoUrl !== null && failedUrl === videoUrl)
+  ) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
+        Unable to load video. The file may be missing or its format unsupported.
+      </div>
+    );
+  }
+
+  return videoUrl !== null ? (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4">
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        aria-label={props.name}
+        controls
+        playsInline
+        preload="none"
+        className="aspect-video max-h-full w-full max-w-5xl bg-black object-contain"
+        onPlay={() => setPlaybackUrl(videoUrl)}
+        onError={() => {
+          if (latestUrl !== null && videoUrl !== latestUrl) setPlaybackUrl(null);
+          else setFailedUrl(videoUrl);
+        }}
       />
     </div>
   ) : (
@@ -791,8 +864,10 @@ export default function FilePreviewPanel({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
-  const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
-  const file = useProjectFileQuery(environmentId, cwd, relativePath, !isImage);
+  const isVideo = relativePath !== null && isWorkspaceVideoPreviewPath(relativePath);
+  const isImage = relativePath !== null && !isVideo && isWorkspaceImagePreviewPath(relativePath);
+  const isMedia = isImage || isVideo;
+  const file = useProjectFileQuery(environmentId, cwd, relativePath, !isMedia);
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
@@ -816,7 +891,10 @@ export default function FilePreviewPanel({
     (revealLine === null ||
       (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId));
   const canOpenInBrowser =
-    relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
+    relativePath !== null &&
+    !isVideo &&
+    isPreviewSupportedInRuntime() &&
+    isBrowserPreviewFile(relativePath);
   const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
   const breadcrumbs = useMemo(
     () => (relativePath ? fileBreadcrumbs(projectName, relativePath) : []),
@@ -824,7 +902,7 @@ export default function FilePreviewPanel({
   );
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
   useWorkspaceMutationRefresh({
-    enabled: relativePath !== null && !isImage && !selectedFilePending,
+    enabled: relativePath !== null && !isMedia && !selectedFilePending,
     mutationId: workspaceMutationId,
     refresh: file.refresh,
     resourceKey: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
@@ -999,7 +1077,7 @@ export default function FilePreviewPanel({
           </Tooltip>
         </div>
       ) : null}
-      {relativePath && file.data?.truncated ? (
+      {relativePath && !isMedia && file.data?.truncated ? (
         <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
           Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
         </div>
@@ -1011,7 +1089,16 @@ export default function FilePreviewPanel({
             relativePath ? "flex" : "hidden",
           )}
         >
-          {relativePath && isImage && absolutePath ? (
+          {relativePath && isVideo && absolutePath ? (
+            <WorkspaceVideoPreview
+              key={`${environmentId}:${absolutePath}`}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              absolutePath={absolutePath}
+              name={relativePath}
+              workspaceMutationId={workspaceMutationId}
+            />
+          ) : relativePath && isImage && absolutePath ? (
             <WorkspaceImagePreview
               key={absolutePath}
               environmentId={environmentId}
@@ -1099,7 +1186,7 @@ export default function FilePreviewPanel({
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
               workspaceMutationId={workspaceMutationId}
-              {...(relativePath && !isImage ? { onRefreshSelectedFile: file.refresh } : {})}
+              {...(relativePath && !isMedia ? { onRefreshSelectedFile: file.refresh } : {})}
             />
           </aside>
         ) : null}

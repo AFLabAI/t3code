@@ -106,7 +106,7 @@ describe("ChatMarkdown workspace images", () => {
 
     expect(testState.resources).toEqual([
       {
-        _tag: "workspace-file",
+        _tag: "media-file",
         threadId: threadRef.threadId,
         path: expectedPath,
       },
@@ -126,14 +126,14 @@ describe("ChatMarkdown workspace images", () => {
 
     expect(testState.resources).toEqual([
       {
-        _tag: "workspace-file",
+        _tag: "media-file",
         threadId: threadRef.threadId,
         path: "C:\\Users\\shawn\\project\\.t3\\workspace-image.svg",
       },
-      { _tag: "workspace-file", threadId: threadRef.threadId, path: imagePath },
-      { _tag: "workspace-file", threadId: threadRef.threadId, path: imagePath },
+      { _tag: "media-file", threadId: threadRef.threadId, path: imagePath },
+      { _tag: "media-file", threadId: threadRef.threadId, path: imagePath },
       {
-        _tag: "workspace-file",
+        _tag: "media-file",
         threadId: threadRef.threadId,
         path: "\\\\server\\share\\workspace-image.svg",
       },
@@ -149,7 +149,7 @@ describe("ChatMarkdown workspace images", () => {
 
     expect(testState.resources).toEqual([
       {
-        _tag: "workspace-file",
+        _tag: "media-file",
         threadId: threadRef.threadId,
         path: "D:/screens/workspace-image.svg",
       },

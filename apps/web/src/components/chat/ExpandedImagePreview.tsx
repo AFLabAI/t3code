@@ -1,15 +1,98 @@
 import type { ComposerFileAttachment } from "../../composerDraftStore";
 import { type ChatImageAttachment, isVideoAttachment } from "../../types";
+import type {
+  AssetCreateUrlResult,
+  AssetResource,
+  EnvironmentId,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
+import {
+  classifyMarkdownImageSource,
+  markdownImageSourceFragment,
+} from "@t3tools/client-runtime/markdown-images";
+import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+import {
+  squashAtomCommandFailure,
+  type AtomCommandResult,
+} from "@t3tools/client-runtime/state/runtime";
+import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
 
 export interface ExpandedImageItem {
   src: string;
   name: string;
   type?: "video";
+  autoPlay?: boolean;
 }
 
 export interface ExpandedImagePreview {
   images: ExpandedImageItem[];
   index: number;
+}
+
+/** Resolves a chat media reference on its owning environment, without downloading its bytes. */
+export async function resolveMarkdownMediaPreview(input: {
+  source: string;
+  resolvedFilePath?: string | undefined;
+  cwd?: string | undefined;
+  threadRef?: ScopedThreadRef | undefined;
+  httpBaseUrl?: string | undefined;
+  createAssetUrl: (input: {
+    environmentId: EnvironmentId;
+    input: { resource: AssetResource };
+  }) => Promise<AtomCommandResult<AssetCreateUrlResult, unknown>>;
+}): Promise<ExpandedImagePreview | null> {
+  const source =
+    input.resolvedFilePath === undefined
+      ? classifyMarkdownImageSource(input.source, input.cwd)
+      : { _tag: "WorkspaceFile" as const, path: input.resolvedFilePath };
+  if (source._tag === "Blocked") return null;
+
+  const path =
+    source._tag === "Direct"
+      ? source.uri.split(/[?#]/, 1)[0]!
+      : source.path.replace(/:\d+(?::\d+)?$/, "");
+  const name = path.split(/[\\/]/).at(-1) ?? "";
+  const extensionIndex = name.lastIndexOf(".");
+  const fileMimeType =
+    extensionIndex < 0 ? null : mediaMimeTypeFromExtension(name.slice(extensionIndex));
+  const kind =
+    source._tag === "Direct"
+      ? mediaKindFromPath(source.uri)
+      : fileMimeType === null
+        ? null
+        : fileMimeType.startsWith("video/")
+          ? "video"
+          : "image";
+  if (kind === null) return null;
+
+  let src: string;
+  if (source._tag === "Direct") {
+    src = source.uri;
+  } else {
+    if (!input.threadRef || !input.httpBaseUrl) {
+      throw new Error("Reconnect to this environment and open the media again.");
+    }
+    const result = await input.createAssetUrl({
+      environmentId: input.threadRef.environmentId,
+      input: {
+        resource: { _tag: "media-file", threadId: input.threadRef.threadId, path },
+      },
+    });
+    if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    const assetUrl = resolveAssetUrl(input.httpBaseUrl, result.value.relativeUrl);
+    if (assetUrl === null) throw new Error("The environment returned an invalid media URL.");
+    src = assetUrl + markdownImageSourceFragment(input.source);
+  }
+  return {
+    images: [
+      {
+        src,
+        name: name || kind,
+        ...(kind === "video" ? { type: "video", autoPlay: false } : {}),
+      },
+    ],
+    index: 0,
+  };
 }
 
 export function attachVideoThumbnail(video: HTMLVideoElement, file: File): () => void {

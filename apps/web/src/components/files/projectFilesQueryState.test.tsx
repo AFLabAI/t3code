@@ -158,36 +158,40 @@ describe("project file query refresh", () => {
     }
   });
 
-  it("does not issue a file read for a disabled image preview", async () => {
-    const requests: Array<ReturnType<typeof deferred<ProjectReadFileResult>>> = [];
-    const readAtom = Atom.make(
-      Effect.promise(() => {
-        const request = deferred<ProjectReadFileResult>();
-        requests.push(request);
-        return request.promise;
-      }),
-    );
-    const registry = AtomRegistry.make();
-    projectMocks.readFile.mockReturnValue(readAtom);
-    projectMocks.optimisticFile.mockReturnValue(Atom.make(null));
-    atomHooks.registry = registry;
+  it.each(["preview.png", "recording.mp4", "media/Recording.MOV", "media/take#2.webm"])(
+    "does not read media file %s as text, including when refreshed",
+    async (relativePath) => {
+      const requests: Array<ReturnType<typeof deferred<ProjectReadFileResult>>> = [];
+      const readAtom = Atom.make(
+        Effect.promise(() => {
+          const request = deferred<ProjectReadFileResult>();
+          requests.push(request);
+          return request.promise;
+        }),
+      );
+      const registry = AtomRegistry.make();
+      projectMocks.readFile.mockReturnValue(readAtom);
+      projectMocks.optimisticFile.mockReturnValue(Atom.make(null));
+      atomHooks.registry = registry;
 
-    try {
-      reactHooks.beginRender();
-      const query = useProjectFileQuery(environmentId, "/repo", "preview.png", false);
-      useWorkspaceMutationRefresh({
-        enabled: false,
-        mutationId: "mutation-1",
-        refresh: query.refresh,
-        resourceKey: "file:environment-1:/repo:preview.png",
-      });
-      await flushEffects();
+      try {
+        reactHooks.beginRender();
+        const query = useProjectFileQuery(environmentId, "/repo", relativePath);
+        query.refresh();
+        useWorkspaceMutationRefresh({
+          enabled: false,
+          mutationId: "mutation-1",
+          refresh: query.refresh,
+          resourceKey: `file:environment-1:/repo:${relativePath}`,
+        });
+        await flushEffects();
 
-      expect(projectMocks.readFile).not.toHaveBeenCalled();
-      expect(requests).toHaveLength(0);
-    } finally {
-      registry.dispose();
-      atomHooks.registry = null;
-    }
-  });
+        expect(projectMocks.readFile).not.toHaveBeenCalled();
+        expect(requests).toHaveLength(0);
+      } finally {
+        registry.dispose();
+        atomHooks.registry = null;
+      }
+    },
+  );
 });

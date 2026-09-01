@@ -4,6 +4,7 @@ import {
   isBrowserPreviewFile,
   isImagePreviewFile,
   isSvgImagePreviewFile,
+  isVideoPreviewFile,
   resolveWorkspaceRelativeFilePath,
 } from "./filePath";
 
@@ -40,4 +41,20 @@ describe("file preview types", () => {
     expect(isSvgImagePreviewFile("assets/diagram.svg#icon")).toBe(true);
     expect(isSvgImagePreviewFile("assets/photo.png")).toBe(false);
   });
+
+  it.each([
+    "recordings/demo.mp4",
+    "recordings/demo.MOV",
+    "recordings/demo.webm",
+    "recordings/demo#draft?.mp4",
+  ])("recognizes literal video filename %s", (path) => expect(isVideoPreviewFile(path)).toBe(true));
+
+  it.each([
+    "recordings/demo.mp4.txt",
+    "recordings/demo.mp4?raw=1",
+    "recordings/demo%2Emp4",
+    "src/video.ts",
+  ])("does not reinterpret %s as a video filesystem path", (path) =>
+    expect(isVideoPreviewFile(path)).toBe(false),
+  );
 });

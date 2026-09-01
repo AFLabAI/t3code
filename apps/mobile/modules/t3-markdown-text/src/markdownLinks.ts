@@ -1,3 +1,8 @@
+import {
+  inlineCodeFilePathCandidate,
+  isConventionalFilePosition,
+} from "@t3tools/client-runtime/markdown-links";
+
 import type { MARKDOWN_FILE_ICON_SOURCES } from "./markdownFileIcons.generated";
 
 const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
@@ -327,6 +332,7 @@ function looksLikeFilePath(value: string): boolean {
   if (FILE_ICON_BY_NAME[value.replace(POSITION_SUFFIX_PATTERN, "").toLowerCase()]) {
     return true;
   }
+  if (isConventionalFilePosition(value)) return true;
   return RELATIVE_FILE_PATH_PATTERN.test(value) || RELATIVE_FILE_NAME_PATTERN.test(value);
 }
 
@@ -398,4 +404,14 @@ export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPrese
     kind: "link",
     href: /^(?:mailto|tel):/i.test(normalized) ? normalized : null,
   };
+}
+
+/** Backticks become file references only when the shared path heuristic recognizes the whole span. */
+export function resolveMarkdownInlineCodePresentation(
+  content: string,
+): Extract<MarkdownLinkPresentation, { readonly kind: "file" }> | null {
+  const candidate = inlineCodeFilePathCandidate(content);
+  if (candidate === null) return null;
+  const presentation = resolveMarkdownLinkPresentation(candidate);
+  return presentation.kind === "file" ? presentation : null;
 }

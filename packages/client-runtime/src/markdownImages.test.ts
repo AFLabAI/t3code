@@ -5,6 +5,7 @@ import { classifyMarkdownImageSource, markdownImageSourceFragment } from "./mark
 describe("classifyMarkdownImageSource", () => {
   it.each([
     "https://example.com/image.png",
+    "https://example.com/recording.mp4#t=2",
     "HTTP://example.com/image.png",
     "data:image/png;base64,AAAA",
     "blob:https://app.t3.codes/image-id",
@@ -30,6 +31,11 @@ describe("classifyMarkdownImageSource", () => {
       "C:\\Users\\dara\\project\\images\\result.png",
     ],
     ["/workspace/project/image.png", null, "/workspace/project/image.png"],
+    ["/tmp/image.png", "/workspace/project", "/tmp/image.png"],
+    ["/tmp/recording.mp4#t=2", "/workspace/project", "/tmp/recording.mp4"],
+    ["../recording.webm", "/workspace/project", "/workspace/project/../recording.webm"],
+    ["file:///Users/demo/Downloads/clip%20one.mp4", null, "/Users/demo/Downloads/clip one.mp4"],
+    ["/tmp/image%23v2.png", null, "/tmp/image#v2.png"],
     ["/C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["\\\\server\\share\\image.png", null, "\\\\server\\share\\image.png"],
@@ -37,7 +43,7 @@ describe("classifyMarkdownImageSource", () => {
     ["file:///C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["file://localhost/C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["file://server/share/image.png", null, "\\\\server\\share\\image.png"],
-  ])("maps %s to a workspace file", (source, workspaceRoot, path) => {
+  ])("maps %s to an environment file", (source, workspaceRoot, path) => {
     expect(classifyMarkdownImageSource(source, workspaceRoot)).toEqual({
       _tag: "WorkspaceFile",
       path,
@@ -65,6 +71,8 @@ describe("markdownImageSourceFragment", () => {
   it.each([
     ["<icons.svg?version=2#logo>", "#logo"],
     ["icons.svg?version=2", ""],
+    ["recording.mp4?version=2#t=3", "#t=3"],
+    ["image%23v2.png", ""],
   ])("extracts %s as %s", (source, fragment) => {
     expect(markdownImageSourceFragment(source)).toBe(fragment);
   });

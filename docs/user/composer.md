@@ -34,7 +34,7 @@ viewer and PDFs open the system chooser.
 Select a video attachment before or after sending to play it. Web and desktop use the browser's
 built-in controls. On mobile, videos open in a full-screen player with native playback controls.
 Supported videos show a thumbnail in the conversation and composer.
-On iOS, received videos stream from their environment as they play. Supported formats and codecs
+On web, desktop, and iOS, received videos stream from their environment as they play. Supported formats and codecs
 depend on the browser or device; you can save an unsupported video to open it in another app.
 
 On iOS, the system player zooms from the attachment. Swipe down or tap Close to return to the
@@ -51,6 +51,34 @@ converts them to JPEG. The 10 MB image limit applies to the converted photo.
 On mobile, the model picker shows each OpenCode model's upstream provider, such as Anthropic,
 GitHub Copilot, or OpenCode Zen, beneath its name. Search by that provider name to narrow the list
 when starting a thread or changing an existing thread's model.
+
+## Images and videos in messages
+
+On web, desktop, and mobile, select a link to an image or video to open it inside T3 Code.
+Videos opened from the file explorer or a file-viewer tab also play inside T3 Code. They
+stream from the environment as needed, rather than downloading the entire video before playback.
+Paths in inline code, such as `/tmp/recording.mp4`, work the same way. Image embeds stay inline;
+video embeds show a player with controls and an option to expand. Videos start paused and load
+on demand.
+
+Use Markdown image syntax to embed either kind of media:
+
+```markdown
+![Screenshot](/tmp/screenshot.png)
+![Recording](/tmp/recording.mp4)
+[Open recording](/tmp/recording.mp4)
+```
+
+Relative paths resolve from the thread's workspace. Absolute paths and `file://` links refer to
+the environment's machine, even when you connect remotely or use your phone. Supported media
+can live outside the workspace, including in Downloads or `/tmp`.
+
+T3 Code serves the original file without adding it to attachment storage. If that file is moved
+or deleted, its preview can no longer load from the environment. A browser or device may still
+have a cached copy. Supported video formats and codecs depend on the browser or device.
+
+Bare paths in ordinary prose and paths inside code blocks stay text. Raw HTML `<video>` tags
+are not supported; use the Markdown embed syntax above.
 
 ## Notices above the composer
 

@@ -139,6 +139,32 @@ describe("assetResponseHeaders", () => {
     });
   });
 
+  it.effect("serves media images with their file type and sandboxes SVG responses", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-response-" });
+      for (const [name, mimeType] of [
+        ["screenshot.png", "image/png"],
+        ["diagram.svg", "image/svg+xml"],
+      ] as const) {
+        const filePath = path.join(directory, name);
+        yield* fs.writeFileString(filePath, "media");
+        const response = HttpServerResponse.toWeb(
+          yield* assetFileResponse({ path: filePath, mimeType }),
+        );
+        expect(response.headers.get("content-type")).toBe(mimeType);
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        if (name.endsWith(".svg")) {
+          expect(response.headers.get("content-security-policy")).toBe(
+            "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          );
+        }
+        expect(yield* Effect.promise(() => response.text())).toBe("media");
+      }
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
   it("serves inline videos with their declared mime type", () => {
     expect(
       assetResponseHeaders("/attachments/demo.bin", {

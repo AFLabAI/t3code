@@ -31,6 +31,146 @@ const testLayer = Layer.mergeAll(
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 describe("AssetAccess", () => {
+  it.effect("issues exact URLs for images and videos outside the workspace", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-root-" });
+      const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-outside-" });
+      for (const [name, mimeType] of [
+        ["screenshot.png", "image/png"],
+        ["recording.mp4", "video/mp4"],
+        ["recording.webm", "video/webm"],
+      ] as const) {
+        const filePath = path.join(outside, name);
+        yield* fs.writeFileString(filePath, "media");
+        const canonicalFile = yield* fs.realPath(filePath);
+        const result = yield* issueAssetUrl({
+          resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
+          workspaceRoot: root,
+        });
+        const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separator = suffix.indexOf("/");
+        const token = suffix.slice(0, separator);
+        expect(yield* resolveAsset(token, suffix.slice(separator + 1))).toEqual({
+          kind: "file",
+          path: canonicalFile,
+          mimeType,
+        });
+        yield* fs.writeFileString(path.join(outside, "sibling.png"), "private sibling");
+        expect(yield* resolveAsset(token, "sibling.png")).toBeNull();
+        expect(yield* resolveAsset(token, `../${name}`)).toBeNull();
+        expect(yield* resolveAsset(`${token}tampered`, name)).toBeNull();
+      }
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("resolves relative media paths from the thread workspace, including outside it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-relative-" });
+      const root = path.join(directory, "workspace");
+      yield* fs.makeDirectory(root);
+      for (const relativePath of ["screenshot.png", "../recording.mp4"]) {
+        const filePath = path.resolve(root, relativePath);
+        yield* fs.writeFileString(filePath, "media");
+        const result = yield* issueAssetUrl({
+          resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: relativePath },
+          workspaceRoot: root,
+        });
+        const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separator = suffix.indexOf("/");
+        expect(
+          yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1)),
+        ).toMatchObject({
+          kind: "file",
+          path: yield* fs.realPath(filePath),
+        });
+      }
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects non-media files, disguised targets, and directories", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-validation-" });
+      for (const name of ["report.html", "secret.txt", "secret.%70ng", "secret.png#private.txt"]) {
+        const filePath = path.join(root, name);
+        yield* fs.writeFileString(filePath, "not media");
+        const error = yield* issueAssetUrl({
+          resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
+        }).pipe(Effect.flip);
+        expect(error).toBeInstanceOf(AssetPreviewTypeValidationError);
+      }
+      const disguisedPath = path.join(root, "disguised.png");
+      yield* fs.symlink(path.join(root, "report.html"), disguisedPath);
+      const disguisedError = yield* issueAssetUrl({
+        resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: disguisedPath },
+      }).pipe(Effect.flip);
+      expect(disguisedError).toBeInstanceOf(AssetPreviewTypeValidationError);
+      const directoryPath = path.join(root, "directory.png");
+      yield* fs.makeDirectory(directoryPath);
+      const directoryError = yield* issueAssetUrl({
+        resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: directoryPath },
+      }).pipe(Effect.flip);
+      expect(directoryError._tag).toBe("AssetWorkspaceAssetNotFoundError");
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("binds media URLs to the canonical target and rejects symlink substitution", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-symlink-" });
+      const filePath = path.join(root, "actual.svg");
+      const aliasPath = path.join(root, "alias.png");
+      const replacementPath = path.join(root, "other.svg");
+      yield* fs.writeFileString(filePath, "<svg/>");
+      yield* fs.writeFileString(replacementPath, "<svg>private</svg>");
+      yield* fs.symlink(filePath, aliasPath);
+      const canonicalFile = yield* fs.realPath(filePath);
+      const result = yield* issueAssetUrl({
+        resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: aliasPath },
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      const token = suffix.slice(0, separator);
+      const name = suffix.slice(separator + 1);
+      const expected = { kind: "file", path: canonicalFile, mimeType: "image/svg+xml" };
+      expect(yield* resolveAsset(token, name)).toEqual(expected);
+      yield* fs.remove(aliasPath);
+      yield* fs.symlink(replacementPath, aliasPath);
+      expect(yield* resolveAsset(token, name)).toEqual(expected);
+      yield* fs.remove(filePath);
+      yield* fs.symlink(replacementPath, filePath);
+      expect(yield* resolveAsset(token, name)).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("does not serve deleted media files or expired media URLs", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-lifecycle-" });
+      const filePath = path.join(root, "screenshot.png");
+      yield* fs.writeFileString(filePath, "media");
+      const result = yield* issueAssetUrl({
+        resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      const token = suffix.slice(0, separator);
+      const name = suffix.slice(separator + 1);
+      yield* fs.remove(filePath);
+      expect(yield* resolveAsset(token, name)).toBeNull();
+      yield* fs.writeFileString(filePath, "media");
+      yield* TestClock.adjust("1 hour");
+      expect(yield* resolveAsset(token, name)).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("issues workspace URLs that resolve the entry file and sibling assets", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

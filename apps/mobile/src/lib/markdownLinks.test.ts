@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
+import {
+  resolveMarkdownInlineCodePresentation,
+  resolveMarkdownLinkPresentation,
+} from "@t3tools/mobile-markdown-text/links";
 
 describe("resolveMarkdownLinkPresentation", () => {
   it("extracts external link hosts", () => {
@@ -103,4 +106,26 @@ describe("resolveMarkdownLinkPresentation", () => {
       href: null,
     });
   });
+});
+
+describe("resolveMarkdownInlineCodePresentation", () => {
+  it.each([
+    ["/tmp/recording.mp4", "/tmp/recording.mp4", "recording.mp4"],
+    ["./images/result.png", "./images/result.png", "result.png"],
+    ["src/main.ts:12", "src/main.ts", "main.ts:12"],
+    ["file:///tmp/screen.png", "/tmp/screen.png", "screen.png"],
+    ["Makefile:12", "Makefile", "Makefile:12"],
+    ["Justfile:8:2", "Justfile", "Justfile:8:2"],
+  ])("recognizes file reference %s", (content, path, label) => {
+    expect(resolveMarkdownInlineCodePresentation(content)).toMatchObject({
+      kind: "file",
+      path,
+      label,
+    });
+  });
+
+  it.each(["image.png", "npm run dev", "foo.bar", "example.com/image.png", "error:1", "src/*.ts"])(
+    "keeps %s as ordinary code",
+    (content) => expect(resolveMarkdownInlineCodePresentation(content)).toBeNull(),
+  );
 });

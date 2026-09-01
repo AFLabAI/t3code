@@ -63,6 +63,47 @@ describe("nativeMarkdownTextRuns", () => {
     ]);
   });
 
+  it("links path-shaped inline code without linking ordinary prose", () => {
+    expect(
+      nativeMarkdownTextRuns({
+        type: "paragraph",
+        children: [
+          { type: "text", content: "See /tmp/frame.png then " },
+          { type: "code_inline", content: "/tmp/frame.png" },
+          { type: "text", content: " or " },
+          { type: "code_inline", content: "src/main.ts:12" },
+        ],
+      }),
+    ).toEqual([
+      { text: "See /tmp/frame.png then " },
+      { text: "frame.png", href: "/tmp/frame.png", fileIcon: "image" },
+      { text: " or " },
+      { text: "main.ts:12", href: "src/main.ts:12", fileIcon: "typescript" },
+    ]);
+  });
+
+  it("preserves the destination of a link with a code-formatted label", () => {
+    expect(
+      nativeMarkdownTextRuns({
+        type: "paragraph",
+        children: [
+          {
+            type: "link",
+            href: "https://example.com/docs",
+            children: [{ type: "code_inline", content: "src/main.ts" }],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        text: "src/main.ts",
+        code: true,
+        href: "https://example.com/docs",
+        externalHost: "example.com",
+      },
+    ]);
+  });
+
   it("keeps hard breaks and collapses soft breaks", () => {
     const node: MarkdownNode = {
       type: "paragraph",

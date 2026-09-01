@@ -14,6 +14,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
 }: ExpandedImageDialogProps) {
   const [imageOffset, setImageOffset] = useState(0);
   const [failedVideoSrc, setFailedVideoSrc] = useState<string | null>(null);
+  const [failedImageSrc, setFailedImageSrc] = useState<string | null>(null);
   const [downloadingVideoSrc, setDownloadingVideoSrc] = useState<string | null>(null);
   const [downloadFailedVideoSrc, setDownloadFailedVideoSrc] = useState<string | null>(null);
   const index = (preview.index + imageOffset + preview.images.length) % preview.images.length;
@@ -94,7 +95,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           type="button"
           size="icon-xs"
           variant="ghost"
-          className="absolute right-2 top-2"
+          className="absolute right-2 top-2 z-20"
           onClick={onClose}
           aria-label={`Close ${mediaLabel} preview`}
         >
@@ -105,7 +106,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
             <p className="text-sm">
               {videoDownloadFailed
                 ? "Could not download this video."
-                : "This video format cannot be played here."}
+                : "This video could not be loaded or played."}
             </p>
             <Button
               size="sm"
@@ -125,18 +126,27 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           <video
             src={item.src}
             aria-label={item.name}
-            autoPlay
+            autoPlay={item.autoPlay ?? true}
+            preload={item.autoPlay === false ? "none" : "metadata"}
             controls
             playsInline
             onError={() => setFailedVideoSrc(item.src)}
-            className="max-h-[86vh] max-w-[92vw] rounded-lg border border-border/70 bg-black object-contain shadow-2xl"
+            className="aspect-video max-h-[86vh] w-[min(92vw,64rem)] rounded-lg border border-border/70 bg-black object-contain shadow-2xl"
           />
+        ) : failedImageSrc === item.src ? (
+          <div
+            role="alert"
+            className="flex h-48 w-[min(92vw,32rem)] items-center justify-center rounded-lg bg-black px-6 text-center text-sm text-white/80"
+          >
+            Image unavailable. The file may have been moved or deleted.
+          </div>
         ) : (
           <img
             src={item.src}
             alt={item.name}
             className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border/70 bg-background object-contain shadow-2xl"
             draggable={false}
+            onError={() => setFailedImageSrc(item.src)}
           />
         )}
         <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground/80">
