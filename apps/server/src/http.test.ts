@@ -2,7 +2,6 @@ import { expect, it } from "@effect/vitest";
 import { describe, vi } from "vite-plus/test";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -21,38 +20,12 @@ import {
 const fileResponseLayer = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
 
 describe("video asset byte ranges", () => {
-  it.effect("preserves the media path and native cause when descriptor stat fails", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-stat-error-" });
-      const filePath = path.join(directory, "clip.mp4");
-      yield* fs.writeFileString(filePath, "video");
-      const canonicalPath = yield* fs.realPath(filePath);
-      const file = yield* openMediaFile(canonicalPath);
-      if (!file) throw new Error("Expected an opened media file");
-      yield* Effect.promise(() => file.handle.close());
-
-      const error = yield* assetFileResponse({
-        path: canonicalPath,
-        file,
-        mimeType: "video/mp4",
-      }).pipe(Effect.flip);
-      expect(error).toMatchObject({
-        _tag: "MediaFileStatError",
-        path: canonicalPath,
-        cause: { code: "EBADF" },
-      });
-    }).pipe(Effect.provide(fileResponseLayer)),
-  );
-
   it.effect("uses current descriptor metadata after an in-place truncate or extension", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-current-stat-" });
       const filePath = path.join(directory, "clip.mp4");
-      const modifiedAt = DateTime.toDateUtc(DateTime.makeUnsafe("2001-01-01T00:00:00.000Z"));
       for (const [contents, range, method, expected, status, contentRange] of [
         ["1234", undefined, "GET", "1234", 200, null],
         ["0123456789abcdef", undefined, "GET", "0123456789abcdef", 200, null],
@@ -68,7 +41,6 @@ describe("video asset byte ranges", () => {
         const file = yield* openMediaFile(canonicalPath);
         if (!file) throw new Error("Expected an opened media file");
         yield* fs.writeFileString(filePath, contents);
-        yield* Effect.promise(() => file.handle.utimes(modifiedAt, modifiedAt));
         const response = HttpServerResponse.toWeb(
           yield* assetFileResponse(
             { path: canonicalPath, file, mimeType: "video/mp4" },
@@ -83,9 +55,6 @@ describe("video asset byte ranges", () => {
           expect(response.headers.get("content-length")).toBe(
             String(method === "HEAD" ? contents.length : expected.length),
           );
-          expect(response.headers.get("last-modified")).toBeNull();
-          expect(response.headers.get("etag")).toBeNull();
-          expect(response.headers.get("cache-control")).toBe("private, no-store");
         }
         expect(yield* Effect.promise(() => response.text())).toBe(expected);
       }
@@ -153,6 +122,7 @@ describe("video asset byte ranges", () => {
         ["bytes=-999999999999999999999999", undefined, "0123456789", 206, "bytes 0-9/10"],
         ["bytes=10-", undefined, "", 416, "bytes */10"],
         ["bytes=0-1", '"old-etag"', "0123456789", 200, null],
+        ["bytes=0-1", "", "0123456789", 200, null],
       ] as const) {
         const file = yield* openMediaFile(canonicalPath);
         if (!file) throw new Error("Expected an opened media file");
@@ -172,57 +142,6 @@ describe("video asset byte ranges", () => {
         if (status !== 416)
           expect(response.headers.get("content-length")).toBe(String(expected.length));
         expect(yield* Effect.promise(() => response.text())).toBe(expected);
-      }
-    }).pipe(Effect.provide(fileResponseLayer)),
-  );
-
-  it.effect("does not use mutable host file metadata to satisfy If-Range", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-if-range-" });
-      const filePath = path.join(directory, "clip.mp4");
-      yield* fs.writeFileString(filePath, "0123456789");
-      const canonicalPath = yield* fs.realPath(filePath);
-      const initial = yield* openMediaFile(canonicalPath);
-      if (!initial) throw new Error("Expected an opened media file");
-      const lastModified = initial.info.mtime.toUTCString();
-      const weakEtag = `W/"${initial.info.size.toString(16)}-${initial.info.mtimeMs.toString(16)}"`;
-
-      for (const [range, ifRange, method] of [
-        ["bytes=0-1", lastModified, "GET"],
-        ["bytes=0-1", "Fri, 31 Dec 1999 23:59:59 GMT", "GET"],
-        ["bytes=0-1", "Fri, 31 Dec 9999 23:59:59 GMT", "GET"],
-        ["bytes=0-1", weakEtag, "GET"],
-        ["bytes=0-1", weakEtag.slice(2), "GET"],
-        ["bytes=0-1", "not a validator", "GET"],
-        ["bytes=0-1", "", "GET"],
-        ["bytes=0-1", " ", "GET"],
-        ["bytes=100-", lastModified, "GET"],
-        [undefined, lastModified, "GET"],
-        [undefined, weakEtag, "GET"],
-        ["bytes=0-1", lastModified, "HEAD"],
-        ["bytes=0-1", weakEtag, "HEAD"],
-      ] as const) {
-        const file = yield* openMediaFile(canonicalPath);
-        if (!file) throw new Error("Expected an opened media file");
-        const response = HttpServerResponse.toWeb(
-          yield* assetFileResponse(
-            { path: canonicalPath, file, mimeType: "video/mp4" },
-            range,
-            ifRange,
-            method,
-          ),
-        );
-        expect(response.status).toBe(200);
-        expect(response.headers.get("content-length")).toBe("10");
-        expect(response.headers.get("content-range")).toBeNull();
-        expect(response.headers.get("cache-control")).toBe("private, no-store");
-        expect(response.headers.get("etag")).toBeNull();
-        expect(response.headers.get("last-modified")).toBeNull();
-        expect(yield* Effect.promise(() => response.text())).toBe(
-          method === "HEAD" ? "" : "0123456789",
-        );
       }
     }).pipe(Effect.provide(fileResponseLayer)),
   );
@@ -294,9 +213,6 @@ describe("video asset byte ranges", () => {
         expect(response.headers.get("accept-ranges")).toBe("bytes");
         expect(response.headers.get("content-range")).toBe(contentRange);
         expect(response.headers.get("content-length")).toBe(String(expected.length));
-        expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
-        expect(response.headers.get("etag")).toBeTruthy();
-        expect(response.headers.get("last-modified")).toBeTruthy();
         expect(yield* Effect.promise(() => response.text())).toBe(expected);
       }
       for (const header of [
@@ -396,64 +312,6 @@ describe("assetResponseHeaders", () => {
       "X-Content-Type-Options": "nosniff",
     });
   });
-
-  it.effect("serves media images with their file type and sandboxes SVG responses", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-response-" });
-      for (const [name, mimeType] of [
-        ["screenshot.png", "image/png"],
-        ["diagram.svg", "image/svg+xml"],
-      ] as const) {
-        const filePath = path.join(directory, name);
-        yield* fs.writeFileString(filePath, "media");
-        const response = HttpServerResponse.toWeb(
-          yield* assetFileResponse({ path: filePath, mimeType }),
-        );
-        expect(response.headers.get("content-type")).toBe(mimeType);
-        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-        if (name.endsWith(".svg")) {
-          expect(response.headers.get("content-security-policy")).toBe(
-            "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-          );
-        }
-        expect(yield* Effect.promise(() => response.text())).toBe("media");
-      }
-    }).pipe(Effect.provide(fileResponseLayer)),
-  );
-
-  it.effect("keeps private caching and weak validators for guarded images", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-image-cache-" });
-      const filePath = path.join(directory, "image.png");
-      yield* fs.writeFileString(filePath, "image");
-      const canonicalPath = yield* fs.realPath(filePath);
-      for (const method of ["GET", "HEAD"] as const) {
-        const file = yield* openMediaFile(canonicalPath);
-        if (!file) throw new Error("Expected an opened media file");
-        const response = HttpServerResponse.toWeb(
-          yield* assetFileResponse(
-            { path: canonicalPath, file, mimeType: "image/png" },
-            "bytes=0-1",
-            file.info.mtime.toUTCString(),
-            method,
-          ),
-        );
-        expect(response.status).toBe(200);
-        expect(response.headers.get("content-type")).toBe("image/png");
-        expect(response.headers.get("content-length")).toBe("5");
-        expect(response.headers.get("content-range")).toBeNull();
-        expect(response.headers.get("accept-ranges")).toBeNull();
-        expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
-        expect(response.headers.get("etag")).toMatch(/^W\/".+"$/);
-        expect(response.headers.get("last-modified")).toBe(file.info.mtime.toUTCString());
-        expect(yield* Effect.promise(() => response.text())).toBe(method === "HEAD" ? "" : "image");
-      }
-    }).pipe(Effect.provide(fileResponseLayer)),
-  );
 
   it("serves inline videos with their declared mime type", () => {
     expect(

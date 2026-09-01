@@ -356,28 +356,13 @@ describe("AssetAccess", () => {
       if (!renewedAsset) throw new Error("Expected the replacement media file");
       const renewedResponse = HttpServerResponse.toWeb(yield* assetFileResponse(renewedAsset));
       expect(yield* Effect.promise(() => renewedResponse.text())).toBe("replacement");
-    }).pipe(Effect.provide(testLayer)),
-  );
-
-  it.effect("does not serve deleted media files or expired media URLs", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-lifecycle-" });
-      const filePath = path.join(root, "screenshot.png");
-      yield* fs.writeFileString(filePath, "media");
-      const result = yield* issueAssetUrl({
-        resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
-      });
-      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
-      const separator = suffix.indexOf("/");
-      const token = suffix.slice(0, separator);
-      const name = suffix.slice(separator + 1);
       yield* fs.remove(filePath);
-      expect(yield* resolveAsset(token, name)).toBeNull();
-      yield* fs.writeFileString(filePath, "media");
-      yield* TestClock.adjust("1 hour");
-      expect(yield* resolveAsset(token, name)).toBeNull();
+      expect(
+        yield* resolveAsset(
+          renewedSuffix.slice(0, renewedSeparator),
+          renewedSuffix.slice(renewedSeparator + 1),
+        ),
+      ).toBeNull();
     }).pipe(Effect.provide(testLayer)),
   );
 

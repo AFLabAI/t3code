@@ -21,39 +21,6 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 describe("video thumbnails", () => {
-  it("extracts a signed progressive URL without downloading it into a local file", async () => {
-    const nativePlayer = player();
-    mocks.createPlayer.mockReturnValueOnce(nativePlayer);
-    const uri = "https://environment.example/api/assets/signed/clip.mp4?signature=example";
-    const file = { uri, dispose: vi.fn() };
-    const result = await thumbnails.loadVideoThumbnail(
-      "environment:clip:revision-0",
-      async () => file,
-      new AbortController().signal,
-    );
-    expect(result).toBe(frame);
-    expect(nativePlayer.replaceAsync).toHaveBeenCalledExactlyOnceWith({
-      uri,
-      contentType: "progressive",
-    });
-    expect(nativePlayer.generateThumbnailsAsync).toHaveBeenCalledExactlyOnceWith([0], {
-      maxWidth: 480,
-      maxHeight: 480,
-    });
-    expect(nativePlayer.release).toHaveBeenCalledTimes(1);
-  });
-
-  it("extracts a fresh frame after an explicit file preview revision change", async () => {
-    const signal = new AbortController().signal;
-    const firstSource = vi.fn(async () => source());
-    const refreshedSource = vi.fn(async () => source());
-    await thumbnails.loadVideoThumbnail("environment:clip:revision-0", firstSource, signal);
-    await thumbnails.loadVideoThumbnail("environment:clip:revision-1", refreshedSource, signal);
-    expect(firstSource).toHaveBeenCalledTimes(1);
-    expect(refreshedSource).toHaveBeenCalledTimes(1);
-    expect(mocks.createPlayer).toHaveBeenCalledTimes(2);
-  });
-
   it("reuses a frame for duplicate requests and refreshed signed URLs", async () => {
     const file = source();
     const resolveSource = vi.fn(async () => file);

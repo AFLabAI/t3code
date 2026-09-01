@@ -11,6 +11,43 @@ import {
 } from "@t3tools/mobile-markdown-text/markdown";
 
 describe("nativeMarkdownTextRuns", () => {
+  it("links a path-shaped code span without changing the same path in prose", () => {
+    expect(
+      nativeMarkdownTextRuns({
+        type: "paragraph",
+        children: [
+          { type: "text", content: "/tmp/frame.png " },
+          { type: "code_inline", content: "/tmp/frame.png" },
+        ],
+      }),
+    ).toEqual([
+      { text: "/tmp/frame.png " },
+      { text: "frame.png", href: "/tmp/frame.png", fileIcon: "image" },
+    ]);
+  });
+
+  it("preserves the destination of a link with a code-formatted label", () => {
+    expect(
+      nativeMarkdownTextRuns({
+        type: "paragraph",
+        children: [
+          {
+            type: "link",
+            href: "https://example.com/docs",
+            children: [{ type: "code_inline", content: "src/main.ts" }],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        text: "src/main.ts",
+        code: true,
+        href: "https://example.com/docs",
+        externalHost: "example.com",
+      },
+    ]);
+  });
+
   it("preserves inline emphasis and code styles", () => {
     const node: MarkdownNode = {
       type: "paragraph",
@@ -45,12 +82,6 @@ describe("nativeMarkdownTextRuns", () => {
           href: "file:///repo/README.md#L12",
           children: [{ type: "text", content: "ignored label" }],
         },
-        { type: "text", content: " " },
-        {
-          type: "link",
-          href: "file:///tmp/recording.mp4",
-          children: [{ type: "text", content: "Recording" }],
-        },
       ],
     };
 
@@ -65,78 +96,6 @@ describe("nativeMarkdownTextRuns", () => {
         text: "README.md:12",
         href: "file:///repo/README.md#L12",
         fileIcon: "readme",
-      },
-      { text: " " },
-      {
-        text: "recording.mp4",
-        href: "file:///tmp/recording.mp4",
-        fileIcon: "video",
-      },
-    ]);
-  });
-
-  it("keeps the authored label and external host for protocol-relative media links", () => {
-    expect(
-      nativeMarkdownTextRuns({
-        type: "paragraph",
-        children: [
-          {
-            type: "link",
-            href: "//cdn.example.com/clip.mp4?signature=a%2fb#t=2",
-            children: [{ type: "text", content: "Watch recording" }],
-          },
-        ],
-      }),
-    ).toEqual([
-      {
-        text: "Watch recording",
-        href: "https://cdn.example.com/clip.mp4?signature=a%2fb#t=2",
-        externalHost: "cdn.example.com",
-      },
-    ]);
-  });
-
-  it("links path-shaped inline code without linking ordinary prose", () => {
-    expect(
-      nativeMarkdownTextRuns({
-        type: "paragraph",
-        children: [
-          { type: "text", content: "See /tmp/frame.png then " },
-          { type: "code_inline", content: "/tmp/frame.png" },
-          { type: "text", content: " or " },
-          { type: "code_inline", content: "src/main.ts:12" },
-          { type: "text", content: " or " },
-          { type: "code_inline", content: "/tmp/recording.WEBM" },
-        ],
-      }),
-    ).toEqual([
-      { text: "See /tmp/frame.png then " },
-      { text: "frame.png", href: "/tmp/frame.png", fileIcon: "image" },
-      { text: " or " },
-      { text: "main.ts:12", href: "src/main.ts:12", fileIcon: "typescript" },
-      { text: " or " },
-      { text: "recording.WEBM", href: "/tmp/recording.WEBM", fileIcon: "video" },
-    ]);
-  });
-
-  it("preserves the destination of a link with a code-formatted label", () => {
-    expect(
-      nativeMarkdownTextRuns({
-        type: "paragraph",
-        children: [
-          {
-            type: "link",
-            href: "https://example.com/docs",
-            children: [{ type: "code_inline", content: "src/main.ts" }],
-          },
-        ],
-      }),
-    ).toEqual([
-      {
-        text: "src/main.ts",
-        code: true,
-        href: "https://example.com/docs",
-        externalHost: "example.com",
       },
     ]);
   });

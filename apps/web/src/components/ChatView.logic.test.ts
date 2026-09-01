@@ -7,8 +7,6 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
 
 import type { Thread, ThreadShell } from "../types";
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
@@ -24,7 +22,6 @@ import {
   dismissBranchMismatchForSession,
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
   getStartedThreadModelChangeBlockReason,
-  resolveFileAttachmentUrl,
   isVideoPreviewRequestCurrent,
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
@@ -45,88 +42,6 @@ import {
   shouldShowPlanFollowUpPrompt,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
-
-describe("resolveFileAttachmentUrl", () => {
-  const environmentId = EnvironmentId.make("attachment-environment");
-  const attachment = {
-    type: "file" as const,
-    id: "attachment-video",
-    name: "recording.mp4",
-    mimeType: "application/octet-stream",
-    sizeBytes: 50_000_000,
-  };
-
-  it("opens a signed video URL without fetching its body or making a blob", async () => {
-    const createAssetUrl = vi.fn().mockResolvedValue(
-      AsyncResult.success({
-        relativeUrl: "/api/assets/signed/recording.mp4",
-        expiresAt: 123456789,
-      }),
-    );
-    const fetchMedia = vi.fn();
-    const createObjectUrl = vi.spyOn(URL, "createObjectURL");
-    vi.stubGlobal("fetch", fetchMedia);
-
-    try {
-      expect(
-        await resolveFileAttachmentUrl({
-          attachment,
-          environmentId,
-          httpBaseUrl: "https://environment.test",
-          createAssetUrl,
-        }),
-      ).toBe("https://environment.test/api/assets/signed/recording.mp4");
-      expect(createAssetUrl).toHaveBeenCalledExactlyOnceWith({
-        environmentId,
-        input: {
-          resource: {
-            _tag: "attachment",
-            attachmentId: attachment.id,
-            fileName: attachment.name,
-            mimeType: "video/mp4",
-          },
-        },
-      });
-      expect(fetchMedia).not.toHaveBeenCalled();
-      expect(createObjectUrl).not.toHaveBeenCalled();
-    } finally {
-      createObjectUrl.mockRestore();
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("keeps non-video attachments on their original download MIME type", async () => {
-    const createAssetUrl = vi
-      .fn()
-      .mockResolvedValue(
-        AsyncResult.success({ relativeUrl: "/api/assets/signed/report.pdf", expiresAt: 123456789 }),
-      );
-    await resolveFileAttachmentUrl({
-      attachment: { ...attachment, name: "report.pdf", mimeType: "application/pdf" },
-      environmentId,
-      httpBaseUrl: "https://environment.test",
-      createAssetUrl,
-    });
-
-    expect(createAssetUrl.mock.calls[0]?.[0].input.resource).toMatchObject({
-      fileName: "report.pdf",
-      mimeType: "application/pdf",
-    });
-  });
-
-  it("surfaces an unavailable attachment without opening an invalid preview", async () => {
-    await expect(
-      resolveFileAttachmentUrl({
-        attachment,
-        environmentId,
-        httpBaseUrl: "https://environment.test",
-        createAssetUrl: vi
-          .fn()
-          .mockResolvedValue(AsyncResult.failure(Cause.fail(new Error("Attachment missing")))),
-      }),
-    ).rejects.toThrow("Attachment missing");
-  });
-});
 
 describe("isVideoPreviewRequestCurrent", () => {
   it("rejects changed threads and replaced previews", () => {

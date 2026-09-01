@@ -4,7 +4,6 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 
-import { loadMediaVideoSource } from "../lib/mediaVideoPlayback";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
 import { VideoThumbnailImage } from "./VideoThumbnailImage";
@@ -30,12 +29,9 @@ function LoadedMediaVideo(props: {
     const uri = props.resolvePlaybackUri ? await props.resolvePlaybackUri() : props.uri;
     if (signal.aborted) return;
     if (uri === null) throw new Error("Video unavailable");
-    await loadMediaVideoSource(player, {
-      uri,
-      signal,
-      playRequested: props.playRequested,
-      isActive: () => active.current,
-    });
+    player.pause();
+    await player.replaceAsync({ uri, contentType: "progressive" });
+    if (!signal.aborted && props.playRequested && active.current) player.play();
   });
 
   useEffect(() => {

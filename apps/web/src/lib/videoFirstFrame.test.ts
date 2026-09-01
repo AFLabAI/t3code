@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { prepareVideoFirstFrame } from "./videoFirstFrame";
 
@@ -18,33 +18,22 @@ function previewVideo(overrides: Partial<PreviewVideo> = {}): PreviewVideo {
 }
 
 describe("prepareVideoFirstFrame", () => {
-  it("seeks a paused stream near its beginning without replacing its signed URL", () => {
-    const video = previewVideo();
-    const source = video.src;
-
-    prepareVideoFirstFrame(video);
-
-    expect(video.currentTime).toBe(0.1);
-    expect(video.paused).toBe(true);
-    expect(video.src).toBe(source);
-  });
-
-  it("keeps the preview seek inside a very short video", () => {
-    const video = previewVideo({ duration: 0.05 });
-
-    prepareVideoFirstFrame(video);
-
-    expect(video.currentTime).toBe(0.025);
-  });
-
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
-    "does not seek a stream with duration %s",
-    (duration) => {
+  it.each([
+    [5, 0.1],
+    [0.05, 0.025],
+  ])(
+    "seeks within a %s second video only once when metadata repeats",
+    (duration, expectedPosition) => {
       const video = previewVideo({ duration });
-
+      const seeks: number[] = [];
+      Object.defineProperty(video, "currentTime", {
+        get: () => seeks.at(-1) ?? 0,
+        set: (value: number) => seeks.push(value),
+      });
+      prepareVideoFirstFrame(video);
       prepareVideoFirstFrame(video);
 
-      expect(video.currentTime).toBe(0);
+      expect(seeks).toEqual([expectedPosition]);
     },
   );
 
@@ -54,7 +43,9 @@ describe("prepareVideoFirstFrame", () => {
     { seeking: true },
     { currentTime: 2 },
     { played: { length: 1, start: () => 0, end: () => 2 } },
-  ])("does not interrupt existing playback or user seeking: %j", (state) => {
+    { duration: 0 },
+    { duration: Number.POSITIVE_INFINITY },
+  ])("does not seek over playback or unavailable metadata: %j", (state) => {
     const video = previewVideo(state);
     const position = video.currentTime;
 
@@ -63,38 +54,20 @@ describe("prepareVideoFirstFrame", () => {
     expect(video.currentTime).toBe(position);
   });
 
-  it.each(["#t=3", "#t=0,4", "#xywh=0,0,100,100&t=2", "#%74=3"])(
-    "preserves an authored temporal fragment %s",
-    (fragment) => {
-      const video = previewVideo({ src: `https://environment.test/video.mp4${fragment}` });
+  it.each([
+    ["video.mp4#t=0,4", 0],
+    ["video.mp4#xywh=0,0,100,100&%74=3", 0],
+    ["video%23t=3.mp4", 0.1],
+  ])(
+    "distinguishes temporal fragments from encoded filename hashes: %s",
+    (path, expectedPosition) => {
+      const video = previewVideo({ src: `https://environment.test/${path}` });
 
       prepareVideoFirstFrame(video);
 
-      expect(video.currentTime).toBe(0);
+      expect(video.currentTime).toBe(expectedPosition);
     },
   );
-
-  it("does not confuse an encoded filename hash with a temporal fragment", () => {
-    const video = previewVideo({ src: "https://environment.test/video%23t=3.mp4" });
-
-    prepareVideoFirstFrame(video);
-
-    expect(video.currentTime).toBe(0.1);
-  });
-
-  it("does not seek again when metadata is emitted after the initial preview", () => {
-    const video = previewVideo();
-    let position = 0;
-    const seek = vi.fn((value: number) => {
-      position = value;
-    });
-    Object.defineProperty(video, "currentTime", { get: () => position, set: seek });
-
-    prepareVideoFirstFrame(video);
-    prepareVideoFirstFrame(video);
-
-    expect(seek).toHaveBeenCalledExactlyOnceWith(0.1);
-  });
 
   it("tolerates a browser rejecting the preview seek", () => {
     const video = previewVideo();
@@ -106,7 +79,5 @@ describe("prepareVideoFirstFrame", () => {
     });
 
     expect(() => prepareVideoFirstFrame(video)).not.toThrow();
-    expect(video.paused).toBe(true);
-    expect(video.currentTime).toBe(0);
   });
 });

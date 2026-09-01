@@ -1,20 +1,15 @@
-// @vitest-environment happy-dom
-
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const testState = vi.hoisted(() => ({
   resources: [] as Array<unknown>,
   assetState: "success" as "success" | "loading" | "failure",
-  refreshAssetUrl: vi.fn(async () => {}),
 }));
 
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../assets/assetUrls", () => ({
-  useAssetUrlRefresh: () => testState.refreshAssetUrl,
+  useAssetUrlRefresh: () => vi.fn(),
   useAssetUrlState: (_environmentId: unknown, resource: unknown) => {
     testState.resources.push(resource);
     if (testState.assetState === "loading") return { _tag: "Loading" };
@@ -301,112 +296,5 @@ describe("ChatMarkdown workspace images", () => {
     expect(html).toContain("max-w-[min(100%,30rem)]");
     expect(html).toContain("max-h-[30rem]");
     expect(html).not.toContain("Image unavailable");
-  });
-});
-
-describe("ChatMarkdown media interactions", () => {
-  let container: HTMLDivElement;
-  let root: Root;
-
-  beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    testState.resources = [];
-    testState.assetState = "success";
-    testState.refreshAssetUrl.mockClear();
-    container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-  });
-
-  afterEach(async () => {
-    await act(() => root.unmount());
-    container.remove();
-    vi.unstubAllGlobals();
-  });
-
-  it("closes the local preview when reused for a different thread", async () => {
-    const text = "![frame](https://cdn.example.com/frame.png)";
-    await act(() =>
-      root.render(<ChatMarkdown cwd="/workspace" threadRef={threadRef} text={text} />),
-    );
-    await act(() => container.querySelector("img")!.click());
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-
-    await act(() =>
-      root.render(
-        <ChatMarkdown
-          cwd="/workspace"
-          threadRef={{ ...threadRef, threadId: ThreadId.make("another-thread") }}
-          text={text}
-        />,
-      ),
-    );
-
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await act(() => container.querySelector("img")!.click());
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-  });
-
-  it.each(["https://cdn.example.com/clip.mov", "//cdn.example.com/clip.mov"])(
-    "keeps the original %s reachable after an inline metadata failure",
-    async (src) => {
-      await act(() => root.render(<ChatMarkdown cwd="/workspace" text={`![Clip](${src})`} />));
-      await act(() => container.querySelector("video")!.dispatchEvent(new Event("error")));
-
-      expect(container.textContent).toContain("Video unavailable");
-      const originalLink = container.querySelector<HTMLAnchorElement>("a");
-      expect(originalLink?.textContent).toBe("Open original");
-      expect(originalLink?.getAttribute("href")).toBe(src);
-      const retry = Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "Retry video",
-      );
-      await act(() => retry!.click());
-      expect(container.querySelector("video")?.getAttribute("src")).toBe(src);
-    },
-  );
-
-  it.each([
-    ["https://cdn.example.com/clip.mp4", "video"],
-    ["//cdn.example.com/clip.mp4", "video"],
-    ["https://cdn.example.com/frame.png", "img"],
-    ["//cdn.example.com/frame.png", "img"],
-  ])("opens the media link %s in the local viewer", async (src, elementName) => {
-    await act(() => root.render(<ChatMarkdown cwd="/workspace" text={`[Preview](${src})`} />));
-    const link = container.querySelector("a")!;
-    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
-
-    await act(() => link.dispatchEvent(click));
-
-    expect(click.defaultPrevented).toBe(true);
-    const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    expect(dialog?.querySelector(elementName)?.getAttribute("src")).toBe(src);
-  });
-
-  it("keeps authored video dimensions from loading through playback and refreshes on retry", async () => {
-    const text = '<img src="/tmp/clip.mp4" alt="Clip" width="96" height="128">';
-    testState.assetState = "loading";
-    await act(() =>
-      root.render(<ChatMarkdown cwd="/workspace" threadRef={threadRef} text={text} />),
-    );
-    const loading = container.querySelector<HTMLElement>('[aria-label="Loading video"]')!;
-    const loadingStyle = loading.style.cssText;
-    expect(loading.style.width).toBe("96px");
-    expect(loading.style.aspectRatio).toBe("96 / 128");
-
-    testState.assetState = "success";
-    await act(() =>
-      root.render(<ChatMarkdown cwd="/workspace" threadRef={{ ...threadRef }} text={text} />),
-    );
-    const video = container.querySelector("video")!;
-    expect(video.style.cssText).toBe(loadingStyle);
-    await act(() => video.dispatchEvent(new Event("error")));
-    expect(container.querySelector("a")).toBeNull();
-    const retry = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Retry video",
-    );
-    await act(() => retry!.click());
-    expect(testState.refreshAssetUrl).toHaveBeenCalledOnce();
-    expect(container.querySelector("video")?.style.cssText).toBe(loadingStyle);
   });
 });

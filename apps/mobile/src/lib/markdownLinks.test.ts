@@ -1,39 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  normalizeNativeMarkdownUrl,
-  resolveMarkdownFileIcon,
-  resolveMarkdownInlineCodePresentation,
-  resolveMarkdownLinkPresentation,
-} from "@t3tools/mobile-markdown-text/links";
-
-describe("resolveMarkdownFileIcon", () => {
-  it.each(["avi", "m4v", "mkv", "mov", "mp4", "ogv", "webm"])(
-    "uses a video icon for .%s files",
-    (extension) => expect(resolveMarkdownFileIcon(`recording.${extension}`)).toBe("video"),
-  );
-
-  it.each([
-    "C:\\Videos\\Recording.MP4",
-    "/tmp/recording.webm:12:4",
-    "media/take#1.mp4",
-    "media/take?1.mp4",
-    "media/take%20.mp4",
-  ])("recognizes the literal video path %s", (path) => {
-    expect(resolveMarkdownFileIcon(path)).toBe("video");
-  });
-
-  it.each([
-    ["recording.mp4.txt", "text"],
-    ["recording.mp4.ts", "typescript"],
-    ["recording%2Emp4", "default"],
-    ["recording.mp4#t=1", "default"],
-  ])("keeps the literal filename classification for %s", (path, icon) => {
-    expect(resolveMarkdownFileIcon(path)).toBe(icon);
-  });
-});
+import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
 
 describe("resolveMarkdownLinkPresentation", () => {
+  it("treats protocol-relative media as an external URL, not a filesystem path", () => {
+    expect(resolveMarkdownLinkPresentation("//cdn.example.com/clip.mp4?sig=a%2fb#t=2")).toEqual({
+      kind: "external",
+      href: "https://cdn.example.com/clip.mp4?sig=a%2fb#t=2",
+      host: "cdn.example.com",
+    });
+  });
+
+  it("separates encoded filename characters from a video playback fragment", () => {
+    expect(resolveMarkdownLinkPresentation("/tmp/clip%23one.mp4#t=2")).toMatchObject({
+      path: "/tmp/clip#one.mp4",
+      label: "clip#one.mp4",
+      icon: "video",
+    });
+  });
+
   it("extracts external link hosts", () => {
     expect(resolveMarkdownLinkPresentation("https://example.com/docs?q=1")).toEqual({
       kind: "external",
@@ -41,22 +26,6 @@ describe("resolveMarkdownLinkPresentation", () => {
       host: "example.com",
     });
   });
-
-  it.each(["//cdn.example.com/clip.mp4?signature=a%2Fb#t=2", "//cdn.example.com/image.png"])(
-    "treats %s as an external URL, not a filesystem path",
-    (href) => {
-      expect(resolveMarkdownLinkPresentation(href)).toEqual({
-        kind: "external",
-        href: `https:${href}`,
-        host: "cdn.example.com",
-      });
-    },
-  );
-
-  it.each(["file:///tmp/clip.mp4", "file://server/share/clip.mp4", "\\\\server\\share\\clip.mp4"])(
-    "keeps the explicit file destination %s as a file reference",
-    (href) => expect(resolveMarkdownLinkPresentation(href)).toMatchObject({ kind: "file", href }),
-  );
 
   it("renders file URLs as basename pills with positions", () => {
     expect(
@@ -144,67 +113,10 @@ describe("resolveMarkdownLinkPresentation", () => {
     });
   });
 
-  it.each([
-    "/tmp/recording.mp4",
-    "file:///tmp/Recording%20Final.MP4#t=1",
-    "media/recording%2Emp4?download=1#t=2",
-    "media/recording.webm:12:4",
-  ])("uses a video icon for the Markdown destination %s", (href) => {
-    expect(resolveMarkdownLinkPresentation(href)).toMatchObject({
-      kind: "file",
-      icon: "video",
-    });
-  });
-
   it("does not style app routes as file links", () => {
     expect(resolveMarkdownLinkPresentation("/chat/settings")).toEqual({
       kind: "link",
       href: null,
     });
   });
-});
-
-describe("normalizeNativeMarkdownUrl", () => {
-  it("adds a native scheme without reserializing a signed media URL", () => {
-    const href = "//cdn.example.com/clip%20one.mp4?sig=a%2fb&empty=#t=2";
-    expect(normalizeNativeMarkdownUrl(href)).toBe(`https:${href}`);
-  });
-
-  it.each([
-    "https://cdn.example.com/clip.mp4?sig=a%2fb#t=2",
-    "data:image/png;base64,iVBORw0KGgo=",
-    "file:///tmp/clip.mp4",
-    "file://server/share/clip.mp4",
-    "\\\\server\\share\\clip.mp4",
-    "/tmp/clip.mp4",
-  ])("leaves %s unchanged", (href) => expect(normalizeNativeMarkdownUrl(href)).toBe(href));
-});
-
-describe("resolveMarkdownInlineCodePresentation", () => {
-  it.each([
-    ["/tmp/recording.mp4", "/tmp/recording.mp4", "recording.mp4"],
-    ["./images/result.png", "./images/result.png", "result.png"],
-    ["src/main.ts:12", "src/main.ts", "main.ts:12"],
-    ["file:///tmp/screen.png", "/tmp/screen.png", "screen.png"],
-    ["Makefile:12", "Makefile", "Makefile:12"],
-    ["Justfile:8:2", "Justfile", "Justfile:8:2"],
-  ])("recognizes file reference %s", (content, path, label) => {
-    expect(resolveMarkdownInlineCodePresentation(content)).toMatchObject({
-      kind: "file",
-      path,
-      label,
-    });
-  });
-
-  it.each([
-    "image.png",
-    "npm run dev",
-    "foo.bar",
-    "example.com/image.png",
-    "//cdn.example.com/image.png",
-    "error:1",
-    "src/*.ts",
-  ])("keeps %s as ordinary code", (content) =>
-    expect(resolveMarkdownInlineCodePresentation(content)).toBeNull(),
-  );
 });

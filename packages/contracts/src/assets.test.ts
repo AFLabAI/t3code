@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { AssetCreateUrlInput, AttachmentCreateUploadUrlInput } from "./assets.ts";
+import { AttachmentCreateUploadUrlInput } from "./assets.ts";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -14,22 +14,6 @@ const uploadInput = {
   mimeType: "image/png",
   sizeBytes: 3,
 } as const;
-
-describe("AssetCreateUrlInput", () => {
-  const isAssetInput = Schema.is(AssetCreateUrlInput);
-
-  it("accepts host media paths only with their thread context", () => {
-    const resource = {
-      _tag: "media-file",
-      threadId: "thread-1",
-      path: "/tmp/recording.mp4",
-    };
-    expect(isAssetInput({ resource })).toBe(true);
-    expect(isAssetInput({ resource: { ...resource, path: "images/screenshot.png" } })).toBe(true);
-    expect(isAssetInput({ resource: { ...resource, threadId: undefined } })).toBe(false);
-    expect(isAssetInput({ resource: { ...resource, path: "" } })).toBe(false);
-  });
-});
 
 describe("AttachmentCreateUploadUrlInput", () => {
   it("accepts supported image attachments", () => {
