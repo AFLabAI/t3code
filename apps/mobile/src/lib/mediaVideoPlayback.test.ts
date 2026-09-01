@@ -70,7 +70,8 @@ vi.mock("react-native", async () => {
         },
         props.children,
       ),
-    ActivityIndicator: () => null,
+    ActivityIndicator: ({ accessibilityLabel }: { readonly accessibilityLabel?: string }) =>
+      createElement("div", { role: "progressbar", "aria-label": accessibilityLabel }),
     Keyboard: { dismiss: vi.fn() },
     AppState: { currentState: "active", addEventListener: () => ({ remove: vi.fn() }) },
   };
@@ -207,6 +208,7 @@ describe("mobile video URL renewal", () => {
     if (!player) throw new Error("Expected a native video player");
     return player;
   };
+  const loadingVideo = () => container.querySelector('[aria-label="Loading video"]');
   const modal = () =>
     createElement(MediaVideoPreviewModal, {
       source: {
@@ -223,6 +225,59 @@ describe("mobile video URL renewal", () => {
       },
       onRequestClose: vi.fn(),
     });
+
+  it("shows signing, source replacement, and rebuffering without treating completed playback as loading", async () => {
+    native.asset = { _tag: "Success", url: "https://host/cached/clip.mp4" };
+    const signing = Promise.withResolvers<string | null>();
+    const replacing = Promise.withResolvers<void>();
+    native.refreshUrl.mockReturnValueOnce(signing.promise);
+    await render(modal());
+    const player = latestPlayer();
+    player.replaceAsync.mockReturnValueOnce(replacing.promise);
+    expect(loadingVideo()).not.toBeNull();
+    expect(player.replaceAsync).not.toHaveBeenCalled();
+
+    await act(() => signing.resolve("https://host/fresh/clip.mp4"));
+    expect(player.replaceAsync).toHaveBeenCalledOnce();
+    expect(loadingVideo()).not.toBeNull();
+    await act(() => replacing.resolve());
+    expect(loadingVideo()).toBeNull();
+
+    player.currentTime = 5;
+    player.status = "idle";
+    await render(modal());
+    expect(loadingVideo()).toBeNull();
+    await click("Save or share video");
+    expect(loadingVideo()).toBeNull();
+    expect(player.replaceAsync).toHaveBeenCalledOnce();
+    expect(player.currentTime).toBe(5);
+
+    player.status = "loading";
+    await render(modal());
+    expect(loadingVideo()).not.toBeNull();
+    player.status = "readyToPlay";
+    await render(modal());
+    expect(loadingVideo()).toBeNull();
+  });
+
+  it("shows a pending Retry instead of its previous error and restores the error if signing fails", async () => {
+    native.asset = { _tag: "Success", url: "https://host/cached/clip.mp4" };
+    await render(modal());
+    const player = latestPlayer();
+    player.status = "error";
+    await render(modal());
+    expect(loadingVideo()).toBeNull();
+    const signing = Promise.withResolvers<string | null>();
+    native.refreshUrl.mockReturnValueOnce(signing.promise);
+    await click("Retry video");
+    expect(loadingVideo()).not.toBeNull();
+    expect(container.querySelector('[aria-label="Retry video"]')).toBeNull();
+
+    await act(() => signing.resolve(null));
+    expect(loadingVideo()).toBeNull();
+    expect(container.querySelector('[aria-label="Retry video"]')).not.toBeNull();
+    expect(player.replaceAsync).toHaveBeenCalledOnce();
+  });
 
   it("preserves playback on renewal and uses the fresh URL for sharing and Retry", async () => {
     native.asset = { _tag: "Success", url: "https://host/initial/clip.mp4" };

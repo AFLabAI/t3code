@@ -1147,10 +1147,16 @@ const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon({ host }: { host: 
   );
 });
 
-const CHAT_MARKDOWN_IMAGE_BOUNDS_CLASS_NAME = "max-h-[30rem] max-w-[min(100%,30rem)]";
+const CHAT_MARKDOWN_MEDIA_MAX_WIDTH_CLASS_NAME = "max-w-[min(100%,30rem)]";
+const CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME = cn(
+  "max-h-[30rem]",
+  CHAT_MARKDOWN_MEDIA_MAX_WIDTH_CLASS_NAME,
+);
+const CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME = "inline-block!";
+const CHAT_MARKDOWN_MEDIA_FRAME_CLASS_NAME = "rounded-lg border border-border/40";
 const CHAT_MARKDOWN_IMAGE_SIZE_CLASS_NAME = cn(
   "h-auto w-auto object-contain",
-  CHAT_MARKDOWN_IMAGE_BOUNDS_CLASS_NAME,
+  CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME,
 );
 
 function markdownImageCopy(alt: string, src: string, title: string | undefined): string {
@@ -1181,11 +1187,10 @@ function authoredImageSizeStyle(
   return undefined;
 }
 
-const CHAT_MARKDOWN_WORKSPACE_IMAGE_LAYOUT_CLASS_NAME = "inline-block!";
 const CHAT_MARKDOWN_WORKSPACE_IMAGE_CLASS_NAME = cn(
   CHAT_MARKDOWN_IMAGE_SIZE_CLASS_NAME,
-  CHAT_MARKDOWN_WORKSPACE_IMAGE_LAYOUT_CLASS_NAME,
-  "rounded-lg border border-border/40",
+  CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME,
+  CHAT_MARKDOWN_MEDIA_FRAME_CLASS_NAME,
 );
 const MarkdownLinkContext = React.createContext(false);
 
@@ -1227,7 +1232,7 @@ function ChatMarkdownImageFallback(props: {
     <span
       data-markdown-copy={props.copyMarkdown}
       className={cn(
-        CHAT_MARKDOWN_WORKSPACE_IMAGE_LAYOUT_CLASS_NAME,
+        CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME,
         "rounded-md border border-border/40 bg-muted/40 px-2 py-1 text-xs text-muted-foreground",
       )}
     >
@@ -1259,8 +1264,15 @@ function ChatMarkdownVideo(props: {
       originalUrl={props.originalUrl}
       style={props.style}
       copyMarkdown={props.copyMarkdown}
-      className="inline-block! w-full max-w-[30rem]"
-      videoClassName="max-h-[30rem] rounded-lg border border-border/40"
+      className={cn(
+        CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME,
+        CHAT_MARKDOWN_MEDIA_MAX_WIDTH_CLASS_NAME,
+        "w-full",
+      )}
+      videoClassName={cn(
+        CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME,
+        CHAT_MARKDOWN_MEDIA_FRAME_CLASS_NAME,
+      )}
       onRetry={props.onRetry}
       onExpand={
         props.onImageExpand
@@ -1333,9 +1345,9 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
         role="status"
         aria-label="Loading image"
         className={cn(
-          CHAT_MARKDOWN_WORKSPACE_IMAGE_LAYOUT_CLASS_NAME,
+          CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME,
           "aspect-video w-64 max-w-full rounded-lg bg-muted/60",
-          CHAT_MARKDOWN_IMAGE_BOUNDS_CLASS_NAME,
+          CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME,
         )}
         style={props.style}
       />

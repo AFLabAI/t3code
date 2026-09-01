@@ -19,7 +19,8 @@ function LoadedMediaVideo(props: {
   const focused = useIsFocused();
   const active = useRef(focused && AppState.currentState === "active");
   const [attempt, setAttempt] = useState(0);
-  const [loadError, setLoadError] = useState(false);
+  // Expo's Android player also reports completed playback as idle.
+  const [loadState, setLoadState] = useState<"pending" | "complete" | "error">("pending");
   const player = useVideoPlayer(null, (player) => {
     player.staysActiveInBackground = false;
     player.bufferOptions = { preferredForwardBufferDuration: 5 };
@@ -49,11 +50,16 @@ function LoadedMediaVideo(props: {
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoadError(false);
+    setLoadState("pending");
     // A renewed signature is used on Retry, not as a reason to reset the native player.
-    void loadSource(controller.signal).catch(() => {
-      if (!controller.signal.aborted) setLoadError(true);
-    });
+    void loadSource(controller.signal).then(
+      () => {
+        if (!controller.signal.aborted) setLoadState("complete");
+      },
+      () => {
+        if (!controller.signal.aborted) setLoadState("error");
+      },
+    );
     return () => controller.abort();
   }, [player, props.playRequested, attempt]);
 
@@ -68,7 +74,7 @@ function LoadedMediaVideo(props: {
         fullscreenOptions={{ enable: true }}
         allowsPictureInPicture={false}
       />
-      {loadError || status === "error" ? (
+      {loadState === "error" || (loadState === "complete" && status === "error") ? (
         <View className="absolute inset-0 items-center justify-center gap-2 bg-black px-4">
           <AppText className="text-center text-sm text-white/80">Video unavailable</AppText>
           <Pressable
@@ -80,7 +86,7 @@ function LoadedMediaVideo(props: {
             <AppText className="text-sm text-white">Retry</AppText>
           </Pressable>
         </View>
-      ) : status === "loading" || status === "idle" ? (
+      ) : loadState === "pending" || status === "loading" ? (
         <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
           <ActivityIndicator color="#ffffff" accessibilityLabel="Loading video" />
         </View>

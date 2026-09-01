@@ -21,6 +21,31 @@ import {
 const fileResponseLayer = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
 
 describe("video asset byte ranges", () => {
+  it.effect("preserves the media path and native cause when descriptor stat fails", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-stat-error-" });
+      const filePath = path.join(directory, "clip.mp4");
+      yield* fs.writeFileString(filePath, "video");
+      const canonicalPath = yield* fs.realPath(filePath);
+      const file = yield* openMediaFile(canonicalPath);
+      if (!file) throw new Error("Expected an opened media file");
+      yield* Effect.promise(() => file.handle.close());
+
+      const error = yield* assetFileResponse({
+        path: canonicalPath,
+        file,
+        mimeType: "video/mp4",
+      }).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "MediaFileStatError",
+        path: canonicalPath,
+        cause: { code: "EBADF" },
+      });
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
   it.effect("uses current descriptor metadata after an in-place truncate or extension", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

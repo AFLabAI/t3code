@@ -29,7 +29,7 @@ import { OtlpTracer } from "effect/unstable/observability";
 
 import * as ServerConfig from "./config.ts";
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "./assets/AssetAccess.ts";
-import { streamMediaFile, type OpenMediaFile } from "./assets/MediaFile.ts";
+import { statMediaFile, streamMediaFile, type OpenMediaFile } from "./assets/MediaFile.ts";
 import {
   ATTACHMENT_UPLOAD_ROUTE_PREFIX,
   storeAttachmentUpload,
@@ -150,9 +150,7 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
 ) {
   const headers = assetResponseHeaders(asset.path, asset);
   const mediaFile = asset.file;
-  const mediaInfo = mediaFile
-    ? yield* Effect.tryPromise(() => mediaFile.handle.stat({ bigint: true }))
-    : undefined;
+  const mediaInfo = mediaFile ? yield* statMediaFile(asset.path, mediaFile) : undefined;
   let status = 200;
   let offset = 0n;
   let bytesToRead: bigint | undefined;

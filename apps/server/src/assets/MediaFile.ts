@@ -15,6 +15,14 @@ class MediaFileOpenError extends Schema.TaggedErrorClass<MediaFileOpenError>()(
   },
 ) {}
 
+class MediaFileStatError extends Schema.TaggedErrorClass<MediaFileStatError>()(
+  "MediaFileStatError",
+  {
+    path: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
 /** Holds the file identity and descriptor for one HTTP request, never a copy of its bytes. */
 export interface OpenMediaFile {
   readonly handle: NodeFSP.FileHandle;
@@ -68,6 +76,16 @@ export const openMediaFile = Effect.fn("openMediaFile")(function* (
     }),
     (file) => (file ? Effect.promise(() => file.handle.close()) : Effect.void),
   );
+});
+
+export const statMediaFile = Effect.fn("statMediaFile")(function* (
+  filePath: string,
+  file: OpenMediaFile,
+) {
+  return yield* Effect.tryPromise({
+    try: () => file.handle.stat({ bigint: true }),
+    catch: (cause) => new MediaFileStatError({ path: filePath, cause }),
+  });
 });
 
 export const streamMediaFile = (file: OpenMediaFile, offset: bigint, bytesToRead: bigint) => {
