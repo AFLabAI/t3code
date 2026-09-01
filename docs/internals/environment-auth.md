@@ -50,6 +50,13 @@ can fetch that file until it expires. Clients should copy the authored reference
 URL. Responses use `nosniff`; SVG responses retain their restrictive sandbox policy. Video reads
 support byte ranges so playback does not require a complete download first.
 
+Host videos can change in place, so their responses use `private, no-store` and omit `ETag`
+and `Last-Modified`. File metadata cannot prove byte-for-byte identity for `If-Range`; advertising
+those validators would encourage native players to send conditional seeks that require a full
+response. Ordinary range requests receive partial responses. An explicitly supplied `If-Range`
+still falls back to a full response because no strong validator is available. Host image previews
+keep their private cache policy and weak metadata validators.
+
 The server serves media in place without importing it into attachment storage. Deletion makes
 future server reads fail, though an already loaded client or its cache can retain bytes. Native
 viewers may use temporary client-side files for display or explicit sharing; those are not durable

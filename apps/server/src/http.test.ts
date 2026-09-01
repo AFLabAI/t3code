@@ -83,7 +83,9 @@ describe("video asset byte ranges", () => {
           expect(response.headers.get("content-length")).toBe(
             String(method === "HEAD" ? contents.length : expected.length),
           );
-          expect(response.headers.get("last-modified")).toBe(modifiedAt.toUTCString());
+          expect(response.headers.get("last-modified")).toBeNull();
+          expect(response.headers.get("etag")).toBeNull();
+          expect(response.headers.get("cache-control")).toBe("private, no-store");
         }
         expect(yield* Effect.promise(() => response.text())).toBe(expected);
       }
@@ -164,9 +166,63 @@ describe("video asset byte ranges", () => {
         expect(response.status).toBe(status);
         expect(response.headers.get("accept-ranges")).toBe("bytes");
         expect(response.headers.get("content-range")).toBe(contentRange);
+        expect(response.headers.get("cache-control")).toBe("private, no-store");
+        expect(response.headers.get("etag")).toBeNull();
+        expect(response.headers.get("last-modified")).toBeNull();
         if (status !== 416)
           expect(response.headers.get("content-length")).toBe(String(expected.length));
         expect(yield* Effect.promise(() => response.text())).toBe(expected);
+      }
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
+  it.effect("does not use mutable host file metadata to satisfy If-Range", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-if-range-" });
+      const filePath = path.join(directory, "clip.mp4");
+      yield* fs.writeFileString(filePath, "0123456789");
+      const canonicalPath = yield* fs.realPath(filePath);
+      const initial = yield* openMediaFile(canonicalPath);
+      if (!initial) throw new Error("Expected an opened media file");
+      const lastModified = initial.info.mtime.toUTCString();
+      const weakEtag = `W/"${initial.info.size.toString(16)}-${initial.info.mtimeMs.toString(16)}"`;
+
+      for (const [range, ifRange, method] of [
+        ["bytes=0-1", lastModified, "GET"],
+        ["bytes=0-1", "Fri, 31 Dec 1999 23:59:59 GMT", "GET"],
+        ["bytes=0-1", "Fri, 31 Dec 9999 23:59:59 GMT", "GET"],
+        ["bytes=0-1", weakEtag, "GET"],
+        ["bytes=0-1", weakEtag.slice(2), "GET"],
+        ["bytes=0-1", "not a validator", "GET"],
+        ["bytes=0-1", "", "GET"],
+        ["bytes=0-1", " ", "GET"],
+        ["bytes=100-", lastModified, "GET"],
+        [undefined, lastModified, "GET"],
+        [undefined, weakEtag, "GET"],
+        ["bytes=0-1", lastModified, "HEAD"],
+        ["bytes=0-1", weakEtag, "HEAD"],
+      ] as const) {
+        const file = yield* openMediaFile(canonicalPath);
+        if (!file) throw new Error("Expected an opened media file");
+        const response = HttpServerResponse.toWeb(
+          yield* assetFileResponse(
+            { path: canonicalPath, file, mimeType: "video/mp4" },
+            range,
+            ifRange,
+            method,
+          ),
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-length")).toBe("10");
+        expect(response.headers.get("content-range")).toBeNull();
+        expect(response.headers.get("cache-control")).toBe("private, no-store");
+        expect(response.headers.get("etag")).toBeNull();
+        expect(response.headers.get("last-modified")).toBeNull();
+        expect(yield* Effect.promise(() => response.text())).toBe(
+          method === "HEAD" ? "" : "0123456789",
+        );
       }
     }).pipe(Effect.provide(fileResponseLayer)),
   );
@@ -238,6 +294,9 @@ describe("video asset byte ranges", () => {
         expect(response.headers.get("accept-ranges")).toBe("bytes");
         expect(response.headers.get("content-range")).toBe(contentRange);
         expect(response.headers.get("content-length")).toBe(String(expected.length));
+        expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
+        expect(response.headers.get("etag")).toBeTruthy();
+        expect(response.headers.get("last-modified")).toBeTruthy();
         expect(yield* Effect.promise(() => response.text())).toBe(expected);
       }
       for (const header of [
@@ -360,6 +419,38 @@ describe("assetResponseHeaders", () => {
           );
         }
         expect(yield* Effect.promise(() => response.text())).toBe("media");
+      }
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
+  it.effect("keeps private caching and weak validators for guarded images", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-image-cache-" });
+      const filePath = path.join(directory, "image.png");
+      yield* fs.writeFileString(filePath, "image");
+      const canonicalPath = yield* fs.realPath(filePath);
+      for (const method of ["GET", "HEAD"] as const) {
+        const file = yield* openMediaFile(canonicalPath);
+        if (!file) throw new Error("Expected an opened media file");
+        const response = HttpServerResponse.toWeb(
+          yield* assetFileResponse(
+            { path: canonicalPath, file, mimeType: "image/png" },
+            "bytes=0-1",
+            file.info.mtime.toUTCString(),
+            method,
+          ),
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe("image/png");
+        expect(response.headers.get("content-length")).toBe("5");
+        expect(response.headers.get("content-range")).toBeNull();
+        expect(response.headers.get("accept-ranges")).toBeNull();
+        expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
+        expect(response.headers.get("etag")).toMatch(/^W\/".+"$/);
+        expect(response.headers.get("last-modified")).toBe(file.info.mtime.toUTCString());
+        expect(yield* Effect.promise(() => response.text())).toBe(method === "HEAD" ? "" : "image");
       }
     }).pipe(Effect.provide(fileResponseLayer)),
   );

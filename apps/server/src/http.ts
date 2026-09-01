@@ -151,13 +151,19 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
   const headers = assetResponseHeaders(asset.path, asset);
   const mediaFile = asset.file;
   const mediaInfo = mediaFile ? yield* statMediaFile(asset.path, mediaFile) : undefined;
+  const isVideo = headers["Content-Type"]?.toLowerCase().startsWith("video/") === true;
+  if (mediaFile && isVideo) {
+    // Host videos can change in place. Do not invite conditional range requests
+    // with validators that cannot establish byte-for-byte identity.
+    headers["Cache-Control"] = "private, no-store";
+  }
   let status = 200;
   let offset = 0n;
   let bytesToRead: bigint | undefined;
-  if (headers["Content-Type"]?.toLowerCase().startsWith("video/")) {
+  if (isVideo) {
     headers["Accept-Ranges"] = "bytes";
     // If-Range requires a matching validator. A full response is safe when we cannot validate it.
-    if (method === "GET" && rangeHeader && !ifRangeHeader) {
+    if (method === "GET" && rangeHeader && ifRangeHeader === undefined) {
       const fs = yield* FileSystem.FileSystem;
       const info = mediaInfo ?? (yield* fs.stat(asset.path));
       const range = assetByteRange(rangeHeader, info.size);
@@ -179,8 +185,10 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
     const size = bytesToRead ?? mediaInfo.size;
     headers["Content-Type"] ??= Mime.getType(asset.path) ?? "application/octet-stream";
     headers["Content-Length"] = String(size);
-    headers["Last-Modified"] = mediaInfo.mtime.toUTCString();
-    headers.ETag = `W/"${mediaInfo.size.toString(16)}-${mediaInfo.mtimeMs.toString(16)}"`;
+    if (!isVideo) {
+      headers["Last-Modified"] = mediaInfo.mtime.toUTCString();
+      headers.ETag = `W/"${mediaInfo.size.toString(16)}-${mediaInfo.mtimeMs.toString(16)}"`;
+    }
     if (method === "HEAD" || size === 0n) {
       return HttpServerResponse.empty({ status, headers });
     }
