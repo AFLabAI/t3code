@@ -108,7 +108,8 @@ const stageWslRuntimeTreeFixture = Effect.fn("stageWslRuntimeTreeFixture")(funct
   );
 });
 
-function mockProcess(exitCode: number) {
+function mockProcess(exitCode: number, stdout = "") {
+  const encodedStdout = new TextEncoder().encode(stdout);
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(1),
     exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(exitCode)),
@@ -116,7 +117,7 @@ function mockProcess(exitCode: number) {
     kill: () => Effect.void,
     unref: Effect.succeed(Effect.void),
     stdin: Sink.drain,
-    stdout: Stream.empty,
+    stdout: stdout ? Stream.make(encodedStdout) : Stream.empty,
     stderr: Stream.empty,
     all: Stream.empty,
     getInputFd: () => Sink.drain,
@@ -925,6 +926,53 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.deepStrictEqual(error.missing, ["rust", "python", "msvc"]);
         assert.equal(error.rustTarget, "x86_64-pc-windows-msvc");
         assert.include(error.message, "Visual Studio Build Tools components");
+      }),
+    ),
+  );
+
+  it.effect("rejects a PATH-discovered Python executable that is not Python 3", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-python2-preflight-" });
+        const pythonPath = path.join(tempDir, "python");
+        yield* fs.writeFileString(pythonPath, "python2");
+        const spawner = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            const childProcess = command as unknown as {
+              readonly command: string;
+              readonly args: ReadonlyArray<string>;
+            };
+            if (childProcess.command === "python") {
+              return Effect.succeed(mockProcess(0, `${pythonPath}\n`));
+            }
+            if (childProcess.command === pythonPath) {
+              return Effect.succeed(mockProcess(1));
+            }
+            return Effect.succeed(mockProcess(0));
+          }),
+        );
+        const error = yield* preflightWindowsDesktopBuild({
+          arch: "x64",
+          bundlesWslRuntime: false,
+        }).pipe(
+          Effect.provide(
+            Layer.merge(
+              spawner,
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env: { T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: "true" },
+                }),
+              ),
+            ),
+          ),
+          Effect.flip,
+        );
+
+        assert.instanceOf(error, WindowsDesktopBuildPrerequisitesMissingError);
+        assert.deepStrictEqual(error.missing, ["python"]);
       }),
     ),
   );

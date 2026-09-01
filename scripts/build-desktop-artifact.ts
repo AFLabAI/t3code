@@ -882,7 +882,7 @@ const resolvePythonForNodeGyp = Effect.fn("resolvePythonForNodeGyp")(function* (
   }
 
   const executable = probe.stdout.trim();
-  if (!executable || !(yield* fs.exists(executable))) {
+  if (!executable || !(yield* fs.exists(executable)) || !(yield* isPython3(executable))) {
     return undefined;
   }
 
