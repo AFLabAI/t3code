@@ -84,19 +84,19 @@ Ubuntu and Debian:
 
 ```bash
 sudo apt-get update
-sudo apt-get install cargo rustc build-essential libx11-dev libxrandr-dev libxtst-dev libxt-dev
+sudo apt-get install cargo rustc build-essential imagemagick libx11-dev libxrandr-dev libxtst-dev libxt-dev
 ```
 
 Fedora:
 
 ```bash
-sudo dnf install rust cargo gcc gcc-c++ make libX11-devel libXrandr-devel libXtst-devel libXt-devel
+sudo dnf install rust cargo gcc gcc-c++ make ImageMagick libX11-devel libXrandr-devel libXtst-devel libXt-devel
 ```
 
 Arch Linux:
 
 ```bash
-sudo pacman -S rust base-devel libx11 libxrandr libxtst libxt
+sudo pacman -S rust base-devel imagemagick libx11 libxrandr libxtst libxt
 ```
 
 The artifact script checks these capabilities before starting the web and desktop builds. If
@@ -131,6 +131,9 @@ Visual Studio Installer, select **Desktop development with C++** and include:
 - MSVC x64/x86 build tools
 - A Windows 10 or Windows 11 SDK
 - MSVC Spectre-mitigated libraries
+
+ARM64 installers require the corresponding MSVC ARM64 build tools and Spectre-mitigated libraries
+instead of the x64/x86 components.
 
 Add the Rust target matching the installer architecture:
 

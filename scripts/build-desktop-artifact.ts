@@ -291,6 +291,7 @@ export const LINUX_DESKTOP_BUILD_PREREQUISITES = [
   { id: "cargo", description: "Rust compiler and Cargo", packages: ["cargo", "rustc"] },
   { id: "cc", description: "C/C++ build toolchain", packages: ["build-essential"] },
   { id: "make", description: "Make", packages: ["build-essential"] },
+  { id: "imagemagick", description: "ImageMagick", packages: ["imagemagick"] },
   { id: "x11", description: "X11 headers and linker library", packages: ["libx11-dev"] },
   {
     id: "xrandr",
@@ -300,8 +301,6 @@ export const LINUX_DESKTOP_BUILD_PREREQUISITES = [
   { id: "xtst", description: "Xtst headers and linker library", packages: ["libxtst-dev"] },
   { id: "xt", description: "Xt headers and linker library", packages: ["libxt-dev"] },
 ] as const;
-
-type LinuxDesktopBuildPrerequisiteId = (typeof LINUX_DESKTOP_BUILD_PREREQUISITES)[number]["id"];
 
 export class LinuxDesktopBuildPrerequisitesMissingError extends Schema.TaggedErrorClass<LinuxDesktopBuildPrerequisitesMissingError>()(
   "LinuxDesktopBuildPrerequisitesMissingError",
@@ -1596,7 +1595,22 @@ const desktopBuildProbeSucceeds = Effect.fn("desktopBuildProbeSucceeds")(functio
   );
 });
 
-export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild")(function* () {
+const rustTargetIsInstalled = Effect.fn("rustTargetIsInstalled")(function* (target: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const result = yield* spawnAndCollectOutput(
+    ChildProcess.make("rustc", ["--print", "target-libdir", "--target", target]),
+  ).pipe(Effect.orElseSucceed(() => null));
+  if (result === null || result.exitCode !== 0) return false;
+
+  const targetLibDir = result.stdout.trim();
+  if (targetLibDir === "") return false;
+  const entries = yield* fs.readDirectory(targetLibDir).pipe(Effect.orElseSucceed(() => []));
+  return entries.some((entry) => entry.startsWith("libstd-") && entry.endsWith(".rlib"));
+});
+
+export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild")(function* (
+  arch: typeof BuildArch.Type = "x64",
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
@@ -1612,9 +1626,16 @@ export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild"
     {
       cargo: reuseResourceMonitor
         ? Effect.succeed(true)
-        : desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
+        : Effect.all([
+            desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
+            rustTargetIsInstalled(resolveResourceMonitorRustTargets("linux", arch)[0]!),
+          ]).pipe(Effect.map(([cargo, target]) => cargo && target)),
       cc: desktopBuildProbeSucceeds(ChildProcess.make("cc", ["--version"]), "cc"),
       make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
+      imagemagick: Effect.all([
+        desktopBuildProbeSucceeds(ChildProcess.make("magick", ["-version"]), "magick"),
+        desktopBuildProbeSucceeds(ChildProcess.make("convert", ["-version"]), "convert"),
+      ]).pipe(Effect.map(([magick, convert]) => magick || convert)),
     },
     { concurrency: "unbounded" },
   );
@@ -1671,7 +1692,7 @@ export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild"
       )
     : { x11: true, xrandr: true, xtst: true, xt: true };
 
-  const checks: Record<LinuxDesktopBuildPrerequisiteId, boolean> = {
+  const checks = {
     ...commandChecks,
     ...nativeChecks,
   };
@@ -1697,17 +1718,17 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
         ? Effect.succeed(true)
         : Effect.all([
             desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
-            Effect.forEach(rustTargets, (target) =>
-              desktopBuildProbeSucceeds(
-                ChildProcess.make("rustc", ["--print", "target-libdir", "--target", target]),
-                `Rust target ${target}`,
-              ),
-            ).pipe(Effect.map((results) => results.every(Boolean))),
+            Effect.forEach(rustTargets, rustTargetIsInstalled).pipe(
+              Effect.map((results) => results.every(Boolean)),
+            ),
           ]).pipe(Effect.map(([cargo, targets]) => cargo && targets)),
       clang: desktopBuildProbeSucceeds(ChildProcess.make("clang", ["--version"]), "clang"),
       make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
       sips: desktopBuildProbeSucceeds(ChildProcess.make("sips", ["--help"]), "sips"),
-      iconutil: desktopBuildProbeSucceeds(ChildProcess.make("iconutil", ["--help"]), "iconutil"),
+      iconutil: desktopBuildProbeSucceeds(
+        ChildProcess.make("xcrun", ["--find", "iconutil"]),
+        "iconutil",
+      ),
       lipo:
         arch === "universal"
           ? desktopBuildProbeSucceeds(ChildProcess.make("lipo", ["-version"]), "lipo")
@@ -1723,14 +1744,26 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
   }
 });
 
-const WINDOWS_VSWHERE_PREREQUISITE_SCRIPT = [
-  "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
-  "if (!(Test-Path $vswhere)) { exit 1 }",
-  "$install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre -property installationPath",
-  "if (!$install) { exit 1 }",
-  "$kitsRoot = Get-ItemPropertyValue 'HKLM:\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots' -Name KitsRoot10 -ErrorAction SilentlyContinue",
-  "if (!$kitsRoot -or !(Test-Path (Join-Path $kitsRoot 'Lib'))) { exit 1 }",
-].join("; ");
+function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
+  const components =
+    arch === "arm64"
+      ? [
+          "Microsoft.VisualStudio.Component.VC.Tools.ARM64",
+          "Microsoft.VisualStudio.Component.VC.Tools.ARM64.Spectre",
+        ]
+      : [
+          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre",
+        ];
+  return [
+    "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
+    "if (!(Test-Path $vswhere)) { exit 1 }",
+    `$install = & $vswhere -latest -products * -requires ${components.join(" ")} -property installationPath`,
+    "if (!$install) { exit 1 }",
+    "$kitsRoot = Get-ItemPropertyValue 'HKLM:\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots' -Name KitsRoot10 -ErrorAction SilentlyContinue",
+    "if (!$kitsRoot -or !(Test-Path (Join-Path $kitsRoot 'Lib'))) { exit 1 }",
+  ].join("; ");
+}
 
 export const preflightWindowsDesktopBuild = Effect.fn("preflightWindowsDesktopBuild")(
   function* (input: { readonly arch: typeof BuildArch.Type; readonly bundlesWslRuntime: boolean }) {
@@ -1745,10 +1778,7 @@ export const preflightWindowsDesktopBuild = Effect.fn("preflightWindowsDesktopBu
           ? Effect.succeed(true)
           : Effect.all([
               desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
-              desktopBuildProbeSucceeds(
-                ChildProcess.make("rustc", ["--print", "target-libdir", "--target", rustTarget]),
-                `Rust target ${rustTarget}`,
-              ),
+              rustTargetIsInstalled(rustTarget),
             ]).pipe(Effect.map(([cargo, target]) => cargo && target)),
         python: Effect.succeed(python !== undefined),
         msvc: desktopBuildProbeSucceeds(
@@ -1757,7 +1787,7 @@ export const preflightWindowsDesktopBuild = Effect.fn("preflightWindowsDesktopBu
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            WINDOWS_VSWHERE_PREREQUISITE_SCRIPT,
+            windowsVswherePrerequisiteScript(input.arch),
           ]),
           "Visual Studio Build Tools",
         ),
@@ -3208,7 +3238,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const fs = yield* FileSystem.FileSystem;
   const hostPlatform = yield* HostProcessPlatform;
   if (hostPlatform === "linux" && options.platform === "linux") {
-    yield* preflightLinuxDesktopBuild();
+    yield* preflightLinuxDesktopBuild(options.arch);
   }
   if (hostPlatform === "darwin" && options.platform === "mac") {
     yield* preflightMacDesktopBuild(options.arch);

@@ -821,6 +821,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it.effect("reports every missing Linux desktop build prerequisite with an install command", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
+          [];
         const spawner = Layer.succeed(
           ChildProcessSpawner.ChildProcessSpawner,
           ChildProcessSpawner.make((command) => {
@@ -828,6 +830,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
               readonly command: string;
               readonly args: ReadonlyArray<string>;
             };
+            commands.push(childProcess);
             const fails =
               childProcess.command === "cargo" ||
               childProcess.args.includes("X11/extensions/Xrandr.h");
@@ -835,7 +838,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           }),
         );
 
-        const error = yield* preflightLinuxDesktopBuild().pipe(
+        const error = yield* preflightLinuxDesktopBuild("arm64").pipe(
           Effect.provide(spawner),
           Effect.flip,
         );
@@ -845,6 +848,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.include(error.message, "Rust compiler and Cargo (cargo, rustc)");
         assert.include(error.message, "Xrandr headers and linker library (libxrandr-dev)");
         assert.include(error.message, "sudo apt-get install cargo rustc libxrandr-dev");
+        assert.isTrue(
+          commands.some(
+            (command) =>
+              command.command === "rustc" && command.args.includes("aarch64-unknown-linux-gnu"),
+          ),
+        );
       }),
     ),
   );
@@ -859,7 +868,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
               readonly command: string;
               readonly args: ReadonlyArray<string>;
             };
-            const fails = childProcess.command === "iconutil" || childProcess.command === "rustc";
+            const fails =
+              childProcess.command === "rustc" ||
+              (childProcess.command === "xcrun" && childProcess.args.includes("iconutil"));
             return Effect.succeed(mockProcess(fails ? 1 : 0));
           }),
         );
