@@ -41,8 +41,7 @@ JavaScript.
 
 Web development servers with a Vite dev URL can read `T3CODE_DEV_AUTH_TOKEN`.
 The value must contain at least 32 characters after trimming. Generate one
-random value, then supply that same value to each worktree that should accept
-it. Do not generate a new value in every shell startup.
+random value and keep it fixed. Do not generate a new value at startup.
 
 Generate the value once:
 
@@ -50,18 +49,38 @@ Generate the value once:
 openssl rand -hex 32
 ```
 
-Then copy that output and use the same value in every worktree shell:
+Copy that output into the main checkout's gitignored `.env` file:
+
+```dotenv
+T3CODE_DEV_AUTH_TOKEN=<the value generated above>
+```
+
+The `t3.json` Setup Worktree commands on Unix and Windows symlink this file to
+each worktree's `.env`. The dev runner loads the repository env files at
+startup. `.env.local` and the inherited process environment override `.env`.
+No per-worktree export is needed when the setup command ran.
+
+For a manual worktree or launcher without that symlink, export the same fixed
+value instead:
 
 ```bash
 export T3CODE_DEV_AUTH_TOKEN="<the value generated above>"
-vp run dev --share
 ```
 
-Each worktree hashes the value and seeds one administrative session in its own
-`state.sqlite`. The raw value is not stored in SQLite. Worktrees do not share an
-authentication database, signing key, environment ID, session records, pairing grant,
-or revocation state. Normal browser, bearer, DPoP, and WebSocket credentials
-remain local to the environment that issued them.
+Start or restart `vp run dev --share` after configuration. Open the printed
+startup pairing URL once in each browser profile on a given hostname. Later dev
+servers on that hostname accept the shared dev cookie across ports.
+
+The token and every startup pairing URL that contains it are reusable
+administrative secrets. Never put them in commits, pull requests, or public
+output.
+
+At server startup, each worktree hashes the value and seeds one administrative
+session in its own `state.sqlite`. The raw value is not stored in SQLite.
+Worktrees do not share an authentication database, signing key, environment ID,
+session records, pairing grant, or revocation state. Normal browser, bearer,
+DPoP, and WebSocket credentials remain local to the environment that issued
+them.
 
 Cookies do not include a port. The dedicated dev cookie therefore lets one
 browser reuse the configured credential across worktrees on the same hostname
