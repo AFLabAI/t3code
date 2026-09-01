@@ -31,26 +31,6 @@ describe("usage pricing", () => {
     }
   });
 
-  it("prices Claude Fable 5.1 before LiteLLM publishes it", () => {
-    const table = parseRateTable({});
-
-    expect(table.size).toBe(0);
-    expect(lookupRate(table, "claude-fable-5-1")).toEqual({
-      inputCostPerToken: 10e-6,
-      outputCostPerToken: 50e-6,
-      cacheReadCostPerToken: 0.25e-6,
-      cacheCreationCostPerToken: 12.5e-6,
-    });
-  });
-
-  it("prefers LiteLLM's Claude Fable 5.1 rate once available", () => {
-    const table = parseRateTable({
-      "claude-fable-5-1": rate(2, 0.5),
-    });
-
-    expect(lookupRate(table, "claude-fable-5-1")?.inputCostPerToken).toBe(2);
-  });
-
   it("adds a bare alias when every qualified entry has the same rate", () => {
     const table = parseRateTable({
       "provider-a/example-model": rate(1),
