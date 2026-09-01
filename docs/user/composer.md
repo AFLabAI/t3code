@@ -99,9 +99,10 @@ use the skills and commands from the selected environment and provider.
 
 By default, the `/` menu includes skills. To keep this menu command-only, turn off **Show skills in
 slash menu** in **Settings → General**. Skill results use the `/skill:Skill Name` label and add the
-same `$name` skill token to your message. The original skill name remains searchable. If the provider
-also reports that skill as a native slash command, T3 Code hides the duplicate native entry and keeps
-the `/skill:Skill Name` label.
+provider's invocation text to your message. For Claude, both menus insert `/name`, so skills that
+require explicit user invocation can run. Other providers keep `$name`. The original skill name
+remains searchable. If the provider also reports that skill as a native slash command, T3 Code hides
+the duplicate native entry and keeps the `/skill:Skill Name` label.
 
 On desktop, press `Cmd+Enter` on macOS or `Ctrl+Enter` on Windows and Linux from a new thread to
 start it in the background. T3 Code opens another new thread and shows an **Open** action for the

@@ -1,4 +1,8 @@
-import type { ServerProviderSkill, ServerProviderSlashCommand } from "@t3tools/contracts";
+import type {
+  ProviderDriverKind,
+  ServerProviderSkill,
+  ServerProviderSlashCommand,
+} from "@t3tools/contracts";
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
 
@@ -23,6 +27,14 @@ export function formatProviderSkillDisplayName(
     return displayName;
   }
   return titleCaseWords(skill.name);
+}
+
+/** Claude needs a slash to authorize skills reserved for explicit user invocation. */
+export function formatProviderSkillInvocation(
+  driver: ProviderDriverKind | undefined,
+  skillName: string,
+): string {
+  return `${driver === "claudeAgent" ? "/" : "$"}${skillName}`;
 }
 
 export function dedupeProviderSkillsByName(

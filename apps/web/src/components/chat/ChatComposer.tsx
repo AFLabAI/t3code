@@ -330,6 +330,7 @@ import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import {
   formatProviderSkillDisplayName,
+  formatProviderSkillInvocation,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
 } from "@t3tools/client-runtime/providerSkills";
@@ -2053,7 +2054,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "skill") {
-        const replacement = `$${item.skill.name} `;
+        const replacement = `${formatProviderSkillInvocation(item.provider, item.skill.name)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,

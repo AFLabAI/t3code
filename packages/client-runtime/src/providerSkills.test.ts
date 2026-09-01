@@ -1,12 +1,46 @@
 import { describe, expect, it } from "vite-plus/test";
+import { ProviderDriverKind } from "@t3tools/contracts";
+import { detectComposerTrigger, replaceTextRange } from "@t3tools/shared/composerTrigger";
 
 import {
   dedupeProviderSkillsByName,
   formatProviderSkillDisplayName,
+  formatProviderSkillInvocation,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
+
+describe("formatProviderSkillInvocation", () => {
+  it.each([
+    ["claudeAgent", "/clarify"],
+    ["codex", "$clarify"],
+    ["cursor", "$clarify"],
+    ["grok", "$clarify"],
+    ["opencode", "$clarify"],
+  ])("uses the invocation syntax for %s", (driver, expected) => {
+    expect(formatProviderSkillInvocation(ProviderDriverKind.make(driver), "clarify")).toBe(
+      expected,
+    );
+  });
+
+  it.each(["/clar", "$clar", "Please $clar"])(
+    "keeps Claude skill selections as slash invocations in %s",
+    (draft) => {
+      const trigger = detectComposerTrigger(draft, draft.length);
+      expect(trigger).not.toBeNull();
+      if (!trigger) throw new Error("Expected a skill or slash command trigger");
+
+      const replacement = `${formatProviderSkillInvocation(ProviderDriverKind.make("claudeAgent"), "plugin:clarify")} `;
+      const result = replaceTextRange(draft, trigger.rangeStart, trigger.rangeEnd, replacement);
+
+      expect(result).toEqual({
+        text: `${draft.slice(0, trigger.rangeStart)}/plugin:clarify `,
+        cursor: trigger.rangeStart + "/plugin:clarify ".length,
+      });
+    },
+  );
+});
 
 describe("formatProviderSkillDisplayName", () => {
   it("prefers the provider display name", () => {

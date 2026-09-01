@@ -11,6 +11,7 @@ import {
 } from "@t3tools/shared/searchRanking";
 import {
   dedupeProviderSkillsByName,
+  formatProviderSkillInvocation,
   getProviderSkillsForSlashMenu,
 } from "@t3tools/client-runtime/providerSkills";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -268,7 +269,7 @@ export function useComposerCommandMenu({
       if (item.type === "path") {
         replacement = `${serializeComposerFileLink(item.path)} `;
       } else if (item.type === "skill") {
-        replacement = `$${item.skill.name} `;
+        replacement = `${formatProviderSkillInvocation(selectedProviderStatus?.driver, item.skill.name)} `;
       } else if (item.type === "slash-command") {
         replacement = `/${item.command} `;
       } else if (item.type === "provider-slash-command") {
@@ -284,7 +285,13 @@ export function useComposerCommandMenu({
       setSelection({ start: result.cursor, end: result.cursor });
       onChangeDraftMessage(result.text);
     },
-    [draftMessage, onChangeDraftMessage, onUpdateInteractionMode, trigger],
+    [
+      draftMessage,
+      onChangeDraftMessage,
+      onUpdateInteractionMode,
+      selectedProviderStatus?.driver,
+      trigger,
+    ],
   );
 
   return {
