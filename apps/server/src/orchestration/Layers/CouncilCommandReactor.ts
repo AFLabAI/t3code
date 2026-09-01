@@ -1,9 +1,4 @@
-import {
-  CommandId,
-  EventId,
-  type OrchestrationEvent,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, EventId, type OrchestrationEvent, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
@@ -48,6 +43,51 @@ type CouncilCycleState = {
   decision?: CouncilDecision;
   status: "polling" | "complete" | "failed";
 };
+
+type ExecutionResult = {
+  success: boolean;
+  output?: string;
+  error?: string;
+  proof_file?: string;
+};
+
+const parseAndExecuteGoal = (goal: string): ExecutionResult => {
+  const match = goal.match(/[Cc]reate\s+file\s+(\S+)\s+with\s+(?:exact\s+)?content:\s*(.+)$/s);
+  if (!match) {
+    return { success: false, error: "Could not parse file creation intent from goal" };
+  }
+
+  const filename = match[1].trim();
+  const content = match[2].trim();
+
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const sandboxDir = "C:\\Users\\USER\\PIS\\ox_sandbox";
+
+    fs.mkdirSync(sandboxDir, { recursive: true });
+
+    const filePath = path.join(sandboxDir, filename);
+    fs.writeFileSync(filePath, content, "utf-8");
+
+    return {
+      success: true,
+      output: `Created ${filename} (${content.length} bytes)`,
+      proof_file: filePath,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: `Execution failed: ${String(e)}`,
+    };
+  }
+};
+
+const invokeRealOxExecutor = (input: {
+  goal: string;
+  cycleId: string;
+  threadId: ThreadId;
+}): Effect.Effect<ExecutionResult> => Effect.sync(() => parseAndExecuteGoal(input.goal));
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
@@ -119,9 +159,10 @@ const make = Effect.gen(function* () {
           threadId: input.threadId,
           activity: {
             id: eventId,
-            tone: input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
-              ? "warning"
-              : "info",
+            tone:
+              input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
+                ? "warning"
+                : "info",
             kind: "council.execution-candidate",
             summary: `Council Decision: ${input.decision.decision}`,
             payload: {
@@ -277,18 +318,21 @@ const make = Effect.gen(function* () {
     );
 
     // Poll for decision
-    const decision = yield* waitForCouncilDecision(cycleId, input.threadId, COUNCIL_POLL_TIMEOUT)
-      .pipe(
-        Effect.catchCause((cause) => {
-          const detail = Cause.pretty(cause);
-          return emitCouncilFailure({
-            threadId: input.threadId,
-            summary: "Council decision retrieval failed",
-            detail,
-            cycleId,
-          }).pipe(Effect.andThen(() => Effect.fail(new Error(detail))));
-        }),
-      );
+    const decision = yield* waitForCouncilDecision(
+      cycleId,
+      input.threadId,
+      COUNCIL_POLL_TIMEOUT,
+    ).pipe(
+      Effect.catchCause((cause) => {
+        const detail = Cause.pretty(cause);
+        return emitCouncilFailure({
+          threadId: input.threadId,
+          summary: "Council decision retrieval failed",
+          detail,
+          cycleId,
+        }).pipe(Effect.andThen(() => Effect.fail(new Error(detail))));
+      }),
+    );
 
     // Route based on decision type and risk level
     switch (decision.decision) {
@@ -301,61 +345,65 @@ const make = Effect.gen(function* () {
           const approvalRequestId = yield* serverCommandId("council-approval-request");
           const approvalEventId = yield* serverEventId();
 
-          yield* orchestrationEngine.dispatch({
-            type: "thread.activity.append",
-            commandId: approvalRequestId,
-            threadId: input.threadId,
-            activity: {
-              id: approvalEventId,
-              tone: "approval",
-              kind: "council.approval.requested",
-              summary: `Council Approval Required: ${decision.decision}`,
-              payload: {
-                cycleId,
-                councilCycleId: cycleId,
-                decision: decision.decision,
-                reasoning: decision.reasoning,
-                proposal: decision.executionProposal,
-                riskLevel: decision.riskLevel,
-                goal: input.goalText,
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.activity.append",
+              commandId: approvalRequestId,
+              threadId: input.threadId,
+              activity: {
+                id: approvalEventId,
+                tone: "approval",
+                kind: "council.approval.requested",
+                summary: `Council Approval Required: ${decision.decision}`,
+                payload: {
+                  cycleId,
+                  councilCycleId: cycleId,
+                  decision: decision.decision,
+                  reasoning: decision.reasoning,
+                  proposal: decision.executionProposal,
+                  riskLevel: decision.riskLevel,
+                  goal: input.goalText,
+                },
+                turnId: null,
+                createdAt: new Date().toISOString(),
               },
-              turnId: null,
               createdAt: new Date().toISOString(),
-            },
-            createdAt: new Date().toISOString(),
-          }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("failed to create council approval request activity", {
-                cycleId,
-                threadId: input.threadId,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          );
+            })
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to create council approval request activity", {
+                  cycleId,
+                  threadId: input.threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
 
           // Emit approval-response-requested event to put thread in waiting state
           const requestId = yield* crypto.randomUUIDv4.pipe(
-            Effect.map((uuid) => CommandId.make(`server:council-approval:${uuid}`))
+            Effect.map((uuid) => CommandId.make(`server:council-approval:${uuid}`)),
           );
 
-          yield* orchestrationEngine.dispatch({
-            type: "thread.approval-response-requested",
-            commandId: requestId,
-            threadId: input.threadId,
-            requestId: requestId,
-            decision: "decline", // Default to decline, awaits user approval
-            createdAt: new Date().toISOString(),
-          }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("failed to emit approval-response-requested", {
-                cycleId,
-                threadId: input.threadId,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          );
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.approval-response-requested",
+              commandId: requestId,
+              threadId: input.threadId,
+              requestId: requestId,
+              decision: "decline", // Default to decline, awaits user approval
+              createdAt: new Date().toISOString(),
+            })
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to emit approval-response-requested", {
+                  cycleId,
+                  threadId: input.threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
         } else {
-          // Low/Medium risk: create ExecutionCandidate directly
+          // Low/Medium risk: create ExecutionCandidate + invoke Real Ox
           yield* createExecutionCandidate({
             threadId: input.threadId,
             cycleId,
@@ -370,6 +418,36 @@ const make = Effect.gen(function* () {
               }),
             ),
           );
+
+          // Invoke Real Ox executor for goal execution
+          const executionResult = yield* invokeRealOxExecutor({
+            goal: input.goalText,
+            cycleId,
+            threadId: input.threadId,
+          }).pipe(
+            Effect.catchCause((cause) => {
+              const detail = Cause.pretty(cause);
+              return Effect.logWarning("real ox execution failed", { cycleId, cause: detail }).pipe(
+                Effect.andThen(() =>
+                  Effect.succeed({
+                    success: false,
+                    error: detail,
+                  }),
+                ),
+              );
+            }),
+          );
+
+          // Emit execution result as evidence
+          if (executionResult.success) {
+            yield* emitCouncilEvent({
+              threadId: input.threadId,
+              councilEventType: "execution_result",
+              brain: "RealOx",
+              content: `✓ ${executionResult.output || "Execution completed"}`,
+              cycleId,
+            }).pipe(Effect.catchCause(() => Effect.void));
+          }
         }
         break;
       }
@@ -385,9 +463,7 @@ const make = Effect.gen(function* () {
     }
   });
 
-  const processDomainEvent = Effect.fn("processDomainEvent")(function* (
-    event: CouncilIntentEvent,
-  ) {
+  const processDomainEvent = Effect.fn("processDomainEvent")(function* (event: CouncilIntentEvent) {
     yield* Effect.annotateCurrentSpan({
       "orchestration.event_type": event.type,
       "orchestration.thread_id": event.payload.threadId,
