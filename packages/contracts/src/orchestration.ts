@@ -746,6 +746,7 @@ const ThreadCreateCommand = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
+  historyImport: Schema.optional(Schema.Literal(true)),
 });
 
 const ThreadDeleteCommand = Schema.Struct({
