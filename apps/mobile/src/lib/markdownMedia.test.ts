@@ -2,7 +2,7 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveMarkdownMediaPreview } from "./markdownMedia";
-import { mediaVideoThumbnailKey } from "./videoPreviewSource";
+import { mediaVideoPreviewUri, mediaVideoThumbnailKey } from "./videoPreviewSource";
 
 const input = {
   environmentId: EnvironmentId.make("environment-1"),
@@ -65,6 +65,25 @@ describe("resolveMarkdownMediaPreview", () => {
     expect(key("https://first.example/clip.mp4#t=1")).not.toBe(
       key("https://first.example/clip.mp4#t=2"),
     );
+  });
+
+  it("resolves refreshed signed URLs without dropping the authored fragment", () => {
+    const preview = resolveMarkdownMediaPreview("/tmp/clip.mp4#t=2", input);
+    if (preview?.kind !== "video") throw new Error("Expected a video preview");
+    expect(mediaVideoPreviewUri(preview.source, null)).toBeNull();
+    expect(mediaVideoPreviewUri(preview.source, "https://host/initial/clip.mp4")).toBe(
+      "https://host/initial/clip.mp4#t=2",
+    );
+    expect(mediaVideoPreviewUri(preview.source, "https://host/refreshed/clip.mp4")).toBe(
+      "https://host/refreshed/clip.mp4#t=2",
+    );
+  });
+
+  it("keeps a direct URL intact when the environment has no asset URL", () => {
+    const uri = "https://cdn.example.com/clip.mp4?signature=abc#t=2";
+    const preview = resolveMarkdownMediaPreview(uri, input);
+    if (preview?.kind !== "video") throw new Error("Expected a video preview");
+    expect(mediaVideoPreviewUri(preview.source, null)).toBe(uri);
   });
 
   it("preserves signed external video URLs without routing them through the environment", () => {

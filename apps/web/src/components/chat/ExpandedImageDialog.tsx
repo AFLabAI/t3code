@@ -1,16 +1,11 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  DownloadIcon,
-  ExternalLinkIcon,
-  XIcon,
-} from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { downloadVideoPreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
 import { resolveExternalWebLinkHost } from "./externalLinkContextMenu";
+import { OpenOriginalMediaLink } from "../media/OpenOriginalMediaLink";
 
 interface ExpandedImageDialogProps {
   preview: ExpandedImagePreview;
@@ -73,14 +68,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const mediaLabel = item.type === "video" ? "video" : "image";
   const openOriginalLink =
     item.originalUrl && resolveExternalWebLinkHost(item.originalUrl) !== null ? (
-      <Button
-        size="sm"
-        variant="secondary"
-        render={<a href={item.originalUrl} target="_blank" rel="noopener noreferrer" />}
-      >
-        <ExternalLinkIcon />
-        Open original
-      </Button>
+      <OpenOriginalMediaLink url={item.originalUrl} />
     ) : null;
 
   const isDownloadingVideo = downloadingVideoSrc === item.src;

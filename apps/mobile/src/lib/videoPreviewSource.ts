@@ -16,6 +16,15 @@ export type MediaVideoPreviewSource = {
     }
 );
 
+/** Resolves the current capability without making it the identity of the video. */
+export function mediaVideoPreviewUri(
+  source: MediaVideoPreviewSource,
+  assetUrl: string | null,
+): string | null {
+  if ("uri" in source) return source.uri;
+  return assetUrl === null ? null : assetUrl + (source.srcFragment ?? "");
+}
+
 /** Keeps thumbnails independent of refreshed asset signatures and scoped to their environment. */
 export function mediaVideoThumbnailKey(source: MediaVideoPreviewSource): string {
   return JSON.stringify(

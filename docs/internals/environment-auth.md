@@ -37,10 +37,13 @@ client. This follows the environment-wide authorization model rather than introd
 filesystem permissions.
 
 [`AssetAccess.ts`](../../apps/server/src/assets/AssetAccess.ts) resolves symlinks, requires a regular
-file, and validates the resolved file's literal extension. It signs the canonical path for one hour.
-The token grants access to that exact file, not adjacent files or its containing directory. Serving
-rechecks the canonical path and media type. The existing workspace boundary still applies to HTML,
-PDF, and other workspace previews. Uploaded attachments keep their separate asset resource.
+file, and validates the resolved file's literal extension. It opens the file and signs its canonical
+path and device/inode identity for one hour. The token grants access to that exact file, not adjacent
+files or its containing directory. Serving rechecks the canonical path, media type, and opened
+descriptor's identity, then streams full or partial responses from that descriptor. Replacing a
+file atomically requires a freshly signed URL; editing it in place does not. The existing workspace
+boundary still applies to HTML, PDF, and other workspace previews. Uploaded attachments keep their
+separate asset resource.
 
 Signed asset URLs are bearer credentials. Anyone who obtains a URL and can reach the environment
 can fetch that file until it expires. Clients should copy the authored reference, not the temporary

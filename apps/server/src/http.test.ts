@@ -7,6 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpServerResponse } from "effect/unstable/http";
+import { openMediaFile } from "./assets/MediaFile.ts";
 
 import {
   assetResponseHeaders,
@@ -19,6 +20,89 @@ import {
 const fileResponseLayer = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
 
 describe("video asset byte ranges", () => {
+  it.effect("streams guarded file ranges, including suffixes and conditional requests", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-range-" });
+      const filePath = path.join(directory, "clip.mp4");
+      yield* fs.writeFileString(filePath, "0123456789");
+      const canonicalPath = yield* fs.realPath(filePath);
+      for (const [range, ifRange, expected, status, contentRange] of [
+        [undefined, undefined, "0123456789", 200, null],
+        ["bytes=0-1", undefined, "01", 206, "bytes 0-1/10"],
+        ["bytes=4-", undefined, "456789", 206, "bytes 4-9/10"],
+        ["bytes=-3", undefined, "789", 206, "bytes 7-9/10"],
+        ["bytes=-999999999999999999999999", undefined, "0123456789", 206, "bytes 0-9/10"],
+        ["bytes=10-", undefined, "", 416, "bytes */10"],
+        ["bytes=0-1", '"old-etag"', "0123456789", 200, null],
+      ] as const) {
+        const file = yield* openMediaFile(canonicalPath);
+        if (!file) throw new Error("Expected an opened media file");
+        const response = HttpServerResponse.toWeb(
+          yield* assetFileResponse(
+            { path: canonicalPath, file, mimeType: "video/mp4" },
+            range,
+            ifRange,
+          ),
+        );
+        expect(response.status).toBe(status);
+        expect(response.headers.get("accept-ranges")).toBe("bytes");
+        expect(response.headers.get("content-range")).toBe(contentRange);
+        if (status !== 416)
+          expect(response.headers.get("content-length")).toBe(String(expected.length));
+        expect(yield* Effect.promise(() => response.text())).toBe(expected);
+      }
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
+  it.effect("closes guarded descriptors after full, HEAD, rejected, and cancelled responses", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-cleanup-" });
+      const filePath = path.join(directory, "clip.mp4");
+      const bytes = new Uint8Array(1024 * 1024).fill(42);
+      yield* fs.writeFile(filePath, bytes);
+      const canonicalPath = yield* fs.realPath(filePath);
+      for (const mode of ["full", "HEAD", "rejected", "cancelled"] as const) {
+        const file = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const file = yield* openMediaFile(canonicalPath);
+            if (!file) throw new Error("Expected an opened media file");
+            const response = HttpServerResponse.toWeb(
+              yield* assetFileResponse(
+                { path: canonicalPath, file, mimeType: "video/mp4" },
+                mode === "rejected" ? `bytes=${bytes.length}-` : "bytes=0-",
+                undefined,
+                mode === "HEAD" ? "HEAD" : "GET",
+              ),
+            );
+            if (mode === "HEAD") {
+              expect(response.status).toBe(200);
+              expect(response.headers.get("content-length")).toBe(String(bytes.length));
+              expect(response.headers.get("content-range")).toBeNull();
+              expect(yield* Effect.promise(() => response.text())).toBe("");
+            } else if (mode === "rejected") {
+              expect(response.status).toBe(416);
+              expect(yield* Effect.promise(() => response.text())).toBe("");
+            } else if (mode === "cancelled") {
+              const reader = response.body!.getReader();
+              const first = yield* Effect.promise(() => reader.read());
+              expect(first.done).toBe(false);
+              expect(first.value!.byteLength).toBeLessThan(bytes.length);
+              yield* Effect.promise(() => reader.cancel());
+            } else {
+              expect(yield* Effect.promise(() => response.arrayBuffer())).toEqual(bytes.buffer);
+            }
+            return file;
+          }),
+        );
+        expect(file.handle.fd).toBe(-1);
+      }
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
   it.effect("streams exactly the requested bytes and leaves full downloads intact", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

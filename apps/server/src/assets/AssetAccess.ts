@@ -42,6 +42,7 @@ import { parseAttachmentFileExtension, resolveAttachmentPathById } from "../atta
 import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { openMediaFile, type OpenMediaFile } from "./MediaFile.ts";
 
 export const ASSET_ROUTE_PREFIX = "/api/assets";
 
@@ -81,6 +82,8 @@ const AssetClaimsSchema = Schema.Union([
     version: Schema.Literal(1),
     kind: Schema.Literal("media-file-exact"),
     filePath: Schema.String,
+    device: Schema.String,
+    inode: Schema.String,
     expiresAt: Schema.Number,
   }),
   Schema.Struct({
@@ -122,6 +125,7 @@ export type ResolvedAsset = {
   readonly download?: boolean;
   readonly fileName?: string;
   readonly mimeType?: string;
+  readonly file?: OpenMediaFile;
 };
 
 function decodeClaims(encodedPayload: string): AssetClaims | null {
@@ -245,10 +249,23 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       if (mediaMimeTypeFromExtension(path.extname(canonicalFile)) === null) {
         return yield* new AssetPreviewTypeValidationError({ resource: input.resource });
       }
+      const identity = yield* openMediaFile(canonicalFile).pipe(
+        Effect.map((file) =>
+          file ? { device: file.info.dev.toString(), inode: file.info.ino.toString() } : null,
+        ),
+        Effect.scoped,
+        Effect.mapError(
+          (cause) => new AssetWorkspaceAssetInspectionError({ resource: input.resource, cause }),
+        ),
+      );
+      if (!identity) {
+        return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
+      }
       claims = {
         version: 1,
         kind: "media-file-exact",
         filePath: canonicalFile,
+        ...identity,
         expiresAt,
       };
       fileName = path.basename(canonicalFile);
@@ -582,8 +599,15 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     );
     if (canonicalFile !== claims.filePath) return null;
     const mimeType = mediaMimeTypeFromExtension(path.extname(canonicalFile));
-    return mimeType
-      ? ({ kind: "file", path: canonicalFile, mimeType } satisfies ResolvedAsset)
+    if (!mimeType) return null;
+    const file = yield* openMediaFile(canonicalFile, claims).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to open canonical media file.", { filePath: canonicalFile, cause }),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    return file
+      ? ({ kind: "file", path: canonicalFile, mimeType, file } satisfies ResolvedAsset)
       : null;
   }
   if (claims.kind === "workspace-file-exact") {

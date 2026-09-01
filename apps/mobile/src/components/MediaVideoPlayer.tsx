@@ -1,7 +1,7 @@
 import { useIsFocused } from "@react-navigation/native";
 import { useEvent } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 
 import { loadMediaVideoSource } from "../lib/mediaVideoPlayback";
@@ -12,6 +12,7 @@ import { VideoThumbnailImage } from "./VideoThumbnailImage";
 /** Loads only after Play or opening the viewer. Source replacement never starts playback itself. */
 function LoadedMediaVideo(props: {
   readonly uri: string;
+  readonly resolvePlaybackUri?: () => Promise<string | null>;
   readonly playRequested: boolean;
   readonly paused: boolean;
 }) {
@@ -24,6 +25,17 @@ function LoadedMediaVideo(props: {
     player.bufferOptions = { preferredForwardBufferDuration: 5 };
   });
   const { status } = useEvent(player, "statusChange", { status: player.status });
+  const loadSource = useEffectEvent(async (signal: AbortSignal) => {
+    const uri = props.resolvePlaybackUri ? await props.resolvePlaybackUri() : props.uri;
+    if (signal.aborted) return;
+    if (uri === null) throw new Error("Video unavailable");
+    await loadMediaVideoSource(player, {
+      uri,
+      signal,
+      playRequested: props.playRequested,
+      isActive: () => active.current,
+    });
+  });
 
   useEffect(() => {
     active.current = focused && !props.paused && AppState.currentState === "active";
@@ -38,16 +50,12 @@ function LoadedMediaVideo(props: {
   useEffect(() => {
     const controller = new AbortController();
     setLoadError(false);
-    void loadMediaVideoSource(player, {
-      uri: props.uri,
-      signal: controller.signal,
-      playRequested: props.playRequested,
-      isActive: () => active.current,
-    }).catch(() => {
+    // A renewed signature is used on Retry, not as a reason to reset the native player.
+    void loadSource(controller.signal).catch(() => {
       if (!controller.signal.aborted) setLoadError(true);
     });
     return () => controller.abort();
-  }, [player, props.uri, props.playRequested, attempt]);
+  }, [player, props.playRequested, attempt]);
 
   return (
     <View collapsable={false} style={{ flex: 1 }}>
@@ -81,8 +89,9 @@ function LoadedMediaVideo(props: {
   );
 }
 
-export function MediaVideoPlayer(props: {
+interface MediaVideoPlayerProps {
   readonly uri: string | null;
+  readonly resolvePlaybackUri?: () => Promise<string | null>;
   readonly name: string;
   readonly thumbnailKey: string;
   readonly thumbnailVisible?: boolean;
@@ -90,9 +99,12 @@ export function MediaVideoPlayer(props: {
   readonly expanded?: boolean;
   readonly paused?: boolean;
   readonly onExpand?: () => void;
-}) {
-  const [playbackUri, setPlaybackUri] = useState<string | null>(null);
-  const uri = playbackUri ?? (props.expanded ? props.uri : null);
+}
+
+function MediaVideoPlayerContent(props: MediaVideoPlayerProps) {
+  const [playbackUri, setPlaybackUri] = useState<string | null>(props.expanded ? props.uri : null);
+  // Keep an opened player mounted while signing or reconnecting temporarily has no usable URL.
+  if (playbackUri === null && props.expanded && props.uri !== null) setPlaybackUri(props.uri);
 
   return (
     <View
@@ -100,10 +112,11 @@ export function MediaVideoPlayer(props: {
       className="overflow-hidden rounded-[10px] bg-black"
       style={props.expanded ? { flex: 1 } : { width: "100%", maxWidth: 480, aspectRatio: 16 / 9 }}
     >
-      {uri ? (
+      {playbackUri ? (
         <LoadedMediaVideo
-          uri={uri}
-          playRequested={playbackUri !== null}
+          uri={props.uri ?? playbackUri}
+          resolvePlaybackUri={props.resolvePlaybackUri}
+          playRequested={!props.expanded}
           paused={props.paused ?? false}
         />
       ) : (
@@ -156,4 +169,8 @@ export function MediaVideoPlayer(props: {
       ) : null}
     </View>
   );
+}
+
+export function MediaVideoPlayer(props: MediaVideoPlayerProps) {
+  return <MediaVideoPlayerContent key={props.thumbnailKey} {...props} />;
 }

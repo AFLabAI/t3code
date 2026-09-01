@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { videoMimeType } from "@t3tools/shared/video";
 
 import { EmptyState } from "../../components/EmptyState";
 import { MediaVideoPlayer } from "../../components/MediaVideoPlayer";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
+import type { MediaVideoPreviewSource } from "../../lib/videoPreviewSource";
 
 /** Uses the signed progressive URL directly; choosing a file never preloads its video bytes as text. */
 export function WorkspaceFileVideoPreview(props: {
   readonly name: string;
   readonly thumbnailKey: string;
   readonly uri: string | null;
+  readonly source: MediaVideoPreviewSource | null;
+  readonly resolvePlaybackUri: () => Promise<string | null>;
   readonly unavailable: boolean;
 }) {
   const [preview, setPreview] = useState<VideoPreviewSource | null>(null);
@@ -31,18 +33,11 @@ export function WorkspaceFileVideoPreview(props: {
     <View className="flex-1 items-center justify-center bg-sheet p-4">
       <MediaVideoPlayer
         uri={uri}
+        resolvePlaybackUri={props.resolvePlaybackUri}
         name={props.name}
         thumbnailKey={props.thumbnailKey}
         onExpand={
-          uri === null
-            ? undefined
-            : () =>
-                setPreview({
-                  type: "media",
-                  uri,
-                  name: props.name,
-                  mimeType: videoMimeType({ name: props.name, mimeType: "" }) ?? "video/mp4",
-                })
+          uri === null || props.source === null ? undefined : () => setPreview(props.source)
         }
       />
       <VideoPreviewModal source={preview} onRequestClose={() => setPreview(null)} />

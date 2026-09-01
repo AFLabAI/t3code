@@ -20,8 +20,9 @@ import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
-import { useAssetUrlState } from "~/assets/assetUrls";
+import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
+import { MediaVideoPlayer } from "~/components/media/MediaVideoPlayer";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -29,7 +30,6 @@ import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hoo
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS, resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
-import { prepareVideoFirstFrame } from "~/lib/videoFirstFrame";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -185,85 +185,41 @@ function WorkspaceVideoPreview(props: {
   readonly name: string;
   readonly workspaceMutationId: string | null;
 }) {
-  const assetUrl = useAssetUrlState(props.environmentId, {
-    _tag: "media-file",
-    threadId: props.threadRef.threadId,
-    path: props.absolutePath,
+  const resource = useMemo(
+    () => ({
+      _tag: "media-file" as const,
+      threadId: props.threadRef.threadId,
+      path: props.absolutePath,
+    }),
+    [props.threadRef.threadId, props.absolutePath],
+  );
+  const assetUrl = useAssetUrlState(props.environmentId, resource);
+  const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
+  useWorkspaceMutationRefresh({
+    mutationId: props.workspaceMutationId,
+    resourceKey: JSON.stringify([props.environmentId, resource]),
+    refresh: () => {
+      // Failed refreshes flow through assetUrl and can be retried from the player.
+      void refreshAssetUrl().catch(() => undefined);
+    },
   });
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const playbackRevision = useRef(props.workspaceMutationId);
-  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const revisionSuffix =
     props.workspaceMutationId === null
       ? ""
       : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
   const latestUrl = assetUrl._tag === "Success" ? `${assetUrl.url}${revisionSuffix}` : null;
-  // URL renewal preserves playback and paused position. Workspace refreshes wait for a pause.
-  const videoUrl = playbackUrl ?? latestUrl;
 
-  const refreshPausedRevision = useCallback(() => {
-    const video = videoRef.current;
-    if (
-      playbackRevision.current !== props.workspaceMutationId &&
-      (video === null || video.paused || video.ended)
-    ) {
-      playbackRevision.current = props.workspaceMutationId;
-      setPlaybackUrl(null);
-    }
-  }, [props.workspaceMutationId]);
-
-  useEffect(refreshPausedRevision, [refreshPausedRevision]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    const pauseWhenHidden = () => {
-      if (document.hidden) video?.pause();
-    };
-    document.addEventListener("visibilitychange", pauseWhenHidden);
-    return () => {
-      document.removeEventListener("visibilitychange", pauseWhenHidden);
-      video?.pause();
-    };
-  }, [videoUrl]);
-
-  if (
-    (assetUrl._tag === "Failure" && videoUrl === null) ||
-    (videoUrl !== null && failedUrl === videoUrl)
-  ) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-        Unable to load video. The file may be missing or its format unsupported.
-      </div>
-    );
-  }
-
-  return videoUrl !== null ? (
+  return (
     <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4">
-      <video
-        ref={videoRef}
-        src={videoUrl}
-        aria-label={props.name}
-        controls
-        playsInline
+      <MediaVideoPlayer
+        src={latestUrl}
+        sourceFailed={assetUrl._tag === "Failure"}
+        label={props.name}
+        revision={props.workspaceMutationId}
         preload="metadata"
-        className="aspect-video max-h-full w-full max-w-5xl bg-black object-contain"
-        onLoadedMetadata={(event) => prepareVideoFirstFrame(event.currentTarget)}
-        onPlay={() => {
-          playbackRevision.current = props.workspaceMutationId;
-          setPlaybackUrl(videoUrl);
-        }}
-        onPause={refreshPausedRevision}
-        onEnded={refreshPausedRevision}
-        onError={() => {
-          if (latestUrl !== null && videoUrl !== latestUrl) setPlaybackUrl(null);
-          else setFailedUrl(videoUrl);
-        }}
+        className="flex h-full min-h-0 w-full max-w-5xl items-center justify-center"
+        onRetry={refreshAssetUrl}
       />
-    </div>
-  ) : (
-    <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-      <LoaderCircle className="size-5 animate-spin" />
     </div>
   );
 }
@@ -1112,7 +1068,7 @@ export default function FilePreviewPanel({
         >
           {relativePath && isVideo && absolutePath ? (
             <WorkspaceVideoPreview
-              key={`${environmentId}:${absolutePath}`}
+              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
               environmentId={environmentId}
               threadRef={threadRef}
               absolutePath={absolutePath}

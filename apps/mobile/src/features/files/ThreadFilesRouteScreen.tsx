@@ -11,6 +11,7 @@ import {
   type ProjectReadFileResult,
   ThreadId,
 } from "@t3tools/contracts";
+import { videoMimeType } from "@t3tools/shared/video";
 
 import { AndroidHeaderIconButton, AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { SymbolView } from "../../components/AppSymbol";
@@ -24,6 +25,7 @@ import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { isPdfFile } from "../../lib/filePreview";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import type { MediaVideoPreviewSource } from "../../lib/videoPreviewSource";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useEnvironmentQuery } from "../../state/query";
@@ -96,6 +98,8 @@ function FileContent(props: {
   readonly activeMode: FileViewMode;
   readonly previewUri: string | null;
   readonly previewUnavailable: boolean;
+  readonly videoSource: MediaVideoPreviewSource | null;
+  readonly resolveVideoUri: () => Promise<string | null>;
   readonly fileContents: string | null;
   readonly fileError: string | null;
   readonly relativePath: string;
@@ -115,6 +119,8 @@ function FileContent(props: {
         name={basename(props.relativePath)}
         thumbnailKey={`workspace-video:${thumbnailInstanceId}`}
         uri={props.previewUri}
+        source={props.videoSource}
+        resolvePlaybackUri={props.resolveVideoUri}
         unavailable={props.previewUnavailable}
       />
     );
@@ -527,6 +533,21 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     threadId,
   });
   const assetPreviewUri = assetPreview._tag === "Success" ? assetPreview.url : null;
+  const videoSource = useMemo<MediaVideoPreviewSource | null>(
+    () =>
+      environmentId !== null &&
+      relativePath !== null &&
+      assetPreview.resource?._tag === "media-file"
+        ? {
+            type: "media",
+            environmentId,
+            resource: assetPreview.resource,
+            name: basename(relativePath),
+            mimeType: videoMimeType({ name: relativePath, mimeType: "" }) ?? "video/mp4",
+          }
+        : null,
+    [assetPreview.resource, environmentId, relativePath],
+  );
   const previewUri =
     assetPreviewUri === null || previewRevision === 0
       ? assetPreviewUri
@@ -640,12 +661,16 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
             title: "Refresh",
             icon: "arrow.clockwise",
             inline: false,
-            onPress: () => setPreviewRevision((current) => current + 1),
+            onPress: async () => {
+              if (isVideoFile) await assetPreview.refresh();
+              setPreviewRevision((current) => current + 1);
+            },
           } as const)
         : null,
     ].filter((action) => action !== null);
   }, [
     assetPreviewUri,
+    assetPreview.refresh,
     previewUri,
     canPreview,
     isBrowserFile,
@@ -809,6 +834,8 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           activeMode={resolvedActiveMode}
           previewUri={previewUri}
           previewUnavailable={assetPreview._tag === "Failure"}
+          videoSource={videoSource}
+          resolveVideoUri={assetPreview.refresh}
           fileContents={fileData?.contents ?? null}
           fileError={fileQuery.error}
           initialLine={targetLine}

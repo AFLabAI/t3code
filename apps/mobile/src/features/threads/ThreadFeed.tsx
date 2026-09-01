@@ -101,7 +101,11 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/Vid
 import { VideoAttachmentTile } from "../../components/VideoAttachmentTile";
 import { MediaVideoPlayer } from "../../components/MediaVideoPlayer";
 import { resolveMarkdownMediaPreview } from "../../lib/markdownMedia";
-import { mediaVideoThumbnailKey, type MediaVideoPreviewSource } from "../../lib/videoPreviewSource";
+import {
+  mediaVideoPreviewUri,
+  mediaVideoThumbnailKey,
+  type MediaVideoPreviewSource,
+} from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import {
   parseReviewCommentMessageSegments,
@@ -150,7 +154,12 @@ import {
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
-import { assetEnvironment, useAssetUrl, useAssetUrlState } from "../../state/assets";
+import {
+  assetEnvironment,
+  useAssetUrl,
+  useAssetUrlState,
+  useRefreshAssetUrl,
+} from "../../state/assets";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { usePreparedConnection } from "../../state/session";
 import * as Option from "effect/Option";
@@ -278,6 +287,7 @@ function MessageAttachmentFile(props: {
 }) {
   const sourceIdentifier = useId();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
+    refresh: true,
     reportFailure: false,
   });
   const preparedConnection = usePreparedConnection(props.environmentId);
@@ -625,16 +635,20 @@ function ThreadMarkdownVideo(props: {
     "environmentId" in source ? source.environmentId : null,
     "resource" in source ? source.resource : null,
   );
-  const uri =
-    "uri" in source
-      ? source.uri
-      : asset._tag === "Success"
-        ? asset.url + (source.srcFragment ?? "")
-        : null;
+  const refreshAssetUrl = useRefreshAssetUrl(
+    "environmentId" in source ? source.environmentId : null,
+    "resource" in source ? source.resource : null,
+  );
+  const uri = mediaVideoPreviewUri(source, asset._tag === "Success" ? asset.url : null);
   return (
     <MediaVideoPlayer
       key={thumbnailKey}
       uri={uri}
+      resolvePlaybackUri={
+        "resource" in source
+          ? async () => mediaVideoPreviewUri(source, await refreshAssetUrl())
+          : undefined
+      }
       name={source.name}
       thumbnailKey={thumbnailKey}
       thumbnailVisible={visible}

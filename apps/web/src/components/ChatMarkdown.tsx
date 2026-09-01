@@ -44,7 +44,6 @@ import {
 } from "@t3tools/client-runtime/markdown-images";
 import { inlineCodeFilePathCandidate } from "@t3tools/client-runtime/markdown-links";
 import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
-import { prepareVideoFirstFrame } from "../lib/videoFirstFrame";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import React, {
@@ -84,6 +83,7 @@ import {
   type ExpandedImagePreview,
 } from "./chat/ExpandedImagePreview";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
+import { MediaVideoPlayer } from "./media/MediaVideoPlayer";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import {
@@ -133,7 +133,7 @@ import {
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
-import { useAssetUrlState } from "../assets/assetUrls";
+import { useAssetUrlRefresh, useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
 import { useRemoteOpenResolution, type RemoteOpenMode } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -1240,105 +1240,47 @@ function ChatMarkdownImageFallback(props: {
 }
 
 function ChatMarkdownVideo(props: {
-  readonly src: string;
+  readonly src: string | null;
   readonly alt: string;
   readonly copyMarkdown: string | undefined;
   readonly originalUrl?: string | undefined;
+  readonly sourceFailed?: boolean | undefined;
+  readonly style?: CSSProperties | undefined;
+  readonly mediaIdentity?: string | undefined;
+  readonly onRetry?: (() => Promise<void>) | undefined;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaIdentity = props.copyMarkdown ?? props.src;
-  const [playbackSource, setPlaybackSource] = useState<{ identity: string; src: string } | null>(
-    null,
-  );
-  const src = playbackSource?.identity === mediaIdentity ? playbackSource.src : props.src;
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const [preloadedSrc, setPreloadedSrc] = useState<string | null>(null);
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || preloadedSrc === src) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setPreloadedSrc(src);
-      return;
-    }
-    let active = true;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!active || !entries.some((entry) => entry.isIntersecting)) return;
-        setPreloadedSrc(src);
-        observer.disconnect();
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(video);
-    return () => {
-      active = false;
-      observer.disconnect();
-    };
-  }, [src, preloadedSrc]);
-  useEffect(() => {
-    const video = videoRef.current;
-    const pauseWhenHidden = () => {
-      if (document.hidden) video?.pause();
-    };
-    document.addEventListener("visibilitychange", pauseWhenHidden);
-    return () => {
-      document.removeEventListener("visibilitychange", pauseWhenHidden);
-      video?.pause();
-    };
-  }, [src]);
-  if (failedSrc === src) {
-    return (
-      <ChatMarkdownImageFallback alt={props.alt} copyMarkdown={props.copyMarkdown} kind="video" />
-    );
-  }
   return (
-    <span
-      className="relative inline-block! w-full max-w-[30rem] align-middle"
-      data-markdown-copy={props.copyMarkdown}
-    >
-      <video
-        ref={videoRef}
-        src={src}
-        aria-label={props.alt || "Video preview"}
-        controls
-        playsInline
-        preload={preloadedSrc === src ? "metadata" : "none"}
-        className="aspect-video max-h-[30rem] w-full rounded-lg border border-border/40 bg-black object-contain"
-        onLoadedMetadata={(event) => prepareVideoFirstFrame(event.currentTarget)}
-        onPlay={() => setPlaybackSource({ identity: mediaIdentity, src })}
-        onError={() => {
-          if (src !== props.src) setPlaybackSource(null);
-          else setFailedSrc(src);
-        }}
-      />
-      {props.onImageExpand ? (
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon-xs"
-          className="absolute right-2 top-2"
-          aria-label={`Expand ${props.alt || "video"}`}
-          onClick={() => {
-            videoRef.current?.pause();
-            props.onImageExpand?.({
-              images: [
-                {
-                  src: props.src,
-                  name: props.alt || "video",
-                  type: "video",
-                  autoPlay: false,
-                  ...(props.originalUrl ? { originalUrl: props.originalUrl } : {}),
-                },
-              ],
-              index: 0,
-            });
-          }}
-        >
-          <Maximize2Icon />
-        </Button>
-      ) : null}
-    </span>
+    <MediaVideoPlayer
+      key={props.mediaIdentity ?? props.copyMarkdown ?? props.src}
+      src={props.src}
+      sourceFailed={props.sourceFailed}
+      label={props.alt}
+      originalUrl={props.originalUrl}
+      style={props.style}
+      copyMarkdown={props.copyMarkdown}
+      className="inline-block! w-full max-w-[30rem]"
+      videoClassName="max-h-[30rem] rounded-lg border border-border/40"
+      onRetry={props.onRetry}
+      onExpand={
+        props.onImageExpand
+          ? (src) => {
+              props.onImageExpand?.({
+                images: [
+                  {
+                    src,
+                    name: props.alt || "video",
+                    type: "video",
+                    autoPlay: false,
+                    ...(props.originalUrl ? { originalUrl: props.originalUrl } : {}),
+                  },
+                ],
+                index: 0,
+              });
+            }
+          : undefined
+      }
+    />
   );
 }
 
@@ -1357,7 +1299,23 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
   const assetUrl = useAssetUrlState(props.environmentId, props.resource);
+  const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, props.resource);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  if (props.kind === "video") {
+    return (
+      <ChatMarkdownVideo
+        src={assetUrl._tag === "Success" ? assetUrl.url + (props.srcFragment ?? "") : null}
+        sourceFailed={assetUrl._tag === "Failure"}
+        alt={props.alt}
+        copyMarkdown={props.copyMarkdown}
+        style={props.style}
+        mediaIdentity={JSON.stringify([props.environmentId, props.resource, props.srcFragment])}
+        onRetry={refreshAssetUrl}
+        onImageExpand={props.onImageExpand}
+      />
+    );
+  }
 
   if (assetUrl._tag === "Failure" || (assetUrl._tag === "Success" && failedUrl === assetUrl.url)) {
     return (
@@ -1373,7 +1331,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
       <span
         data-markdown-copy={props.copyMarkdown}
         role="status"
-        aria-label={props.kind === "video" ? "Loading video" : "Loading image"}
+        aria-label="Loading image"
         className={cn(
           CHAT_MARKDOWN_WORKSPACE_IMAGE_LAYOUT_CLASS_NAME,
           "aspect-video w-64 max-w-full rounded-lg bg-muted/60",
@@ -1384,16 +1342,6 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
     );
   }
   const src = assetUrl.url + (props.srcFragment ?? "");
-  if (props.kind === "video") {
-    return (
-      <ChatMarkdownVideo
-        src={src}
-        alt={props.alt}
-        copyMarkdown={props.copyMarkdown}
-        onImageExpand={props.onImageExpand}
-      />
-    );
-  }
   return (
     <img
       src={src}
@@ -1969,14 +1917,15 @@ function ChatMarkdown({
   const [localMediaPreview, setLocalMediaPreview] = useState<ExpandedImagePreview | null>(null);
   const expandMedia = onImageExpand ?? setLocalMediaPreview;
   const mediaRequestId = useRef(0);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    setLocalMediaPreview(null);
+    return () => {
       mediaRequestId.current += 1;
-    },
-    [threadRef?.environmentId, threadRef?.threadId],
-  );
+    };
+  }, [threadRef?.environmentId, threadRef?.threadId, explicitEnvironmentId, cwd, imageBaseDir]);
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
+    refresh: true,
   });
   const searchProjectEntries = useAtomQueryRunner(projectEnvironment.searchEntries, {
     reportFailure: false,
@@ -2595,6 +2544,7 @@ function ChatMarkdown({
                 alt={altText}
                 copyMarkdown={copyMarkdown}
                 originalUrl={originalUrl}
+                style={authoredSizeStyle}
                 onImageExpand={imageExpand}
               />
             );

@@ -29,6 +29,7 @@ import { OtlpTracer } from "effect/unstable/observability";
 
 import * as ServerConfig from "./config.ts";
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "./assets/AssetAccess.ts";
+import { streamMediaFile, type OpenMediaFile } from "./assets/MediaFile.ts";
 import {
   ATTACHMENT_UPLOAD_ROUTE_PREFIX,
   storeAttachmentUpload,
@@ -138,17 +139,22 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
     readonly download?: boolean;
     readonly fileName?: string;
     readonly mimeType?: string;
+    readonly file?: OpenMediaFile;
   },
   rangeHeader?: string,
   ifRangeHeader?: string,
+  method: "GET" | "HEAD" = "GET",
 ) {
   const headers = assetResponseHeaders(asset.path, asset);
+  let status = 200;
+  let offset = 0n;
+  let bytesToRead: bigint | undefined;
   if (headers["Content-Type"]?.toLowerCase().startsWith("video/")) {
     headers["Accept-Ranges"] = "bytes";
     // If-Range requires a matching validator. A full response is safe when we cannot validate it.
-    if (rangeHeader && !ifRangeHeader) {
+    if (method === "GET" && rangeHeader && !ifRangeHeader) {
       const fs = yield* FileSystem.FileSystem;
-      const info = yield* fs.stat(asset.path);
+      const info = asset.file?.info ?? (yield* fs.stat(asset.path));
       const range = assetByteRange(rangeHeader, info.size);
       if (range?._tag === "Unsatisfiable") {
         return HttpServerResponse.empty({
@@ -157,16 +163,28 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
         });
       }
       if (range?._tag === "Range") {
-        return yield* HttpServerResponse.file(asset.path, {
-          status: 206,
-          offset: range.offset,
-          bytesToRead: range.bytesToRead,
-          headers: { ...headers, "Content-Range": range.contentRange },
-        });
+        status = 206;
+        offset = range.offset;
+        bytesToRead = range.bytesToRead;
+        headers["Content-Range"] = range.contentRange;
       }
     }
   }
-  return yield* HttpServerResponse.file(asset.path, { status: 200, headers });
+  if (asset.file) {
+    const size = bytesToRead ?? asset.file.info.size;
+    headers["Content-Type"] ??= Mime.getType(asset.path) ?? "application/octet-stream";
+    headers["Content-Length"] = String(size);
+    headers["Last-Modified"] = asset.file.info.mtime.toUTCString();
+    headers.ETag = `W/"${asset.file.info.size.toString(16)}-${asset.file.info.mtimeMs.toString(16)}"`;
+    if (method === "HEAD" || size === 0n) {
+      return HttpServerResponse.empty({ status, headers });
+    }
+    return HttpServerResponse.stream(streamMediaFile(asset.file, offset, size), {
+      status,
+      headers,
+    });
+  }
+  return yield* HttpServerResponse.file(asset.path, { status, offset, bytesToRead, headers });
 });
 
 export const httpCompressionLayer = HttpRouter.middleware(HttpMiddleware.compression(), {
@@ -338,6 +356,7 @@ export const assetRouteLayer = HttpRouter.add(
       asset,
       request.method === "GET" ? request.headers.range : undefined,
       request.headers["if-range"],
+      request.method === "HEAD" ? "HEAD" : "GET",
     ).pipe(
       Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),
     );

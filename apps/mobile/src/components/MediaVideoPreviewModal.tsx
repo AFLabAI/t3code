@@ -3,8 +3,12 @@ import { Keyboard, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { downloadAndShareAttachment } from "../lib/attachmentDownload";
-import { mediaVideoThumbnailKey, type MediaVideoPreviewSource } from "../lib/videoPreviewSource";
-import { useAssetUrlState } from "../state/assets";
+import {
+  mediaVideoPreviewUri,
+  mediaVideoThumbnailKey,
+  type MediaVideoPreviewSource,
+} from "../lib/videoPreviewSource";
+import { useAssetUrlState, useRefreshAssetUrl } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
@@ -20,7 +24,15 @@ export function MediaVideoPreviewModal(props: {
   const environmentId = "environmentId" in source ? source.environmentId : null;
   const connection = usePreparedConnection(environmentId);
   const asset = useAssetUrlState(environmentId, "resource" in source ? source.resource : null);
-  const [uri, setUri] = useState<string | null>("uri" in source ? source.uri : null);
+  const refreshAssetUrl = useRefreshAssetUrl(
+    environmentId,
+    "resource" in source ? source.resource : null,
+  );
+  const resolvePlaybackUri =
+    "resource" in source
+      ? async () => mediaVideoPreviewUri(source, await refreshAssetUrl())
+      : undefined;
+  const uri = mediaVideoPreviewUri(source, asset._tag === "Success" ? asset.url : null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const shareController = useRef<AbortController | null>(null);
@@ -30,9 +42,6 @@ export function MediaVideoPreviewModal(props: {
     (connection._tag === "None" || asset._tag === "Failure");
 
   useEffect(() => Keyboard.dismiss(), []);
-  useEffect(() => {
-    if (uri === null && asset._tag === "Success") setUri(asset.url + (source.srcFragment ?? ""));
-  }, [uri, asset, source.srcFragment]);
   useEffect(() => () => shareController.current?.abort(), []);
 
   const share = () => {
@@ -41,12 +50,17 @@ export function MediaVideoPreviewModal(props: {
     shareController.current = controller;
     setSharing(true);
     setShareError(null);
-    void downloadAndShareAttachment({
-      url: uri,
-      attachment: { name: source.name, mimeType: source.mimeType },
-      signal: controller.signal,
-      sourceIdentifier: source.sourceIdentifier,
-    })
+    void (async () => {
+      const shareUri = resolvePlaybackUri ? await resolvePlaybackUri() : uri;
+      if (controller.signal.aborted) return;
+      if (shareUri === null) throw new Error("Could not load this video. Try again.");
+      await downloadAndShareAttachment({
+        url: shareUri,
+        attachment: { name: source.name, mimeType: source.mimeType },
+        signal: controller.signal,
+        sourceIdentifier: source.sourceIdentifier,
+      });
+    })()
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           setShareError(error instanceof Error ? error.message : "Could not share this video.");
@@ -88,6 +102,7 @@ export function MediaVideoPreviewModal(props: {
         </View>
         <MediaVideoPlayer
           uri={uri}
+          resolvePlaybackUri={resolvePlaybackUri}
           name={source.name}
           thumbnailKey={mediaVideoThumbnailKey(source)}
           unavailable={unavailable}

@@ -132,6 +132,19 @@ describe("resolveMarkdownMediaPreview", () => {
     },
   );
 
+  it.each(["png", "mp4"])(
+    "preserves a protocol-relative %s source for explicit navigation",
+    async (extension) => {
+      const source = `//cdn.example.com/preview.${extension}?signature=abc#t=2`;
+      const createAssetUrl = vi.fn();
+
+      const preview = await resolveMarkdownMediaPreview({ source, createAssetUrl });
+
+      expect(preview?.images[0]).toMatchObject({ src: source, originalUrl: source });
+      expect(createAssetUrl).not.toHaveBeenCalled();
+    },
+  );
+
   it("surfaces missing-file errors from the environment", async () => {
     const createAssetUrl = vi
       .fn()
