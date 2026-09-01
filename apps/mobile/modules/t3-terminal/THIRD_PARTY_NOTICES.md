@@ -9,6 +9,7 @@ iOS 16 support fork. That fork was created from VVTerm's custom-I/O Ghostty fork
 - Custom-I/O base fork: https://github.com/wiedymi/ghostty/tree/custom-io
 - Vendored source fork: https://github.com/Yash-Singh1/ghostty/tree/custom-io
 - Vendored revision: `d36c3b8dffd0d756dd5e5f4933962f774a0e6753`
+- Applied renderer lifetime fix: https://github.com/ghostty-org/ghostty/commit/4b4a5b2411091ccda2cd6373631ec7ccd184c577
 - Reference integration: https://github.com/vivy-company/vvterm
 - License: MIT
 

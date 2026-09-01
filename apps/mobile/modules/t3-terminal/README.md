@@ -26,8 +26,10 @@ Vendored Ghostty revision and license details are in `THIRD_PARTY_NOTICES.md`.
 
 ## Rebuilding GhosttyKit
 
-The checked-in `GhosttyKit.xcframework` is built from the Ghostty custom-I/O fork (https://github.com/Yash-Singh1/ghostty/tree/custom-io).
-Set the directory to the cloned repository checked out on the `custom-io` branch to `GHOSTTY_SOURCE_DIR`.
+The checked-in `GhosttyKit.xcframework` is built from a pinned revision of the Ghostty custom-I/O
+fork. The build applies the patches in `scripts/libghostty-ios-patches`, including Ghostty's upstream
+fix for display callbacks that outlive their renderer. Set `GHOSTTY_SOURCE_DIR` to use an existing
+checkout; otherwise the script creates a pinned checkout under `~/.cache/t3code`.
 
 ```bash
 apps/mobile/modules/t3-terminal/scripts/build-libghostty-ios16.sh
