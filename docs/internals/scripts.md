@@ -76,27 +76,26 @@ authenticated.
 
 ### Linux AppImage prerequisites
 
-Linux AppImage packaging compiles the Rust resource monitor and rebuilds the `uiohook-napi` native
-addon. Install a Rust toolchain, the standard C/C++ build tools, and the X11 development headers
-before running `vp run dist:desktop:linux`.
+Linux AppImage packaging compiles the Rust resource monitor. Install a Rust toolchain, the standard
+C/C++ build tools, and ImageMagick before running `vp run dist:desktop:linux`.
 
 Ubuntu and Debian:
 
 ```bash
 sudo apt-get update
-sudo apt-get install cargo rustc build-essential imagemagick libx11-dev libxrandr-dev libxtst-dev libxt-dev
+sudo apt-get install cargo rustc build-essential imagemagick
 ```
 
 Fedora:
 
 ```bash
-sudo dnf install rust cargo gcc gcc-c++ make ImageMagick libX11-devel libXrandr-devel libXtst-devel libXt-devel
+sudo dnf install rust cargo gcc gcc-c++ make ImageMagick
 ```
 
 Arch Linux:
 
 ```bash
-sudo pacman -S rust base-devel imagemagick libx11 libxrandr libxtst libxt
+sudo pacman -S rust base-devel imagemagick
 ```
 
 The artifact script checks these capabilities before starting the web and desktop builds. If

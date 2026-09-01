@@ -831,9 +831,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
               readonly args: ReadonlyArray<string>;
             };
             commands.push(childProcess);
-            const fails =
-              childProcess.command === "cargo" ||
-              childProcess.args.includes("X11/extensions/Xrandr.h");
+            const fails = childProcess.command === "cargo" || childProcess.command === "rustc";
             return Effect.succeed(mockProcess(fails ? 1 : 0));
           }),
         );
@@ -844,10 +842,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         );
 
         assert.instanceOf(error, LinuxDesktopBuildPrerequisitesMissingError);
-        assert.deepStrictEqual(error.missing, ["cargo", "xrandr"]);
+        assert.deepStrictEqual(error.missing, ["cargo", "rust-target"]);
         assert.include(error.message, "Rust compiler and Cargo (cargo, rustc)");
-        assert.include(error.message, "Xrandr headers and linker library (libxrandr-dev)");
-        assert.include(error.message, "sudo apt-get install cargo rustc libxrandr-dev");
+        assert.include(error.message, "Requested Rust standard library");
+        assert.include(error.message, "sudo apt-get install cargo rustc");
+        assert.include(error.message, "rustup target add aarch64-unknown-linux-gnu");
         assert.isTrue(
           commands.some(
             (command) =>

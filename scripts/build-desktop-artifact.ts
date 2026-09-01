@@ -289,23 +289,17 @@ export class BuildCommandFailedError extends Schema.TaggedErrorClass<BuildComman
 
 export const LINUX_DESKTOP_BUILD_PREREQUISITES = [
   { id: "cargo", description: "Rust compiler and Cargo", packages: ["cargo", "rustc"] },
+  { id: "rust-target", description: "Requested Rust standard library", packages: [] },
   { id: "cc", description: "C/C++ build toolchain", packages: ["build-essential"] },
   { id: "make", description: "Make", packages: ["build-essential"] },
   { id: "imagemagick", description: "ImageMagick", packages: ["imagemagick"] },
-  { id: "x11", description: "X11 headers and linker library", packages: ["libx11-dev"] },
-  {
-    id: "xrandr",
-    description: "Xrandr headers and linker library",
-    packages: ["libxrandr-dev"],
-  },
-  { id: "xtst", description: "Xtst headers and linker library", packages: ["libxtst-dev"] },
-  { id: "xt", description: "Xt headers and linker library", packages: ["libxt-dev"] },
 ] as const;
 
 export class LinuxDesktopBuildPrerequisitesMissingError extends Schema.TaggedErrorClass<LinuxDesktopBuildPrerequisitesMissingError>()(
   "LinuxDesktopBuildPrerequisitesMissingError",
   {
     missing: Schema.Array(Schema.String),
+    rustTarget: Schema.String,
   },
 ) {
   override get message(): string {
@@ -313,7 +307,11 @@ export class LinuxDesktopBuildPrerequisitesMissingError extends Schema.TaggedErr
       this.missing.includes(requirement.id),
     );
     const details = missingRequirements
-      .map((requirement) => `  - ${requirement.description} (${requirement.packages.join(", ")})`)
+      .map((requirement) =>
+        requirement.packages.length > 0
+          ? `  - ${requirement.description} (${requirement.packages.join(", ")})`
+          : `  - ${requirement.description}`,
+      )
       .join("\n");
     const packages = [
       ...new Set(missingRequirements.flatMap((requirement) => requirement.packages)),
@@ -322,8 +320,12 @@ export class LinuxDesktopBuildPrerequisitesMissingError extends Schema.TaggedErr
       "Linux desktop build prerequisites are missing:",
       details,
       "",
-      "On Ubuntu/Debian, install them with:",
-      `  sudo apt-get install ${packages.join(" ")}`,
+      ...(packages.length > 0
+        ? ["On Ubuntu/Debian, install them with:", `  sudo apt-get install ${packages.join(" ")}`]
+        : []),
+      ...(this.missing.includes("rust-target")
+        ? ["Add the requested Rust target with:", `  rustup target add ${this.rustTarget}`]
+        : []),
       "",
       "For other distributions, see docs/internals/scripts.md#linux-appimage-prerequisites.",
       "Then rerun `vp run dist:desktop:linux`.",
@@ -1621,25 +1623,19 @@ const rustTargetIsInstalled = Effect.fn("rustTargetIsInstalled")(function* (targ
 export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild")(function* (
   arch: typeof BuildArch.Type = "x64",
 ) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
     Config.withDefault(false),
   );
-  const probeDir = yield* fs.makeTempDirectoryScoped({
-    prefix: "t3code-linux-build-preflight-",
-  });
-  const sourcePath = path.join(probeDir, "probe.c");
-  yield* fs.writeFileString(sourcePath, "int main(void) { return 0; }\n");
+  const rustTarget = resolveResourceMonitorRustTargets("linux", arch)[0]!;
 
-  const commandChecks = yield* Effect.all(
+  const checks = yield* Effect.all(
     {
       cargo: reuseResourceMonitor
         ? Effect.succeed(true)
-        : Effect.all([
-            desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
-            rustTargetIsInstalled(resolveResourceMonitorRustTargets("linux", arch)[0]!),
-          ]).pipe(Effect.map(([cargo, target]) => cargo && target)),
+        : desktopBuildProbeSucceeds(ChildProcess.make("cargo", ["--version"]), "cargo"),
+      "rust-target": reuseResourceMonitor
+        ? Effect.succeed(true)
+        : rustTargetIsInstalled(rustTarget),
       cc: desktopBuildProbeSucceeds(ChildProcess.make("cc", ["--version"]), "cc"),
       make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
       imagemagick: Effect.all([
@@ -1649,69 +1645,12 @@ export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild"
     },
     { concurrency: "unbounded" },
   );
-
-  const nativeChecks = commandChecks.cc
-    ? yield* Effect.all(
-        {
-          x11: desktopBuildProbeSucceeds(
-            ChildProcess.make("cc", [
-              sourcePath,
-              "-include",
-              "X11/keysym.h",
-              "-lX11",
-              "-o",
-              path.join(probeDir, "x11"),
-            ]),
-            "X11 build prerequisite probe",
-          ),
-          xrandr: desktopBuildProbeSucceeds(
-            ChildProcess.make("cc", [
-              sourcePath,
-              "-include",
-              "X11/extensions/Xrandr.h",
-              "-lXrandr",
-              "-o",
-              path.join(probeDir, "xrandr"),
-            ]),
-            "Xrandr build prerequisite probe",
-          ),
-          xtst: desktopBuildProbeSucceeds(
-            ChildProcess.make("cc", [
-              sourcePath,
-              "-include",
-              "X11/extensions/XTest.h",
-              "-lXtst",
-              "-o",
-              path.join(probeDir, "xtst"),
-            ]),
-            "Xtst build prerequisite probe",
-          ),
-          xt: desktopBuildProbeSucceeds(
-            ChildProcess.make("cc", [
-              sourcePath,
-              "-include",
-              "X11/Intrinsic.h",
-              "-lXt",
-              "-o",
-              path.join(probeDir, "xt"),
-            ]),
-            "Xt build prerequisite probe",
-          ),
-        },
-        { concurrency: "unbounded" },
-      )
-    : { x11: true, xrandr: true, xtst: true, xt: true };
-
-  const checks = {
-    ...commandChecks,
-    ...nativeChecks,
-  };
   const missing = LINUX_DESKTOP_BUILD_PREREQUISITES.filter(
     (requirement) => !checks[requirement.id],
   ).map((requirement) => requirement.id);
 
   if (missing.length > 0) {
-    return yield* new LinuxDesktopBuildPrerequisitesMissingError({ missing });
+    return yield* new LinuxDesktopBuildPrerequisitesMissingError({ missing, rustTarget });
   }
 });
 
