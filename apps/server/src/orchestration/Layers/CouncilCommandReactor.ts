@@ -63,7 +63,8 @@ const parseAndExecuteGoal = (goal: string): ExecutionResult => {
   try {
     const fs = require("fs");
     const path = require("path");
-    const sandboxDir = "C:\\Users\\USER\\PIS\\ox_sandbox";
+    const os = require("os");
+    const sandboxDir = path.join(os.tmpdir(), "ox_sandbox");
 
     fs.mkdirSync(sandboxDir, { recursive: true });
 
