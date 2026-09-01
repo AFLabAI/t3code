@@ -2011,6 +2011,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
     }),
   );
+
   it.effect("uses custom commit message when provided", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
