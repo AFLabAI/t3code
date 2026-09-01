@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   type ContextMenuItem,
+  type ProviderInstanceId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
@@ -341,6 +342,7 @@ interface TerminalViewportProps {
   cwd: string;
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
+  providerInstanceId?: ProviderInstanceId;
   onSessionExited: () => void;
   onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   focusRequestId: number;
@@ -365,6 +367,7 @@ export function TerminalViewport({
   cwd,
   worktreePath,
   runtimeEnv,
+  providerInstanceId,
   onSessionExited,
   onAddTerminalContext,
   focusRequestId,
@@ -433,6 +436,7 @@ export function TerminalViewport({
       cwd,
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
+      ...(providerInstanceId ? { providerInstanceId } : {}),
     },
   });
   const writeTerminal = useEffectEvent((data: string) =>
