@@ -4971,7 +4971,7 @@ function ChatViewContent(props: ChatViewProps) {
       icon: isSnoozed ? <AlarmClockIcon /> : <CheckCircle2Icon />,
       title: (
         <>
-          <span>This thread is {isSnoozed ? "snoozed" : "settled"}</span>
+          <span>This thread is {isSnoozed ? "snoozed" : "settled"}</span>{" "}
           <span className="font-normal text-muted-foreground">{parkedThreadDescription}</span>
         </>
       ),
