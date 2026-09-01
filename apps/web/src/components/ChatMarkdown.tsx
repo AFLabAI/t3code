@@ -1595,15 +1595,15 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   }, [onOpen, targetPath]);
 
   const handleOpenInFilePreview = useCallback(() => {
+    if (threadRef && workspaceRelativePath) {
+      onOpenInPanel(workspaceRelativePath, line);
+      return;
+    }
     if (onOpenMedia) {
       onOpenMedia();
       return;
     }
-    if (!threadRef || !workspaceRelativePath) {
-      handleOpenInEditor();
-      return;
-    }
-    onOpenInPanel(workspaceRelativePath, line);
+    handleOpenInEditor();
   }, [handleOpenInEditor, line, onOpenInPanel, onOpenMedia, threadRef, workspaceRelativePath]);
 
   const handleOpenInBrowser = useCallback(() => {

@@ -55,6 +55,8 @@ when starting a thread or changing an existing thread's model.
 ## Images and videos in messages
 
 On web, desktop, and mobile, select a link to an image or video to open it inside T3 Code.
+Workspace image and video links open the file viewer. Links to media outside the workspace
+open a media preview.
 Videos opened from the file explorer or a file-viewer tab also play inside T3 Code. They
 stream from the environment as needed, rather than downloading the entire video before playback.
 Paths in inline code, such as `/tmp/recording.mp4`, work the same way. Image embeds stay inline;
