@@ -28,6 +28,7 @@ import {
   pullRequestComposerTarget,
   pullRequestFindingKey,
   pullRequestHandoffLabels,
+  pullRequestOwnershipCandidate,
   pullRequestReviewOutcome,
   readableFailure,
   shouldRefreshPullRequestActivity,
@@ -1185,6 +1186,20 @@ describe("how the branch stands against its base", () => {
 
 describe("whether the panel is showing the thread's own pull request", () => {
   const surface = { projectId: "proj-a", repository: "acme/app", number: 7 };
+
+  it("uses the persisted link while inferred pull request detail is unavailable", () => {
+    expect(
+      pullRequestOwnershipCandidate({
+        linked: { projectId: "linked-project", repository: "acme/app", number: 7 },
+        inferred: { projectId: "proj-a", repository: "acme/app", number: null },
+      }),
+    ).toEqual({
+      projectId: "linked-project",
+      repository: "acme/app",
+      number: 7,
+      explicitlyLinked: true,
+    });
+  });
 
   it("matches on project, repository and number together", () => {
     expect(

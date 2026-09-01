@@ -16,6 +16,22 @@ import type {
 
 import { inferReviewCommentFenceLanguage, type ReviewCommentContext } from "~/reviewCommentContext";
 
+interface PullRequestOwnershipIdentity {
+  readonly projectId: string | null;
+  readonly repository: string | null;
+  readonly number: number | null;
+}
+
+/** Prefer the persisted link even while its live host detail is unavailable. */
+export function pullRequestOwnershipCandidate(input: {
+  readonly linked: PullRequestOwnershipIdentity | null;
+  readonly inferred: PullRequestOwnershipIdentity;
+}): PullRequestOwnershipIdentity & { readonly explicitlyLinked: boolean } {
+  return input.linked
+    ? { ...input.linked, explicitlyLinked: true }
+    : { ...input.inferred, explicitlyLinked: false };
+}
+
 /** Activity changes only when the same host resource reports a newer revision. */
 export function shouldRefreshPullRequestActivity(
   previous: { readonly key: string; readonly updatedAt: string } | null,
