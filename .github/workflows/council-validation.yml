@@ -26,6 +26,7 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+          submodules: false
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -72,6 +73,7 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+          submodules: false
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
