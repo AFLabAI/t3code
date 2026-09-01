@@ -7,6 +7,7 @@ import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 import { loadMediaVideoSource } from "../lib/mediaVideoPlayback";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
+import { VideoThumbnailImage } from "./VideoThumbnailImage";
 
 /** Loads only after Play or opening the viewer. Source replacement never starts playback itself. */
 function LoadedMediaVideo(props: {
@@ -83,6 +84,8 @@ function LoadedMediaVideo(props: {
 export function MediaVideoPlayer(props: {
   readonly uri: string | null;
   readonly name: string;
+  readonly thumbnailKey: string;
+  readonly thumbnailVisible?: boolean;
   readonly unavailable?: boolean;
   readonly expanded?: boolean;
   readonly paused?: boolean;
@@ -112,14 +115,26 @@ export function MediaVideoPlayer(props: {
           onPress={() => setPlaybackUri(props.uri)}
           className="flex-1 items-center justify-center gap-2 px-4"
         >
+          {!props.unavailable ? (
+            <VideoThumbnailImage
+              cacheKey={props.thumbnailKey}
+              source={props.thumbnailVisible === false ? null : props.uri}
+              contentFit="contain"
+            />
+          ) : null}
           {props.unavailable ? (
             <AppText className="text-sm text-white/80">Video unavailable</AppText>
           ) : props.uri === null ? (
             <ActivityIndicator color="#ffffff" accessibilityLabel="Loading video" />
           ) : (
             <>
-              <SymbolView name="play" size={28} tintColor="#ffffff" type="monochrome" />
-              <AppText className="text-center text-xs text-white/80" numberOfLines={2}>
+              <View className="size-12 items-center justify-center rounded-full bg-black/60">
+                <SymbolView name="play" size={28} tintColor="#ffffff" type="monochrome" />
+              </View>
+              <AppText
+                className="rounded bg-black/60 px-2 py-1 text-center text-xs text-white"
+                numberOfLines={2}
+              >
                 {props.name}
               </AppText>
             </>

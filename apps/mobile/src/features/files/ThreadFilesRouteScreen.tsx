@@ -1,7 +1,7 @@
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
@@ -103,6 +103,8 @@ function FileContent(props: {
   readonly truncated: boolean;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
+  // Reopening a mutable host file must not reuse a poster from an earlier visit.
+  const thumbnailInstanceId = useId();
   const isMarkdown = isMarkdownPreviewFile(props.relativePath);
   const isBrowserFile = isBrowserPreviewFile(props.relativePath);
   const isImageFile = isImagePreviewFile(props.relativePath);
@@ -111,6 +113,7 @@ function FileContent(props: {
     return (
       <WorkspaceFileVideoPreview
         name={basename(props.relativePath)}
+        thumbnailKey={`workspace-video:${thumbnailInstanceId}`}
         uri={props.previewUri}
         unavailable={props.previewUnavailable}
       />
@@ -503,6 +506,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     readonly mode: FileViewMode;
   } | null>(null);
   const [previewRevision, setPreviewRevision] = useState(0);
+  const previewKey = JSON.stringify([environmentId, cwd, relativePath, previewRevision]);
   const [fullScreenPreview, setFullScreenPreview] = useState<FilePreviewSource | null>(null);
   const isVideoFile = relativePath !== null && isVideoPreviewFile(relativePath);
   const isBrowserFile = relativePath !== null && !isVideoFile && isBrowserPreviewFile(relativePath);
@@ -801,7 +805,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           </NativeHeaderToolbar.Menu>
         </NativeHeaderToolbar>
         <FileContent
-          key={JSON.stringify([environmentId, cwd, relativePath, previewRevision])}
+          key={previewKey}
           activeMode={resolvedActiveMode}
           previewUri={previewUri}
           previewUnavailable={assetPreview._tag === "Failure"}

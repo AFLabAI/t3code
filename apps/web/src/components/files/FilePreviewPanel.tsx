@@ -29,6 +29,7 @@ import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hoo
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS, resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
+import { prepareVideoFirstFrame } from "~/lib/videoFirstFrame";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -190,6 +191,7 @@ function WorkspaceVideoPreview(props: {
     path: props.absolutePath,
   });
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackRevision = useRef(props.workspaceMutationId);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const revisionSuffix =
@@ -197,8 +199,21 @@ function WorkspaceVideoPreview(props: {
       ? ""
       : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
   const latestUrl = assetUrl._tag === "Success" ? `${assetUrl.url}${revisionSuffix}` : null;
-  // Renewing a signed URL must not reset a video that is already playing.
+  // URL renewal preserves playback and paused position. Workspace refreshes wait for a pause.
   const videoUrl = playbackUrl ?? latestUrl;
+
+  const refreshPausedRevision = useCallback(() => {
+    const video = videoRef.current;
+    if (
+      playbackRevision.current !== props.workspaceMutationId &&
+      (video === null || video.paused || video.ended)
+    ) {
+      playbackRevision.current = props.workspaceMutationId;
+      setPlaybackUrl(null);
+    }
+  }, [props.workspaceMutationId]);
+
+  useEffect(refreshPausedRevision, [refreshPausedRevision]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -231,9 +246,15 @@ function WorkspaceVideoPreview(props: {
         aria-label={props.name}
         controls
         playsInline
-        preload="none"
+        preload="metadata"
         className="aspect-video max-h-full w-full max-w-5xl bg-black object-contain"
-        onPlay={() => setPlaybackUrl(videoUrl)}
+        onLoadedMetadata={(event) => prepareVideoFirstFrame(event.currentTarget)}
+        onPlay={() => {
+          playbackRevision.current = props.workspaceMutationId;
+          setPlaybackUrl(videoUrl);
+        }}
+        onPause={refreshPausedRevision}
+        onEnded={refreshPausedRevision}
         onError={() => {
           if (latestUrl !== null && videoUrl !== latestUrl) setPlaybackUrl(null);
           else setFailedUrl(videoUrl);

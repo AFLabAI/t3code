@@ -16,12 +16,15 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
+import { resolveExternalWebLinkHost } from "./externalLinkContextMenu";
 
 export interface ExpandedImageItem {
   src: string;
   name: string;
   type?: "video";
   autoPlay?: boolean;
+  /** Authored remote destination to open when embedding fails, never a generated asset URL. */
+  originalUrl?: string;
 }
 
 export interface ExpandedImagePreview {
@@ -89,6 +92,9 @@ export async function resolveMarkdownMediaPreview(input: {
         src,
         name: name || kind,
         ...(kind === "video" ? { type: "video", autoPlay: false } : {}),
+        ...(source._tag === "Direct" && resolveExternalWebLinkHost(src) !== null
+          ? { originalUrl: src }
+          : {}),
       },
     ],
     index: 0,

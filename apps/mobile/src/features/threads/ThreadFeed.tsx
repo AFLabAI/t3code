@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
-import { type LegendListRef } from "@legendapp/list/react-native";
+import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import type {
   AssetResource,
   ChatAttachment,
@@ -101,7 +101,7 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/Vid
 import { VideoAttachmentTile } from "../../components/VideoAttachmentTile";
 import { MediaVideoPlayer } from "../../components/MediaVideoPlayer";
 import { resolveMarkdownMediaPreview } from "../../lib/markdownMedia";
-import type { MediaVideoPreviewSource } from "../../lib/videoPreviewSource";
+import { mediaVideoThumbnailKey, type MediaVideoPreviewSource } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import {
   parseReviewCommentMessageSegments,
@@ -602,11 +602,25 @@ function ThreadMarkdownImage(props: {
   );
 }
 
+const ThreadMediaVisibleContext = createContext(false);
+// LegendList only computes hook visibility when the list has a viewability config.
+const THREAD_MEDIA_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 0 };
+
+function ThreadMediaVisibility(props: { readonly children: ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  useViewabilityAmount<ThreadFeedEntry>(
+    useCallback((token) => setVisible(token.sizeVisible > 0), []),
+  );
+  return <ThreadMediaVisibleContext value={visible}>{props.children}</ThreadMediaVisibleContext>;
+}
+
 function ThreadMarkdownVideo(props: {
   readonly source: MediaVideoPreviewSource;
   readonly onExpand: (source: MediaVideoPreviewSource) => void;
 }) {
   const { source } = props;
+  const visible = useContext(ThreadMediaVisibleContext);
+  const thumbnailKey = mediaVideoThumbnailKey(source);
   const asset = useAssetUrlState(
     "environmentId" in source ? source.environmentId : null,
     "resource" in source ? source.resource : null,
@@ -619,8 +633,11 @@ function ThreadMarkdownVideo(props: {
         : null;
   return (
     <MediaVideoPlayer
+      key={thumbnailKey}
       uri={uri}
       name={source.name}
+      thumbnailKey={thumbnailKey}
+      thumbnailVisible={visible}
       unavailable={"resource" in source && asset._tag === "Failure"}
       onExpand={() => props.onExpand(source)}
     />
@@ -2549,30 +2566,32 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         }
         exiting={THREAD_FEED_DISCLOSURE_EXIT_TRANSITION}
       >
-        {renderFeedEntry(info, {
-          environmentId: props.environmentId,
-          copiedRowId,
-          expandedWorkRows,
-          terminalAssistantMessageIds,
-          unsettledTurnId,
-          onCopyWorkRow,
-          onToggleWorkGroup,
-          onToggleWorkRow,
-          onToggleTurnFold,
-          onPressPreview,
-          onPressVideo,
-          onMarkdownLinkPress,
-          renderMarkdownImage,
-          renderViewedImage,
-          iconSubtleColor,
-          userBubbleColor,
-          markdownStyles,
-          reviewCommentColors,
-          reviewCommentBubbleWidth,
-          userBubbleMaxWidth,
-          skills: props.skills,
-          onUseArtifactTemplate: props.onUseArtifactTemplate,
-        })}
+        <ThreadMediaVisibility>
+          {renderFeedEntry(info, {
+            environmentId: props.environmentId,
+            copiedRowId,
+            expandedWorkRows,
+            terminalAssistantMessageIds,
+            unsettledTurnId,
+            onCopyWorkRow,
+            onToggleWorkGroup,
+            onToggleWorkRow,
+            onToggleTurnFold,
+            onPressPreview,
+            onPressVideo,
+            onMarkdownLinkPress,
+            renderMarkdownImage,
+            renderViewedImage,
+            iconSubtleColor,
+            userBubbleColor,
+            markdownStyles,
+            reviewCommentColors,
+            reviewCommentBubbleWidth,
+            userBubbleMaxWidth,
+            skills: props.skills,
+            onUseArtifactTemplate: props.onUseArtifactTemplate,
+          })}
+        </ThreadMediaVisibility>
       </Animated.View>
     ),
     [
@@ -2697,6 +2716,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             data={presentedFeed}
             extraData={listAppearanceData}
             renderItem={renderItem}
+            viewabilityConfig={THREAD_MEDIA_VIEWABILITY_CONFIG}
             keyExtractor={(entry) => entry.id}
             getItemType={(entry) =>
               entry.type === "message" ? `message:${entry.message.role}` : entry.type

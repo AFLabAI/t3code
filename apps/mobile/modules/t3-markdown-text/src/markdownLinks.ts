@@ -2,6 +2,7 @@ import {
   inlineCodeFilePathCandidate,
   isConventionalFilePosition,
 } from "@t3tools/client-runtime/markdown-links";
+import { videoMimeType } from "@t3tools/shared/video";
 
 import type { MARKDOWN_FILE_ICON_SOURCES } from "./markdownFileIcons.generated";
 
@@ -344,6 +345,7 @@ function fileLabel(value: string): string {
 
 export function resolveMarkdownFileIcon(value: string): MarkdownFileIcon {
   const basename = fileLabel(value).replace(POSITION_SUFFIX_PATTERN, "").toLowerCase();
+  if (videoMimeType({ name: basename, mimeType: "" }) !== null) return "video";
   const exactIcon = FILE_ICON_BY_NAME[basename];
   if (exactIcon) return exactIcon;
   if (basename.startsWith("tsconfig.") && basename.endsWith(".json")) {

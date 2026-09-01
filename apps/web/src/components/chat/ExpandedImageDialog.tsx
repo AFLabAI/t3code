@@ -1,7 +1,16 @@
 import { memo, useCallback, useEffect, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, XIcon } from "lucide-react";
+import { createPortal } from "react-dom";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  XIcon,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { downloadVideoPreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
+import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
+import { resolveExternalWebLinkHost } from "./externalLinkContextMenu";
 
 interface ExpandedImageDialogProps {
   preview: ExpandedImagePreview;
@@ -62,10 +71,21 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const item = preview.images[index];
   if (!item) return null;
   const mediaLabel = item.type === "video" ? "video" : "image";
+  const openOriginalLink =
+    item.originalUrl && resolveExternalWebLinkHost(item.originalUrl) !== null ? (
+      <Button
+        size="sm"
+        variant="secondary"
+        render={<a href={item.originalUrl} target="_blank" rel="noopener noreferrer" />}
+      >
+        <ExternalLinkIcon />
+        Open original
+      </Button>
+    ) : null;
 
   const isDownloadingVideo = downloadingVideoSrc === item.src;
   const videoDownloadFailed = downloadFailedVideoSrc === item.src;
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
       role="dialog"
@@ -121,24 +141,31 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
               <DownloadIcon />
               {isDownloadingVideo ? "Downloading…" : "Download video"}
             </Button>
+            {openOriginalLink}
           </div>
         ) : item.type === "video" ? (
           <video
             src={item.src}
             aria-label={item.name}
             autoPlay={item.autoPlay ?? true}
-            preload={item.autoPlay === false ? "none" : "metadata"}
+            preload="metadata"
             controls
             playsInline
+            onLoadedMetadata={(event) => prepareVideoFirstFrame(event.currentTarget)}
             onError={() => setFailedVideoSrc(item.src)}
             className="aspect-video max-h-[86vh] w-[min(92vw,64rem)] rounded-lg border border-border/70 bg-black object-contain shadow-2xl"
           />
         ) : failedImageSrc === item.src ? (
           <div
             role="alert"
-            className="flex h-48 w-[min(92vw,32rem)] items-center justify-center rounded-lg bg-black px-6 text-center text-sm text-white/80"
+            className="flex h-48 w-[min(92vw,32rem)] flex-col items-center justify-center gap-3 rounded-lg bg-black px-6 text-center text-sm text-white/80"
           >
-            Image unavailable. The file may have been moved or deleted.
+            <p>
+              {openOriginalLink
+                ? "This image could not be loaded."
+                : "Image unavailable. The file may have been moved or deleted."}
+            </p>
+            {openOriginalLink}
           </div>
         ) : (
           <img
@@ -166,6 +193,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           <ChevronRightIcon className="size-5" />
         </Button>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 });

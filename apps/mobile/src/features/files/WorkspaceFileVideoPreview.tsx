@@ -9,6 +9,7 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/Vid
 /** Uses the signed progressive URL directly; choosing a file never preloads its video bytes as text. */
 export function WorkspaceFileVideoPreview(props: {
   readonly name: string;
+  readonly thumbnailKey: string;
   readonly uri: string | null;
   readonly unavailable: boolean;
 }) {
@@ -31,6 +32,7 @@ export function WorkspaceFileVideoPreview(props: {
       <MediaVideoPlayer
         uri={uri}
         name={props.name}
+        thumbnailKey={props.thumbnailKey}
         onExpand={
           uri === null
             ? undefined

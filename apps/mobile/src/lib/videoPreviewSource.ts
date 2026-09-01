@@ -16,6 +16,21 @@ export type MediaVideoPreviewSource = {
     }
 );
 
+/** Keeps thumbnails independent of refreshed asset signatures and scoped to their environment. */
+export function mediaVideoThumbnailKey(source: MediaVideoPreviewSource): string {
+  return JSON.stringify(
+    "uri" in source
+      ? ["media-video", source.uri]
+      : [
+          "media-video",
+          source.environmentId,
+          source.resource.threadId,
+          source.resource.path,
+          source.srcFragment ?? "",
+        ],
+  );
+}
+
 export type AttachmentVideoPreviewSource = (
   | { readonly type: "local"; readonly attachment: DraftComposerFileAttachment }
   | {

@@ -1,9 +1,36 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  resolveMarkdownFileIcon,
   resolveMarkdownInlineCodePresentation,
   resolveMarkdownLinkPresentation,
 } from "@t3tools/mobile-markdown-text/links";
+
+describe("resolveMarkdownFileIcon", () => {
+  it.each(["avi", "m4v", "mkv", "mov", "mp4", "ogv", "webm"])(
+    "uses a video icon for .%s files",
+    (extension) => expect(resolveMarkdownFileIcon(`recording.${extension}`)).toBe("video"),
+  );
+
+  it.each([
+    "C:\\Videos\\Recording.MP4",
+    "/tmp/recording.webm:12:4",
+    "media/take#1.mp4",
+    "media/take?1.mp4",
+    "media/take%20.mp4",
+  ])("recognizes the literal video path %s", (path) => {
+    expect(resolveMarkdownFileIcon(path)).toBe("video");
+  });
+
+  it.each([
+    ["recording.mp4.txt", "text"],
+    ["recording.mp4.ts", "typescript"],
+    ["recording%2Emp4", "default"],
+    ["recording.mp4#t=1", "default"],
+  ])("keeps the literal filename classification for %s", (path, icon) => {
+    expect(resolveMarkdownFileIcon(path)).toBe(icon);
+  });
+});
 
 describe("resolveMarkdownLinkPresentation", () => {
   it("extracts external link hosts", () => {
@@ -97,6 +124,18 @@ describe("resolveMarkdownLinkPresentation", () => {
     expect(resolveMarkdownLinkPresentation("pnpm-lock.yaml")).toMatchObject({
       kind: "file",
       icon: "pnpm",
+    });
+  });
+
+  it.each([
+    "/tmp/recording.mp4",
+    "file:///tmp/Recording%20Final.MP4#t=1",
+    "media/recording%2Emp4?download=1#t=2",
+    "media/recording.webm:12:4",
+  ])("uses a video icon for the Markdown destination %s", (href) => {
+    expect(resolveMarkdownLinkPresentation(href)).toMatchObject({
+      kind: "file",
+      icon: "video",
     });
   });
 

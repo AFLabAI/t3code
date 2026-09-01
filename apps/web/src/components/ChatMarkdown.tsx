@@ -44,6 +44,7 @@ import {
 } from "@t3tools/client-runtime/markdown-images";
 import { inlineCodeFilePathCandidate } from "@t3tools/client-runtime/markdown-links";
 import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
+import { prepareVideoFirstFrame } from "../lib/videoFirstFrame";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import React, {
@@ -1192,6 +1193,7 @@ function expandableMarkdownImageProps(
   onImageExpand: ((preview: ExpandedImagePreview) => void) | undefined,
   src: string,
   alt: string,
+  originalUrl?: string,
 ) {
   if (!onImageExpand) return {};
   const previewName = alt.trim() || "image";
@@ -1199,7 +1201,10 @@ function expandableMarkdownImageProps(
     if (event.currentTarget.closest("a")) return;
     event.preventDefault();
     event.stopPropagation();
-    onImageExpand({ images: [{ src, name: previewName }], index: 0 });
+    onImageExpand({
+      images: [{ src, name: previewName, ...(originalUrl ? { originalUrl } : {}) }],
+      index: 0,
+    });
   };
   return {
     role: "button" as const,
@@ -1238,6 +1243,7 @@ function ChatMarkdownVideo(props: {
   readonly src: string;
   readonly alt: string;
   readonly copyMarkdown: string | undefined;
+  readonly originalUrl?: string | undefined;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1247,6 +1253,29 @@ function ChatMarkdownVideo(props: {
   );
   const src = playbackSource?.identity === mediaIdentity ? playbackSource.src : props.src;
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [preloadedSrc, setPreloadedSrc] = useState<string | null>(null);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || preloadedSrc === src) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setPreloadedSrc(src);
+      return;
+    }
+    let active = true;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!active || !entries.some((entry) => entry.isIntersecting)) return;
+        setPreloadedSrc(src);
+        observer.disconnect();
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(video);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [src, preloadedSrc]);
   useEffect(() => {
     const video = videoRef.current;
     const pauseWhenHidden = () => {
@@ -1274,8 +1303,9 @@ function ChatMarkdownVideo(props: {
         aria-label={props.alt || "Video preview"}
         controls
         playsInline
-        preload="none"
+        preload={preloadedSrc === src ? "metadata" : "none"}
         className="aspect-video max-h-[30rem] w-full rounded-lg border border-border/40 bg-black object-contain"
+        onLoadedMetadata={(event) => prepareVideoFirstFrame(event.currentTarget)}
         onPlay={() => setPlaybackSource({ identity: mediaIdentity, src })}
         onError={() => {
           if (src !== props.src) setPlaybackSource(null);
@@ -1293,7 +1323,13 @@ function ChatMarkdownVideo(props: {
             videoRef.current?.pause();
             props.onImageExpand?.({
               images: [
-                { src: props.src, name: props.alt || "video", type: "video", autoPlay: false },
+                {
+                  src: props.src,
+                  name: props.alt || "video",
+                  type: "video",
+                  autoPlay: false,
+                  ...(props.originalUrl ? { originalUrl: props.originalUrl } : {}),
+                },
               ],
               index: 0,
             });
@@ -2550,12 +2586,15 @@ function ChatMarkdown({
         const imageSource = classifyMarkdownImageSource(classifiedSrc, imageBaseDir ?? cwd);
         const kind = mediaKindFromPath(classifiedSrc) ?? "image";
         if (imageSource._tag === "Direct") {
+          const originalUrl =
+            resolveExternalWebLinkHost(imageSource.uri) !== null ? imageSource.uri : undefined;
           if (kind === "video") {
             return (
               <ChatMarkdownVideo
                 src={imageSource.uri}
                 alt={altText}
                 copyMarkdown={copyMarkdown}
+                originalUrl={originalUrl}
                 onImageExpand={imageExpand}
               />
             );
@@ -2572,7 +2611,7 @@ function ChatMarkdown({
                 imageExpand && "cursor-zoom-in",
               )}
               style={authoredSizeStyle}
-              {...expandableMarkdownImageProps(imageExpand, imageSource.uri, altText)}
+              {...expandableMarkdownImageProps(imageExpand, imageSource.uri, altText, originalUrl)}
             />
           );
         }

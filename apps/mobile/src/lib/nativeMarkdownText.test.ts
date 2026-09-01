@@ -45,6 +45,12 @@ describe("nativeMarkdownTextRuns", () => {
           href: "file:///repo/README.md#L12",
           children: [{ type: "text", content: "ignored label" }],
         },
+        { type: "text", content: " " },
+        {
+          type: "link",
+          href: "file:///tmp/recording.mp4",
+          children: [{ type: "text", content: "Recording" }],
+        },
       ],
     };
 
@@ -60,6 +66,12 @@ describe("nativeMarkdownTextRuns", () => {
         href: "file:///repo/README.md#L12",
         fileIcon: "readme",
       },
+      { text: " " },
+      {
+        text: "recording.mp4",
+        href: "file:///tmp/recording.mp4",
+        fileIcon: "video",
+      },
     ]);
   });
 
@@ -72,6 +84,8 @@ describe("nativeMarkdownTextRuns", () => {
           { type: "code_inline", content: "/tmp/frame.png" },
           { type: "text", content: " or " },
           { type: "code_inline", content: "src/main.ts:12" },
+          { type: "text", content: " or " },
+          { type: "code_inline", content: "/tmp/recording.WEBM" },
         ],
       }),
     ).toEqual([
@@ -79,6 +93,8 @@ describe("nativeMarkdownTextRuns", () => {
       { text: "frame.png", href: "/tmp/frame.png", fileIcon: "image" },
       { text: " or " },
       { text: "main.ts:12", href: "src/main.ts:12", fileIcon: "typescript" },
+      { text: " or " },
+      { text: "recording.WEBM", href: "/tmp/recording.WEBM", fileIcon: "video" },
     ]);
   });
 

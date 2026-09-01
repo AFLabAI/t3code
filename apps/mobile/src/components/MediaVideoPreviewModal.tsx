@@ -3,7 +3,7 @@ import { Keyboard, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { downloadAndShareAttachment } from "../lib/attachmentDownload";
-import type { MediaVideoPreviewSource } from "../lib/videoPreviewSource";
+import { mediaVideoThumbnailKey, type MediaVideoPreviewSource } from "../lib/videoPreviewSource";
 import { useAssetUrlState } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
 import { AppText } from "./AppText";
@@ -89,6 +89,7 @@ export function MediaVideoPreviewModal(props: {
         <MediaVideoPlayer
           uri={uri}
           name={source.name}
+          thumbnailKey={mediaVideoThumbnailKey(source)}
           unavailable={unavailable}
           paused={sharing}
           expanded

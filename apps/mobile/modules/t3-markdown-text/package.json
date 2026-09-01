@@ -27,6 +27,7 @@
   },
   "peerDependencies": {
     "@t3tools/client-runtime": "*",
+    "@t3tools/shared": "*",
     "expo-asset": "*",
     "expo-clipboard": "*",
     "expo-haptics": "*",

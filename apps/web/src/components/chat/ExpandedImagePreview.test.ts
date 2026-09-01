@@ -48,6 +48,7 @@ describe("resolveMarkdownMediaPreview", () => {
         input: { resource: { _tag: "media-file", threadId: threadRef.threadId, path } },
       });
       expect(preview?.images[0]?.src).toBe("https://environment.test/api/assets/signed/frame.png");
+      expect(preview?.images[0]).not.toHaveProperty("originalUrl");
     },
   );
 
@@ -106,7 +107,9 @@ describe("resolveMarkdownMediaPreview", () => {
     try {
       const source = "https://cdn.example.com/clip.MP4?signature=abc#t=2";
       expect(await resolveMarkdownMediaPreview({ source, createAssetUrl })).toEqual({
-        images: [{ src: source, name: "clip.MP4", type: "video", autoPlay: false }],
+        images: [
+          { src: source, originalUrl: source, name: "clip.MP4", type: "video", autoPlay: false },
+        ],
         index: 0,
       });
       expect(createAssetUrl).not.toHaveBeenCalled();
@@ -115,6 +118,19 @@ describe("resolveMarkdownMediaPreview", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["png", "mp4"])(
+    "retains a %s host-page URL for explicit navigation when embedding fails",
+    async (extension) => {
+      const source = `https://github.com/owner/repo/blob/main/diagram.${extension}?raw=false#L1`;
+      const createAssetUrl = vi.fn();
+
+      const preview = await resolveMarkdownMediaPreview({ source, createAssetUrl });
+
+      expect(preview?.images[0]).toMatchObject({ src: source, originalUrl: source });
+      expect(createAssetUrl).not.toHaveBeenCalled();
+    },
+  );
 
   it("surfaces missing-file errors from the environment", async () => {
     const createAssetUrl = vi

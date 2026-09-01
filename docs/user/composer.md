@@ -58,8 +58,9 @@ On web, desktop, and mobile, select a link to an image or video to open it insid
 Videos opened from the file explorer or a file-viewer tab also play inside T3 Code. They
 stream from the environment as needed, rather than downloading the entire video before playback.
 Paths in inline code, such as `/tmp/recording.mp4`, work the same way. Image embeds stay inline;
-video embeds show a player with controls and an option to expand. Videos start paused and load
-on demand.
+video embeds show a player with controls and an option to expand. Visible video previews load
+an initial frame when supported, but stay paused until you press Play. Video file references use
+a filmstrip icon.
 
 Use Markdown image syntax to embed either kind of media:
 

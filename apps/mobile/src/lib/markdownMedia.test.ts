@@ -2,6 +2,7 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveMarkdownMediaPreview } from "./markdownMedia";
+import { mediaVideoThumbnailKey } from "./videoPreviewSource";
 
 const input = {
   environmentId: EnvironmentId.make("environment-1"),
@@ -41,6 +42,29 @@ describe("resolveMarkdownMediaPreview", () => {
         resource: { _tag: "media-file", threadId: input.threadId, path: "/tmp/recording.mp4" },
       },
     });
+  });
+
+  it("keys local video thumbnails by environment, thread, path, and fragment", () => {
+    const resolve = (href: string, overrides: Partial<typeof input> = {}) => {
+      const preview = resolveMarkdownMediaPreview(href, { ...input, ...overrides });
+      if (preview?.kind !== "video") throw new Error("Expected a video preview");
+      return mediaVideoThumbnailKey(preview.source);
+    };
+    const key = resolve("/tmp/clip.mp4");
+    expect(resolve("file:///tmp/clip.mp4")).toBe(key);
+    expect(resolve("/tmp/clip.mp4", { environmentId: EnvironmentId.make("other") })).not.toBe(key);
+    expect(resolve("/tmp/clip.mp4", { threadId: ThreadId.make("other") })).not.toBe(key);
+    expect(resolve("/tmp/other.mp4")).not.toBe(key);
+    expect(resolve("/tmp/clip.mp4#t=2")).not.toBe(key);
+  });
+
+  it("keeps direct video thumbnail identities separate", () => {
+    const key = (uri: string) =>
+      mediaVideoThumbnailKey({ type: "media", uri, name: "clip.mp4", mimeType: "video/mp4" });
+    expect(key("https://first.example/clip.mp4")).not.toBe(key("https://second.example/clip.mp4"));
+    expect(key("https://first.example/clip.mp4#t=1")).not.toBe(
+      key("https://first.example/clip.mp4#t=2"),
+    );
   });
 
   it("preserves signed external video URLs without routing them through the environment", () => {
