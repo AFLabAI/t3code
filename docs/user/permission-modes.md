@@ -48,4 +48,10 @@ threads do the same: **Supervised** starts Grok in ask mode even if your Grok CL
 set to always-approve, and **Full access** starts Grok with always-approve. The labels above
 describe what you get; the exact per-provider translation is internal and may change.
 
-Mobile offers the same four modes with the same labels and descriptions.
+React Native mobile offers the same four modes with the same labels and descriptions.
+
+On SwiftUI mobile, open **Thread actions**, then **Permissions**, to choose
+**Automatic** or **Full access** for that thread. New threads start in **Full access**.
+Existing threads keep their saved mode. If a thread uses **Supervised** or
+**Auto-accept edits**, SwiftUI mobile shows that saved mode as the current value.
+Choose **Automatic** or **Full access** to replace it.
