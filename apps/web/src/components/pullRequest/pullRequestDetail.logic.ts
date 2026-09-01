@@ -55,6 +55,8 @@ export function isThreadOwnPullRequest(
     readonly projectId: string | null;
     readonly repository: string | null;
     readonly number: number | null;
+    /** An explicit thread link owns this PR even if its project was recreated or remapped. */
+    readonly explicitlyLinked?: boolean;
   },
   surface: {
     readonly projectId: string;
@@ -63,9 +65,9 @@ export function isThreadOwnPullRequest(
   },
 ): boolean {
   return (
-    thread.projectId === surface.projectId &&
     thread.repository === surface.repository &&
-    thread.number === surface.number
+    thread.number === surface.number &&
+    (thread.explicitlyLinked === true || thread.projectId === surface.projectId)
   );
 }
 

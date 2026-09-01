@@ -1198,12 +1198,46 @@ describe("whether the panel is showing the thread's own pull request", () => {
     ).toBe(false);
   });
 
+  it("keeps every agent handoff in an explicitly linked thread after its project id changes", () => {
+    const ownsPullRequest = isThreadOwnPullRequest(
+      {
+        projectId: "linked-project",
+        repository: "acme/app",
+        number: 7,
+        explicitlyLinked: true,
+      },
+      surface,
+    );
+    const composerTarget = { environmentId: "env-1", threadId: "thread-1" };
+
+    expect(ownsPullRequest).toBe(true);
+    expect(pullRequestComposerTarget(ownsPullRequest ? "thread" : "page", composerTarget)).toBe(
+      composerTarget,
+    );
+    expect(pullRequestHandoffLabels(ownsPullRequest)).toEqual({
+      fixFinding: "Fix in this thread",
+      fixCheck: "Fix in this thread",
+      fixFindings: "Fix findings in this thread",
+    });
+  });
+
   it("rejects another repository or another number", () => {
     expect(
       isThreadOwnPullRequest({ projectId: "proj-a", repository: "acme/web", number: 7 }, surface),
     ).toBe(false);
     expect(
       isThreadOwnPullRequest({ projectId: "proj-a", repository: "acme/app", number: 8 }, surface),
+    ).toBe(false);
+    expect(
+      isThreadOwnPullRequest(
+        {
+          projectId: "linked-project",
+          repository: "acme/web",
+          number: 7,
+          explicitlyLinked: true,
+        },
+        surface,
+      ),
     ).toBe(false);
   });
 

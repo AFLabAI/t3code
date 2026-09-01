@@ -7078,6 +7078,7 @@ function ChatViewContent(props: ChatViewProps) {
               projectId: linkedThreadPullRequest?.projectId ?? activeProject?.id ?? null,
               repository: threadRepository,
               number: activeThreadPr?.number ?? null,
+              explicitlyLinked: linkedThreadPullRequest !== null,
             },
             {
               projectId: activeRightPanelSurface.projectId,
