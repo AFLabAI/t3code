@@ -27,15 +27,16 @@ describe("resolveMarkdownLinkPresentation", () => {
     });
   });
 
-  it("renders file URLs as basename pills with positions", () => {
-    expect(
-      resolveMarkdownLinkPresentation("file:///Users/julius/project/src/main.ts#L42C7"),
-    ).toEqual({
+  it.each([
+    ["file:///Users/julius/project/src/main.ts#L42C7", "/Users/julius/project/src/main.ts"],
+    ["file://server/share/src/main.ts#L42C7", "\\\\server\\share\\src\\main.ts"],
+  ])("preserves the file URL path and position for %s", (href, path) => {
+    expect(resolveMarkdownLinkPresentation(href)).toEqual({
       kind: "file",
-      href: "file:///Users/julius/project/src/main.ts#L42C7",
+      href,
       icon: "typescript",
       label: "main.ts:42:7",
-      path: "/Users/julius/project/src/main.ts",
+      path,
       line: 42,
       column: 7,
     });
