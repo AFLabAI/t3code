@@ -4,10 +4,109 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  liveWorkEntryLabel,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   shouldPreserveAssistantLineBreaks,
+  workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
+
+describe("work entry labels", () => {
+  const entry = {
+    id: "tool-1",
+    createdAt: "2026-09-01T12:00:00Z",
+    label: "Tool call",
+    tone: "tool" as const,
+  };
+
+  it.each([
+    ["inProgress", "Clicking in the preview browser"],
+    ["completed", "Clicked in the preview browser"],
+    ["failed", "Failed to click in the preview browser"],
+    ["declined", "Declined to click in the preview browser"],
+    ["stopped", "Stopped clicking in the preview browser"],
+  ] as const)("uses the same friendly %s label in both views", (toolLifecycleStatus, label) => {
+    const browserEntry = {
+      ...entry,
+      toolTitle: "T3-code.preview_click",
+      detail: '{"ok":true}',
+      toolLifecycleStatus,
+    };
+    expect(liveWorkEntryLabel(browserEntry, undefined, toolLifecycleStatus === "inProgress")).toBe(
+      label,
+    );
+    expect(workEntryDisplayLabel(browserEntry, undefined)).toBe(label);
+  });
+
+  it("uses the active summary state for legacy tools without a lifecycle status", () => {
+    const browserEntry = { ...entry, toolTitle: "T3-code.preview_click" };
+    expect(liveWorkEntryLabel(browserEntry, undefined, true)).toBe(
+      "Clicking in the preview browser",
+    );
+    expect(liveWorkEntryLabel(browserEntry, undefined, false)).toBe(
+      "Clicked in the preview browser",
+    );
+  });
+
+  it("does not describe a finished call as still running while the turn continues", () => {
+    const browserEntry = {
+      ...entry,
+      toolTitle: "T3-code.preview_click",
+      toolLifecycleStatus: "completed" as const,
+    };
+    expect(liveWorkEntryLabel(browserEntry, undefined, true)).toBe(
+      "Clicked in the preview browser",
+    );
+  });
+
+  it("keeps custom titles and output for unrecognized tools", () => {
+    const unknownEntry = { ...entry, toolTitle: "mcp__github__search_issues" };
+    expect(liveWorkEntryLabel(unknownEntry, undefined, true)).toBe("Mcp__github__search_issues");
+    expect(workEntryDisplayLabel({ ...unknownEntry, detail: "Found 3 issues" }, undefined)).toBe(
+      "Found 3 issues",
+    );
+  });
+
+  it("keeps command summaries compact without replacing the full command in expanded rows", () => {
+    const commandEntry = { ...entry, command: "vp test run", detail: "All tests passed" };
+    expect(liveWorkEntryLabel(commandEntry, undefined, true)).toBe("Running vp");
+    expect(liveWorkEntryLabel(commandEntry, undefined, false)).toBe("Ran vp");
+    expect(workEntryDisplayLabel(commandEntry, undefined)).toBe("vp test run");
+  });
+
+  it("summarizes the program inside a shell wrapper while preserving the expanded command", () => {
+    const command = "/bin/zsh -lc 'vp test run apps/web/src/session-logic.test.ts'";
+    const commandEntry = { ...entry, command };
+    expect(liveWorkEntryLabel(commandEntry, undefined, true)).toBe("Running vp");
+    expect(liveWorkEntryLabel(commandEntry, undefined, false)).toBe("Ran vp");
+    expect(workEntryDisplayLabel(commandEntry, undefined)).toBe(command);
+  });
+
+  it("gives a completed browser group its own count and summary icon category", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "browser-entry",
+          kind: "work",
+          createdAt: entry.createdAt,
+          entry: {
+            ...entry,
+            itemType: "mcp_tool_call",
+            toolLifecycleStatus: "completed",
+            toolData: { server: "t3-code", tool: "preview_click" },
+          },
+        },
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+    expect(rows).toMatchObject([
+      { kind: "work-toggle", summary: "Used browser 1 time", summaryKind: "browser" },
+    ]);
+  });
+});
 
 describe("shouldPreserveAssistantLineBreaks", () => {
   it("preserves Claude insight formatting without changing regular markdown", () => {
@@ -1445,14 +1544,60 @@ describe("deriveMessagesTimelineRows", () => {
     });
     expect(expandedRows.map((row) => row.id)).toEqual([
       "work-toggle:work-entry-1",
-      "work-1",
-      "work-2",
-      "work-3",
+      "work-group:work-entry-1:details",
     ]);
+    expect(expandedRows.find((row) => row.kind === "work")).toMatchObject({
+      isExpandedToolGroup: true,
+      groupedEntries: timelineEntries.map(({ entry }) => entry),
+    });
     expect(expandedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       expanded: true,
     });
   });
+
+  it.each([true, false])(
+    "keeps a large expanded tool run inside one timeline item, live=%s",
+    (isWorking) => {
+      const turnId = TurnId.make("turn-many-tools");
+      const createdAt = "2026-09-01T12:00:00Z";
+      const timelineEntries = Array.from({ length: 1_000 }, (_, index) => ({
+        id: `tool-entry-${index}`,
+        kind: "work" as const,
+        createdAt,
+        entry: {
+          id: `tool-${index}`,
+          toolCallId: `call-${index}`,
+          createdAt,
+          turnId,
+          label: "t3-code.preview_snapshot",
+          tone: "tool" as const,
+          toolLifecycleStatus:
+            isWorking && index === 999 ? ("inProgress" as const) : ("completed" as const),
+        },
+      }));
+      const groupId = `work-group:tool:${turnId}:call-0`;
+      const input = {
+        timelineEntries,
+        isWorking,
+        expandedTurnIds: new Set([turnId]),
+        runningTurnId: isWorking ? turnId : null,
+        activeTurnStartedAt: isWorking ? createdAt : null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        revertTurnCountByUserMessageId: new Map(),
+      };
+      const expandedRows = deriveMessagesTimelineRows({
+        ...input,
+        expandedWorkGroupIds: new Set([groupId]),
+      });
+      const groupRows = expandedRows.filter((row) => row.kind === "work");
+      expect(groupRows).toHaveLength(1);
+      expect(groupRows[0]?.groupedEntries.map(({ id }) => id)).toEqual(
+        timelineEntries.map(({ entry }) => entry.id),
+      );
+      expect(groupRows[0]?.id).toBe(`${groupId}:details`);
+      expect(deriveMessagesTimelineRows(input).some((row) => row.kind === "work")).toBe(false);
+    },
+  );
 
   it.each([
     ["recovered", ["failed", "completed"], false],

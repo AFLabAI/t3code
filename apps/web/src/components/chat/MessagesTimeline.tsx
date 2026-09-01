@@ -8,8 +8,8 @@ import {
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
-import { commandProgramName } from "@t3tools/client-runtime/work-log/command-label";
 import {
+  resolveWorkEntryToolPresentation,
   resolveViewedImageAsset,
   workEntryViewedImagePath,
 } from "@t3tools/client-runtime/work-log/presentation";
@@ -84,6 +84,7 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -96,7 +97,7 @@ import { MessageCopyButton } from "./MessageCopyButton";
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
-  normalizeCompactToolLabel,
+  liveWorkEntryLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
@@ -107,6 +108,7 @@ import {
   resolveTimelineMinimapTopPercent,
   shouldPreserveAssistantLineBreaks,
   toolGroupAction,
+  workEntryDisplayLabel,
   workEntryIsVisibleInGroup,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
@@ -969,8 +971,7 @@ type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["grouped
 type TimelineRow = MessagesTimelineRow;
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
-  const isExpandedToolGroupEntry = row.kind === "work" && row.isExpandedToolGroupEntry;
-  const isLastExpandedToolGroupEntry = row.kind === "work" && row.isLastExpandedToolGroupEntry;
+  const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isExpandedToolGroupHeader =
     (row.kind === "work-toggle" && row.expanded) || (row.kind === "work-live" && row.expanded);
 
@@ -979,10 +980,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       className={cn(
         // Commentary (non-terminal assistant) rows carry no metadata row, so
         // they sit closer to the work that follows them.
-        isExpandedToolGroupEntry
-          ? isLastExpandedToolGroupEntry
-            ? "pb-1"
-            : "pb-0"
+        isExpandedToolGroup
+          ? "pb-1"
           : isExpandedToolGroupHeader
             ? "pb-0"
             : row.kind === "turn-fold" || row.kind === "working" || row.kind === "thinking"
@@ -1005,7 +1004,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "work" ? (
         <WorkGroupSection
           groupedEntries={row.groupedEntries}
-          isExpandedToolGroupEntry={row.isExpandedToolGroupEntry}
+          isExpandedToolGroup={row.isExpandedToolGroup}
         />
       ) : null}
       {row.kind === "work-live" ? <LiveWorkEntryTimelineRow row={row} /> : null}
@@ -1402,42 +1401,110 @@ function WorkingTimer({ createdAt }: { createdAt: string }) {
 // re-render only the affected row, not the entire list.
 // ---------------------------------------------------------------------------
 
-/** Renders one or more already-derived work log rows. Overflow expansion is modeled as LegendList data. */
+/** Renders standalone activity or one bounded, virtualized expanded tool group. */
 const WorkGroupSection = memo(function WorkGroupSection({
   groupedEntries,
-  isExpandedToolGroupEntry,
+  isExpandedToolGroup,
 }: {
   groupedEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
-  isExpandedToolGroupEntry: boolean;
+  isExpandedToolGroup: boolean;
 }) {
   const { workspaceRoot } = use(TimelineRowCtx);
   const nonEmptyEntries = useMemo(
-    () =>
-      groupedEntries.filter((entry) => workEntryIsVisibleInGroup(entry, isExpandedToolGroupEntry)),
-    [groupedEntries, isExpandedToolGroupEntry],
+    () => groupedEntries.filter((entry) => workEntryIsVisibleInGroup(entry, isExpandedToolGroup)),
+    [groupedEntries, isExpandedToolGroup],
   );
-  const GroupContainer = isExpandedToolGroupEntry ? "div" : "section";
 
   if (nonEmptyEntries.length === 0) return null;
+  if (isExpandedToolGroup) {
+    return <ExpandedWorkGroupEntries entries={nonEmptyEntries} workspaceRoot={workspaceRoot} />;
+  }
 
   return (
-    <GroupContainer
-      className={cn("-mx-1 px-1", isExpandedToolGroupEntry ? "py-0" : "space-y-0.5 py-0.5")}
-      aria-label={isExpandedToolGroupEntry ? undefined : "Activity"}
-    >
+    <section className="-mx-1 space-y-0.5 px-1 py-0.5" aria-label="Activity">
       <div className="space-y-px">
         {nonEmptyEntries.map((workEntry) => (
           <SimpleWorkEntryRow
             key={workEntry.id}
             workEntry={workEntry}
             workspaceRoot={workspaceRoot}
-            isExpandedToolGroupEntry={isExpandedToolGroupEntry}
+            isExpandedToolGroupEntry={false}
           />
         ))}
       </div>
-    </GroupContainer>
+    </section>
   );
 });
+
+function ExpandedWorkGroupEntries({
+  entries,
+  workspaceRoot,
+}: {
+  entries: TimelineWorkEntry[];
+  workspaceRoot: string | undefined;
+}) {
+  const listRef = useRef<LegendListRef>(null);
+  const [fades, setFades] = useState({ top: false, bottom: false });
+  const updateScrollFades = useCallback(() => {
+    const element = listRef.current?.getScrollableNode();
+    if (!element) return;
+    const top = element.scrollTop > 1;
+    const bottom = element.scrollHeight - element.clientHeight - element.scrollTop > 1;
+    setFades((previous) =>
+      previous.top === top && previous.bottom === bottom ? previous : { top, bottom },
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    const element = listRef.current?.getScrollableNode();
+    if (!element) return;
+    updateScrollFades();
+    const observer = new ResizeObserver(updateScrollFades);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, [updateScrollFades]);
+
+  const renderEntry = useCallback(
+    ({ item }: { item: TimelineWorkEntry }) => (
+      <SimpleWorkEntryRow
+        key={item.id}
+        workEntry={item}
+        workspaceRoot={workspaceRoot}
+        isExpandedToolGroupEntry
+      />
+    ),
+    [workspaceRoot],
+  );
+
+  return (
+    <LegendList
+      ref={listRef}
+      data={entries}
+      extraData={workspaceRoot}
+      keyExtractor={workEntryKey}
+      renderItem={renderEntry}
+      estimatedItemSize={24}
+      drawDistance={240}
+      recycleItems
+      maintainScrollAtEnd={{ on: { dataChange: true } }}
+      maintainVisibleContentPosition
+      onScroll={updateScrollFades}
+      onLayout={updateScrollFades}
+      tabIndex={0}
+      role="region"
+      aria-label="Tool calls"
+      data-tool-group-scroll
+      className={cn(
+        "scrollbar-gutter-stable max-h-[min(18rem,50dvh)] scroll-py-6 overflow-x-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+        (fades.top || fades.bottom) && "overscroll-y-contain",
+        getVirtualizedScrollFadeClassName(fades),
+      )}
+    />
+  );
+}
+
+const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
 function ActivityShimmerOverlay({ children }: { children: ReactNode }) {
   return (
@@ -1489,7 +1556,8 @@ function LiveActivityContent({
   announceFailure?: boolean;
   highlighted?: boolean;
 }) {
-  const resolvedIconName = failed ? "circle-alert" : iconName;
+  const isSpecialToolIcon = iconName === "browser" || iconName === "t3-code";
+  const resolvedIconName = failed && !isSpecialToolIcon ? "circle-alert" : iconName;
 
   return (
     <span
@@ -1508,13 +1576,14 @@ function LiveActivityContent({
           role={announceFailure ? "img" : undefined}
           aria-label={announceFailure ? "Tool call failed" : undefined}
         >
-          <WorkEntryIconSvg
+          <WorkEntryIcon
             name={resolvedIconName}
             className={cn("block size-4 shrink-0 stroke-[1.8]", !highlighted && "opacity-70")}
           />
         </span>
       ) : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {failed && isSpecialToolIcon ? <XIcon aria-hidden className="size-3 shrink-0" /> : null}
     </span>
   );
 }
@@ -1558,6 +1627,8 @@ function toolGroupSummaryIconName(
       return "square-pen";
     case "command":
       return "terminal";
+    case "browser":
+      return "browser";
     case "search":
       return "globe";
     case "code-search":
@@ -1591,7 +1662,7 @@ function WorkGroupToggleTimelineRow({
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
     >
       <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
-        <WorkEntryIconSvg
+        <WorkEntryIcon
           name={toolGroupSummaryIconName(row.summaryKind)}
           className="size-4 shrink-0 stroke-[1.8] opacity-70"
         />
@@ -2123,6 +2194,7 @@ function formatWorkingTimerNow(startIso: string): string {
 
 type WorkEntryIconName =
   | "bot"
+  | "browser"
   | "check"
   | "circle-alert"
   | "eye"
@@ -2132,14 +2204,26 @@ type WorkEntryIconName =
   | "search"
   | "square-pen"
   | "terminal"
+  | "t3-code"
   | "wrench"
   | "x"
   | "zap";
 
-function WorkEntryIconSvg({ name, className }: { name: WorkEntryIconName; className: string }) {
+function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
     case "bot":
       return <BotIcon className={className} aria-hidden />;
+    case "browser":
+      return <GlobeIcon className={className} aria-hidden />;
+    case "t3-code":
+      return (
+        <img
+          src={`${import.meta.env.BASE_URL}apple-touch-icon.png`}
+          alt=""
+          aria-hidden
+          className={cn(className, "rounded-[4px] object-cover")}
+        />
+      );
     case "check":
       return <CheckIcon className={className} aria-hidden />;
     case "circle-alert":
@@ -2195,21 +2279,6 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   };
 }
 
-function workEntryPreview(
-  workEntry: Pick<TimelineWorkEntry, "detail" | "command" | "changedFiles">,
-  workspaceRoot: string | undefined,
-) {
-  if (workEntry.command) return workEntry.command;
-  if (workEntry.detail) return workEntry.detail;
-  if ((workEntry.changedFiles?.length ?? 0) === 0) return null;
-  const [firstPath] = workEntry.changedFiles ?? [];
-  if (!firstPath) return null;
-  const displayPath = formatWorkspaceRelativePath(firstPath, workspaceRoot);
-  return workEntry.changedFiles!.length === 1
-    ? displayPath
-    : `${displayPath} +${workEntry.changedFiles!.length - 1} more`;
-}
-
 function workEntryRawCommand(
   workEntry: Pick<TimelineWorkEntry, "command" | "rawCommand">,
 ): string | null {
@@ -2218,26 +2287,6 @@ function workEntryRawCommand(
     return null;
   }
   return rawCommand === workEntry.command.trim() ? null : rawCommand;
-}
-
-function liveWorkEntryLabel(
-  workEntry: TimelineWorkEntry,
-  workspaceRoot: string | undefined,
-  active: boolean,
-): string {
-  const command = workEntry.command?.trim();
-  if (command) {
-    const program = commandProgramName(command);
-    const verb = active
-      ? "Running"
-      : workEntry.toolLifecycleStatus === "declined"
-        ? "Declined"
-        : "Ran";
-    if (program) return `${verb} ${program}`;
-    return `${verb} command`;
-  }
-
-  return workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry);
 }
 
 function buildToolCallExpandedBody(
@@ -2278,6 +2327,8 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   ) {
     return "message-circle";
   }
+  const toolPresentation = resolveWorkEntryToolPresentation(workEntry);
+  if (toolPresentation) return toolPresentation.icon;
   const action = toolGroupAction(workEntry);
   if (action !== "other") return toolGroupSummaryIconName(action);
 
@@ -2296,21 +2347,6 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   }
 
   return workToneIcon(workEntry.tone).iconName;
-}
-
-function capitalizePhrase(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return value;
-  }
-  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
-}
-
-function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
-  if (!workEntry.toolTitle) {
-    return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
-  }
-  return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
 }
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
@@ -2393,7 +2429,7 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
       className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
-      <WorkEntryIconSvg name="bot" className="size-3.5 shrink-0 text-muted-foreground" />
+      <WorkEntryIcon name="bot" className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">
         <span className="font-medium">{lead}</span>
         {workflowName ? <span className="text-muted-foreground"> · {workflowName}</span> : null}
@@ -2439,10 +2475,21 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
+  const toolPresentation = resolveWorkEntryToolPresentation(workEntry);
   const entryIconName =
-    showWarningIndicator || showFailedIndicator ? "circle-alert" : workEntryIconName(workEntry);
-  const displayText = workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry);
-  const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot);
+    showWarningIndicator || (showFailedIndicator && !toolPresentation)
+      ? "circle-alert"
+      : workEntryIconName(workEntry);
+  const displayText = workEntryDisplayLabel(workEntry, workspaceRoot);
+  const canExpand =
+    (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) ||
+    Boolean(
+      workEntryRawCommand(workEntry) ||
+      workEntry.command?.trim() ||
+      workEntry.detail?.trim() ||
+      workEntry.changedFiles?.length,
+    );
+  const expandedBody = expanded ? buildToolCallExpandedBody(workEntry, workspaceRoot) : null;
   const viewedImagePath = workEntryViewedImagePath(workEntry);
   const viewedImage =
     viewedImagePath && threadRef
@@ -2451,7 +2498,6 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           workspaceRoot,
         })
       : null;
-  const canExpand = expandedBody !== null;
   const showDestructiveRowStyle =
     showFailedIndicator &&
     (workEntrySignalsSevereFailure(workEntry) || !workLogEntryIsToolLike(workEntry));
@@ -2474,7 +2520,6 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       : workLogEntryIsToolLike(workEntry)
         ? "text-secondary-label"
         : "text-foreground/80";
-  const showEntryIcon = !isExpandedToolGroupEntry || showWarningIndicator || showFailedIndicator;
   const accessibleDisplayText = showFailedIndicator
     ? `${displayText}, tool call failed`
     : displayText;
@@ -2506,12 +2551,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     >
       <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
         <span
-          className={cn(iconWrapperClass, !showEntryIcon && "invisible")}
+          className={iconWrapperClass}
           role={showFailedIndicator ? "img" : undefined}
           aria-label={showFailedIndicator ? "Tool call failed" : undefined}
-          aria-hidden={!showEntryIcon}
         >
-          <WorkEntryIconSvg
+          <WorkEntryIcon
             name={entryIconName}
             className="block size-4 shrink-0 stroke-[1.8] opacity-70"
           />
@@ -2536,6 +2580,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               )}
             />
           </span>
+          {showFailedIndicator && toolPresentation ? (
+            <XIcon aria-hidden className="size-3 shrink-0 text-icon-muted" />
+          ) : null}
         </div>
       </div>
       {expanded && canExpand && expandedBody ? (

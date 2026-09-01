@@ -17,6 +17,7 @@ import {
   isWorktreeSetupActivity,
   normalizeCompactToolLabel,
   omitSupersededLifecycleMarkers,
+  resolveWorkEntryToolPresentation,
   summarizeToolGroup,
   toolGroupSummaryKind,
   type ToolGroupSummaryKind,
@@ -143,6 +144,7 @@ export type ThreadFeedEntry =
       readonly expanded: boolean;
       readonly summary: string;
       readonly summaryKind: ToolGroupSummaryKind;
+      readonly summaryToolIcon?: "browser" | "t3-code";
       readonly hasFailure: boolean;
       readonly live: boolean;
       readonly shimmer: boolean;
@@ -463,8 +465,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (itemType === "mcp_tool_call") {
     const data = asRecord(payload?.data);
-    if (data?.item !== undefined) {
-      entry.toolData = data.item;
+    const toolData = typeof data?.toolName === "string" ? (data.item ?? data) : data?.item;
+    if (toolData !== undefined) {
+      entry.toolData = toolData;
     }
   }
   if (itemType) {
@@ -812,6 +815,8 @@ function capitalizePhrase(value: string): string {
 }
 
 function workEntryHeading(workEntry: WorkLogEntry): string {
+  const presentation = resolveWorkEntryToolPresentation(workEntry);
+  if (presentation) return presentation.displayName;
   if (!workEntry.toolTitle) {
     return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
   }
@@ -1500,6 +1505,9 @@ function appendToolGroupRows(
     : activities.length === 1 && !activities[0]!.toolLike
       ? activities[0]!.workEntry.label
       : summarizeToolGroup(activities.map((activity) => activity.workEntry));
+  const summaryToolIcon = live
+    ? resolveWorkEntryToolPresentation(latestActivity.workEntry)?.icon
+    : undefined;
   result.push({
     type: "work-toggle",
     id: `${live ? "work-live" : "work-toggle"}:${groupId}`,
@@ -1512,6 +1520,7 @@ function appendToolGroupRows(
     summaryKind: toolGroupSummaryKind(
       (live ? [latestActivity] : activities).map((activity) => activity.workEntry),
     ),
+    ...(summaryToolIcon ? { summaryToolIcon } : {}),
     hasFailure: activities.findLast((activity) => activity.toolLike)?.status === "failure",
     live,
     // Match the live label until the turn or contiguous tool run settles.
@@ -1520,28 +1529,26 @@ function appendToolGroupRows(
   if (!expanded) {
     return;
   }
-  for (const activity of activities) {
-    result.push({
-      type: "activity-group",
-      id: activity.id,
-      createdAt: activity.createdAt,
-      turnId: activity.turnId,
-      activities: [
-        {
-          ...activity,
-          groupedToolDetail: true,
-          live:
-            isWorking &&
-            activity.id === latestActivity.id &&
-            activity.lifecycleStatus === "inProgress" &&
-            activity.turnId === unsettledTurnId,
-        },
-      ],
-    });
-  }
+  result.push({
+    type: "activity-group",
+    id: `work-details:${groupId}`,
+    createdAt: activities[0]!.createdAt,
+    turnId: activities[0]!.turnId,
+    activities: activities.map((activity) => ({
+      ...activity,
+      groupedToolDetail: true,
+      live:
+        isWorking &&
+        activity.id === latestActivity.id &&
+        activity.lifecycleStatus === "inProgress" &&
+        activity.turnId === unsettledTurnId,
+    })),
+  });
 }
 
 function liveToolActivitySummary(activity: ThreadFeedActivity): string {
+  const presentation = resolveWorkEntryToolPresentation(activity.workEntry, "inProgress");
+  if (presentation) return presentation.displayName;
   const command = activity.workEntry.command?.trim();
   if (command) {
     const program = commandProgramName(command);
@@ -1759,7 +1766,11 @@ export function buildThreadFeed(
           const detail = workEntryPreview(entry);
           const getFullDetail = memoizeValue(() => buildWorkEntryExpandedBody(entry));
           const getCopyText = memoizeValue(() =>
-            [summary, detail, getFullDetail()]
+            [
+              capitalizePhrase(normalizeCompactToolLabel(entry.toolTitle || entry.label)),
+              detail,
+              getFullDetail(),
+            ]
               .filter((value, index, values): value is string => {
                 return Boolean(value) && values.indexOf(value) === index;
               })
