@@ -365,6 +365,24 @@ describe("ChatMarkdown media interactions", () => {
     },
   );
 
+  it.each([
+    ["https://cdn.example.com/clip.mp4", "video"],
+    ["//cdn.example.com/clip.mp4", "video"],
+    ["https://cdn.example.com/frame.png", "img"],
+    ["//cdn.example.com/frame.png", "img"],
+  ])("opens the media link %s in the local viewer", async (src, elementName) => {
+    await act(() => root.render(<ChatMarkdown cwd="/workspace" text={`[Preview](${src})`} />));
+    const link = container.querySelector("a")!;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+
+    await act(() => link.dispatchEvent(click));
+
+    expect(click.defaultPrevented).toBe(true);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector(elementName)?.getAttribute("src")).toBe(src);
+  });
+
   it("keeps authored video dimensions from loading through playback and refreshes on retry", async () => {
     const text = '<img src="/tmp/clip.mp4" alt="Clip" width="96" height="128">';
     testState.assetState = "loading";

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -10,6 +10,17 @@ import { OpenOriginalMediaLink } from "../media/OpenOriginalMediaLink";
 interface ExpandedImageDialogProps {
   preview: ExpandedImagePreview;
   onClose: () => void;
+}
+
+function ExpandedMediaFailure({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="alert"
+      className="flex h-48 w-[min(92vw,32rem)] flex-col items-center justify-center gap-3 rounded-lg border border-border/70 bg-black px-6 text-center text-sm text-white shadow-2xl"
+    >
+      {children}
+    </div>
+  );
 }
 
 export const ExpandedImageDialog = memo(function ExpandedImageDialog({
@@ -110,8 +121,8 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           <XIcon />
         </Button>
         {item.type === "video" && failedVideoSrc === item.src ? (
-          <div className="flex h-48 w-[min(92vw,32rem)] flex-col items-center justify-center gap-3 rounded-lg border border-border/70 bg-black px-6 text-center text-white shadow-2xl">
-            <p className="text-sm">
+          <ExpandedMediaFailure>
+            <p>
               {videoDownloadFailed
                 ? "Could not download this video."
                 : "This video could not be loaded or played."}
@@ -130,7 +141,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
               {isDownloadingVideo ? "Downloading…" : "Download video"}
             </Button>
             {openOriginalLink}
-          </div>
+          </ExpandedMediaFailure>
         ) : item.type === "video" ? (
           <video
             src={item.src}
@@ -144,17 +155,14 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
             className="aspect-video max-h-[86vh] w-[min(92vw,64rem)] rounded-lg border border-border/70 bg-black object-contain shadow-2xl"
           />
         ) : failedImageSrc === item.src ? (
-          <div
-            role="alert"
-            className="flex h-48 w-[min(92vw,32rem)] flex-col items-center justify-center gap-3 rounded-lg bg-black px-6 text-center text-sm text-white/80"
-          >
+          <ExpandedMediaFailure>
             <p>
               {openOriginalLink
                 ? "This image could not be loaded."
                 : "Image unavailable. The file may have been moved or deleted."}
             </p>
             {openOriginalLink}
-          </div>
+          </ExpandedMediaFailure>
         ) : (
           <img
             src={item.src}

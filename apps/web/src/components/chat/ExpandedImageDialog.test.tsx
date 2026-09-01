@@ -68,7 +68,7 @@ describe("ExpandedImageDialog", () => {
 
     await act(() => media!.dispatchEvent(new Event("error")));
 
-    expect(document.body.textContent).toContain("could not be loaded");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("could not be loaded");
     const originalLink = document.querySelector<HTMLAnchorElement>('[role="dialog"] a');
     expect(originalLink?.textContent).toBe("Open original");
     expect(originalLink?.getAttribute("href")).toBe(src);

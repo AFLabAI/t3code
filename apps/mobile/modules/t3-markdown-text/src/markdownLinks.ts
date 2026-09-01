@@ -259,6 +259,11 @@ function normalizeDestination(value: string): string {
   return trimmed.startsWith("<") && trimmed.endsWith(">") ? trimmed.slice(1, -1) : trimmed;
 }
 
+/** Native link and media APIs have no document scheme to inherit from protocol-relative URLs. */
+export function normalizeNativeMarkdownUrl(value: string): string {
+  return value.startsWith("//") ? `https:${value}` : value;
+}
+
 function fileUrlTarget(href: string): { readonly path: string; readonly hash: string } | null {
   try {
     const parsed = new URL(href);
@@ -362,7 +367,7 @@ export function resolveMarkdownFileIcon(value: string): MarkdownFileIcon {
 export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPresentation {
   const normalized = normalizeDestination(href);
   try {
-    const parsed = new URL(normalized);
+    const parsed = new URL(normalizeNativeMarkdownUrl(normalized));
     if (parsed.protocol === "http:" || parsed.protocol === "https:") {
       return {
         kind: "external",

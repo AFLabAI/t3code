@@ -2391,7 +2391,7 @@ function ChatMarkdown({
                 }
                 if (
                   href &&
-                  /^https?:\/\//i.test(href) &&
+                  faviconHost !== null &&
                   mediaKindFromPath(href) !== null &&
                   !event.defaultPrevented &&
                   !event.metaKey &&

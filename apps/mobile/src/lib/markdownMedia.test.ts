@@ -94,6 +94,30 @@ describe("resolveMarkdownMediaPreview", () => {
     });
   });
 
+  it.each([
+    ["clip.mp4", "video"],
+    ["image.png", "image"],
+  ] as const)("adds HTTPS for native protocol-relative %s previews", (name, kind) => {
+    const href = `//cdn.example.com/${name}?signature=a%2fb#t=2`;
+    expect(resolveMarkdownMediaPreview(href, input)).toMatchObject({
+      kind,
+      source: { uri: `https:${href}`, name },
+    });
+  });
+
+  it.each(["\\\\server\\share\\clip.mp4", "file://server/share/clip.mp4"])(
+    "keeps UNC media %s on the environment host",
+    (href) => {
+      expect(resolveMarkdownMediaPreview(href, input)).toMatchObject({
+        kind: "video",
+        source: {
+          environmentId: input.environmentId,
+          resource: { _tag: "media-file", path: "\\\\server\\share\\clip.mp4" },
+        },
+      });
+    },
+  );
+
   it("preserves an SVG fragment separately from the filesystem asset path", () => {
     expect(resolveMarkdownMediaPreview("/tmp/icons.svg#logo", input)).toMatchObject({
       kind: "image",

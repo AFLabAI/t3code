@@ -1,7 +1,8 @@
 import { expect, it } from "@effect/vitest";
-import { describe } from "vite-plus/test";
+import { describe, vi } from "vite-plus/test";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -20,6 +21,95 @@ import {
 const fileResponseLayer = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
 
 describe("video asset byte ranges", () => {
+  it.effect("uses current descriptor metadata after an in-place truncate or extension", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-current-stat-" });
+      const filePath = path.join(directory, "clip.mp4");
+      const modifiedAt = DateTime.toDateUtc(DateTime.makeUnsafe("2001-01-01T00:00:00.000Z"));
+      for (const [contents, range, method, expected, status, contentRange] of [
+        ["1234", undefined, "GET", "1234", 200, null],
+        ["0123456789abcdef", undefined, "GET", "0123456789abcdef", 200, null],
+        ["1234", "bytes=4-", "GET", "", 416, "bytes */4"],
+        ["1234", "bytes=1-20", "GET", "234", 206, "bytes 1-3/4"],
+        ["0123456789abcdef", "bytes=10-", "GET", "abcdef", 206, "bytes 10-15/16"],
+        ["0123456789abcdef", undefined, "HEAD", "", 200, null],
+        ["", undefined, "GET", "", 200, null],
+        ["", "bytes=0-1", "GET", "", 416, "bytes */0"],
+      ] as const) {
+        yield* fs.writeFileString(filePath, "0123456789");
+        const canonicalPath = yield* fs.realPath(filePath);
+        const file = yield* openMediaFile(canonicalPath);
+        if (!file) throw new Error("Expected an opened media file");
+        yield* fs.writeFileString(filePath, contents);
+        yield* Effect.promise(() => file.handle.utimes(modifiedAt, modifiedAt));
+        const response = HttpServerResponse.toWeb(
+          yield* assetFileResponse(
+            { path: canonicalPath, file, mimeType: "video/mp4" },
+            range,
+            undefined,
+            method,
+          ),
+        );
+        expect(response.status).toBe(status);
+        expect(response.headers.get("content-range")).toBe(contentRange);
+        if (status !== 416) {
+          expect(response.headers.get("content-length")).toBe(
+            String(method === "HEAD" ? contents.length : expected.length),
+          );
+          expect(response.headers.get("last-modified")).toBe(modifiedAt.toUTCString());
+        }
+        expect(yield* Effect.promise(() => response.text())).toBe(expected);
+      }
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
+  it.effect(
+    "rejects unaddressable ranges before streaming and preserves small ranges on large files",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-guarded-offset-limit-" });
+        const filePath = path.join(directory, "clip.mp4");
+        yield* fs.writeFileString(filePath, "0123456789");
+        const canonicalPath = yield* fs.realPath(filePath);
+        const unsafeOffset = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+        const size = unsafeOffset + 32n;
+        for (const [range, status] of [
+          [`bytes=${unsafeOffset}-${unsafeOffset}`, 416],
+          [`bytes=0-${unsafeOffset}`, 416],
+          ["bytes=-1", 416],
+          [undefined, 413],
+          ["bytes=0-1", 206],
+        ] as const) {
+          const file = yield* openMediaFile(canonicalPath);
+          if (!file) throw new Error("Expected an opened media file");
+          // Model a sparse file beyond the native stream's numeric addressing limit.
+          const info = yield* Effect.promise(() => file.handle.stat({ bigint: true }));
+          info.size = size;
+          const statSpy = vi.spyOn(file.handle, "stat").mockResolvedValue(info);
+          yield* Effect.addFinalizer(() => Effect.sync(() => statSpy.mockRestore()));
+          const response = HttpServerResponse.toWeb(
+            yield* assetFileResponse({ path: canonicalPath, file, mimeType: "video/mp4" }, range),
+          );
+          expect(response.status).toBe(status);
+          if (status === 416) {
+            expect(response.headers.get("content-range")).toBe(`bytes */${size}`);
+            expect(yield* Effect.promise(() => response.text())).toBe("");
+          } else if (status === 206) {
+            expect(response.headers.get("content-range")).toBe(`bytes 0-1/${size}`);
+            expect(yield* Effect.promise(() => response.text())).toBe("01");
+          } else {
+            expect(yield* Effect.promise(() => response.text())).toBe(
+              "File is too large to preview.",
+            );
+          }
+        }
+      }).pipe(Effect.provide(fileResponseLayer)),
+  );
+
   it.effect("streams guarded file ranges, including suffixes and conditional requests", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

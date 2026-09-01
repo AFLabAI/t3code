@@ -75,6 +75,27 @@ describe("nativeMarkdownTextRuns", () => {
     ]);
   });
 
+  it("keeps the authored label and external host for protocol-relative media links", () => {
+    expect(
+      nativeMarkdownTextRuns({
+        type: "paragraph",
+        children: [
+          {
+            type: "link",
+            href: "//cdn.example.com/clip.mp4?signature=a%2fb#t=2",
+            children: [{ type: "text", content: "Watch recording" }],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        text: "Watch recording",
+        href: "https://cdn.example.com/clip.mp4?signature=a%2fb#t=2",
+        externalHost: "cdn.example.com",
+      },
+    ]);
+  });
+
   it("links path-shaped inline code without linking ordinary prose", () => {
     expect(
       nativeMarkdownTextRuns({

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  normalizeNativeMarkdownUrl,
   resolveMarkdownFileIcon,
   resolveMarkdownInlineCodePresentation,
   resolveMarkdownLinkPresentation,
@@ -40,6 +41,22 @@ describe("resolveMarkdownLinkPresentation", () => {
       host: "example.com",
     });
   });
+
+  it.each(["//cdn.example.com/clip.mp4?signature=a%2Fb#t=2", "//cdn.example.com/image.png"])(
+    "treats %s as an external URL, not a filesystem path",
+    (href) => {
+      expect(resolveMarkdownLinkPresentation(href)).toEqual({
+        kind: "external",
+        href: `https:${href}`,
+        host: "cdn.example.com",
+      });
+    },
+  );
+
+  it.each(["file:///tmp/clip.mp4", "file://server/share/clip.mp4", "\\\\server\\share\\clip.mp4"])(
+    "keeps the explicit file destination %s as a file reference",
+    (href) => expect(resolveMarkdownLinkPresentation(href)).toMatchObject({ kind: "file", href }),
+  );
 
   it("renders file URLs as basename pills with positions", () => {
     expect(
@@ -147,6 +164,22 @@ describe("resolveMarkdownLinkPresentation", () => {
   });
 });
 
+describe("normalizeNativeMarkdownUrl", () => {
+  it("adds a native scheme without reserializing a signed media URL", () => {
+    const href = "//cdn.example.com/clip%20one.mp4?sig=a%2fb&empty=#t=2";
+    expect(normalizeNativeMarkdownUrl(href)).toBe(`https:${href}`);
+  });
+
+  it.each([
+    "https://cdn.example.com/clip.mp4?sig=a%2fb#t=2",
+    "data:image/png;base64,iVBORw0KGgo=",
+    "file:///tmp/clip.mp4",
+    "file://server/share/clip.mp4",
+    "\\\\server\\share\\clip.mp4",
+    "/tmp/clip.mp4",
+  ])("leaves %s unchanged", (href) => expect(normalizeNativeMarkdownUrl(href)).toBe(href));
+});
+
 describe("resolveMarkdownInlineCodePresentation", () => {
   it.each([
     ["/tmp/recording.mp4", "/tmp/recording.mp4", "recording.mp4"],
@@ -163,8 +196,15 @@ describe("resolveMarkdownInlineCodePresentation", () => {
     });
   });
 
-  it.each(["image.png", "npm run dev", "foo.bar", "example.com/image.png", "error:1", "src/*.ts"])(
-    "keeps %s as ordinary code",
-    (content) => expect(resolveMarkdownInlineCodePresentation(content)).toBeNull(),
+  it.each([
+    "image.png",
+    "npm run dev",
+    "foo.bar",
+    "example.com/image.png",
+    "//cdn.example.com/image.png",
+    "error:1",
+    "src/*.ts",
+  ])("keeps %s as ordinary code", (content) =>
+    expect(resolveMarkdownInlineCodePresentation(content)).toBeNull(),
   );
 });

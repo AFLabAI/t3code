@@ -3,6 +3,7 @@ import {
   markdownImageSourceFragment,
 } from "@t3tools/client-runtime/markdown-images";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { normalizeNativeMarkdownUrl } from "@t3tools/mobile-markdown-text/links";
 import { mediaMimeType, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
 
 import type { FilePreviewSource } from "../components/FilePreviewModal";
@@ -41,7 +42,7 @@ export function resolveMarkdownMediaPreview(
   const srcFragment = markdownImageSourceFragment(href);
   const target =
     classified._tag === "Direct"
-      ? { uri: classified.uri }
+      ? { uri: normalizeNativeMarkdownUrl(classified.uri) }
       : {
           environmentId: input.environmentId,
           resource: {

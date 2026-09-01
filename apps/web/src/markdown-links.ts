@@ -195,7 +195,7 @@ export function resolveMarkdownFileLinkTarget(
 ): string | null {
   if (!href) return null;
   const rawHref = normalizeMarkdownLinkDestination(href);
-  if (rawHref.length === 0 || rawHref.startsWith("#")) return null;
+  if (rawHref.length === 0 || rawHref.startsWith("#") || rawHref.startsWith("//")) return null;
 
   const fileUrlTarget = rawHref.toLowerCase().startsWith("file:")
     ? parseFileUrlHref(rawHref)

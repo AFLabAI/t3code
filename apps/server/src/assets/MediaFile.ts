@@ -70,12 +70,18 @@ export const openMediaFile = Effect.fn("openMediaFile")(function* (
   );
 });
 
-export const streamMediaFile = (file: OpenMediaFile, offset: bigint, bytesToRead: bigint) =>
-  NodeStream.fromReadable<Uint8Array>({
+export const streamMediaFile = (file: OpenMediaFile, offset: bigint, bytesToRead: bigint) => {
+  const start = Number(offset);
+  const end = Number(offset + bytesToRead - 1n);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
+    return null;
+  }
+  return NodeStream.fromReadable<Uint8Array>({
     evaluate: () =>
       file.handle.createReadStream({
         autoClose: false,
-        start: Number(offset),
-        end: Number(offset + bytesToRead - 1n),
+        start,
+        end,
       }),
   });
+};

@@ -125,6 +125,9 @@ function assetByteRange(header: string, size: bigint) {
   }
   const start = first ?? (last! >= size ? 0n : size - last!);
   const end = first === null || last === null || last >= size ? size - 1n : last;
+  if (!Number.isSafeInteger(Number(start)) || !Number.isSafeInteger(Number(end))) {
+    return { _tag: "Unsatisfiable" as const };
+  }
   return {
     _tag: "Range" as const,
     offset: start,
@@ -146,6 +149,10 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
   method: "GET" | "HEAD" = "GET",
 ) {
   const headers = assetResponseHeaders(asset.path, asset);
+  const mediaFile = asset.file;
+  const mediaInfo = mediaFile
+    ? yield* Effect.tryPromise(() => mediaFile.handle.stat({ bigint: true }))
+    : undefined;
   let status = 200;
   let offset = 0n;
   let bytesToRead: bigint | undefined;
@@ -154,7 +161,7 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
     // If-Range requires a matching validator. A full response is safe when we cannot validate it.
     if (method === "GET" && rangeHeader && !ifRangeHeader) {
       const fs = yield* FileSystem.FileSystem;
-      const info = asset.file?.info ?? (yield* fs.stat(asset.path));
+      const info = mediaInfo ?? (yield* fs.stat(asset.path));
       const range = assetByteRange(rangeHeader, info.size);
       if (range?._tag === "Unsatisfiable") {
         return HttpServerResponse.empty({
@@ -170,16 +177,20 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
       }
     }
   }
-  if (asset.file) {
-    const size = bytesToRead ?? asset.file.info.size;
+  if (mediaFile && mediaInfo) {
+    const size = bytesToRead ?? mediaInfo.size;
     headers["Content-Type"] ??= Mime.getType(asset.path) ?? "application/octet-stream";
     headers["Content-Length"] = String(size);
-    headers["Last-Modified"] = asset.file.info.mtime.toUTCString();
-    headers.ETag = `W/"${asset.file.info.size.toString(16)}-${asset.file.info.mtimeMs.toString(16)}"`;
+    headers["Last-Modified"] = mediaInfo.mtime.toUTCString();
+    headers.ETag = `W/"${mediaInfo.size.toString(16)}-${mediaInfo.mtimeMs.toString(16)}"`;
     if (method === "HEAD" || size === 0n) {
       return HttpServerResponse.empty({ status, headers });
     }
-    return HttpServerResponse.stream(streamMediaFile(asset.file, offset, size), {
+    const body = streamMediaFile(mediaFile, offset, size);
+    if (!body) {
+      return HttpServerResponse.text("File is too large to preview.", { status: 413 });
+    }
+    return HttpServerResponse.stream(body, {
       status,
       headers,
     });
