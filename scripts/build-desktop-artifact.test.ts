@@ -911,10 +911,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           arch: "x64",
           bundlesWslRuntime: true,
         }).pipe(
-          Effect.provide(spawner),
           Effect.provide(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({ env: { npm_config_python: pythonPath } }),
+            Layer.merge(
+              spawner,
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({ env: { npm_config_python: pythonPath } }),
+              ),
             ),
           ),
           Effect.flip,
