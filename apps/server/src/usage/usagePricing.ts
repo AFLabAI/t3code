@@ -26,6 +26,18 @@ export interface ModelRate {
 
 export type RateTable = ReadonlyMap<string, ModelRate>;
 
+const BUILT_IN_RATES: ReadonlyMap<string, ModelRate> = new Map([
+  [
+    "claude-fable-5-1",
+    {
+      inputCostPerToken: 10e-6,
+      outputCostPerToken: 50e-6,
+      cacheReadCostPerToken: 0.25e-6,
+      cacheCreationCostPerToken: 12.5e-6,
+    },
+  ],
+]);
+
 /** Raw shape of one LiteLLM entry, narrowed to the fields we read. */
 interface LiteLlmEntry {
   readonly input_cost_per_token?: unknown;
@@ -70,6 +82,12 @@ export function parseRateTable(document: unknown): RateTable {
       cacheReadCostPerToken: finiteNumber(entry.cache_read_input_token_cost) ?? input,
       cacheCreationCostPerToken: finiteNumber(entry.cache_creation_input_token_cost) ?? input,
     });
+  }
+
+  // Same-day model launches can precede LiteLLM's rate-table update. Keep a
+  // documented canonical fallback until the remote table publishes its own.
+  for (const [key, rate] of BUILT_IN_RATES) {
+    if (!table.has(key)) table.set(key, rate);
   }
 
   // `null` marks a bare name claimed at conflicting rates: no alias for it.
