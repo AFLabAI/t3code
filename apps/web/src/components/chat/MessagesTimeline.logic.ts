@@ -208,6 +208,51 @@ export type TimelineLatestRun = Pick<
   "runId" | "status" | "startedAt" | "completedAt"
 >;
 
+interface AgentSpawnSummary {
+  count: number;
+  working: number;
+  failed: number;
+  stopped: number;
+}
+
+function deriveAgentSpawnSummaries(entries: ReadonlyArray<TimelineEntry>) {
+  const groups = new Map<string, AgentSpawnSummary>();
+  const byItemId = new Map<string, AgentSpawnSummary | null>();
+  for (const entry of entries) {
+    if (
+      entry.kind !== "event" ||
+      entry.projectedItem.item.type !== "subagent" ||
+      entry.projectedItem.visibility !== "local"
+    ) {
+      continue;
+    }
+    const item = entry.projectedItem.item;
+    const key =
+      item.runId === null
+        ? `item:${item.id}`
+        : entry.attempt
+          ? `attempt:${entry.attempt.id}`
+          : `run:${item.runId}`;
+    let summary = groups.get(key);
+    if (!summary) {
+      summary = { count: 0, working: 0, failed: 0, stopped: 0 };
+      groups.set(key, summary);
+      byItemId.set(item.id, summary);
+    } else {
+      byItemId.set(item.id, null);
+    }
+    summary.count += 1;
+    if (item.status === "pending" || item.status === "running" || item.status === "waiting") {
+      summary.working += 1;
+    } else if (item.status === "failed") {
+      summary.failed += 1;
+    } else if (item.status === "cancelled" || item.status === "interrupted") {
+      summary.stopped += 1;
+    }
+  }
+  return byItemId;
+}
+
 export type MessagesTimelineRow =
   | {
       kind: "work";
@@ -284,6 +329,11 @@ export type MessagesTimelineRow =
       createdAt: string;
       projectedItem: OrchestrationV2ProjectedTurnItem;
     }
+  | ({
+      kind: "agent-spawn";
+      id: string;
+      createdAt: string;
+    } & AgentSpawnSummary)
   | {
       kind: "proposed-plan";
       id: string;
@@ -786,6 +836,7 @@ function deriveTurnFolds(input: {
 
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
+  summarizeSubagents?: boolean;
   latestRun?: TimelineLatestRun | null;
   expandedRunIds?: ReadonlySet<RunId>;
   expandedAttemptIds?: ReadonlySet<RunAttemptId>;
@@ -796,6 +847,9 @@ export function deriveMessagesTimelineRows(input: {
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
+  const agentSpawnSummaries = input.summarizeSubagents
+    ? deriveAgentSpawnSummaries(input.timelineEntries)
+    : null;
   const durationStartByMessageId = computeMessageDurationStart(
     input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
@@ -1115,6 +1169,19 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "event") {
+      const agentSpawnSummary = agentSpawnSummaries?.get(timelineEntry.id);
+      if (agentSpawnSummary === null) {
+        continue;
+      }
+      if (agentSpawnSummary) {
+        nextRows.push({
+          kind: "agent-spawn",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          ...agentSpawnSummary,
+        });
+        continue;
+      }
       nextRows.push({
         kind: "event",
         id: timelineEntry.id,
@@ -1237,6 +1304,17 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "event":
       return a.projectedItem === (b as typeof a).projectedItem;
+
+    case "agent-spawn": {
+      const bs = b as typeof a;
+      return (
+        a.createdAt === bs.createdAt &&
+        a.count === bs.count &&
+        a.working === bs.working &&
+        a.failed === bs.failed &&
+        a.stopped === bs.stopped
+      );
+    }
 
     case "work": {
       const bw = b as typeof a;
