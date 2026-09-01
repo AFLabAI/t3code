@@ -80,7 +80,17 @@ test("runs both node test groups for shared server dependencies", () => {
   }
 });
 
-test("keeps client-only packages off the server shards", () => {
+test("runs server shards for cross-surface modules imported by server tests", () => {
+  for (const file of [
+    "apps/web/src/lib/contextWindow.ts",
+    "apps/web/src/session-logic.ts",
+    "apps/mobile/src/lib/threadActivity.ts",
+  ]) {
+    assert.equal(classifyChangedPaths([file]).testServer, true, file);
+  }
+});
+
+test("keeps unrelated client-only packages off the server shards", () => {
   for (const file of [
     "apps/desktop/src/main.ts",
     "apps/mobile/src/app.tsx",

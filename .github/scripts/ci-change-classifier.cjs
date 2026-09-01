@@ -32,6 +32,11 @@ const SERVER_TEST_PACKAGE_ROOTS = [
   "packages/shared/",
   "packages/tailscale/",
 ];
+const SERVER_TEST_EXACT_INPUTS = new Set([
+  "apps/mobile/src/lib/threadActivity.ts",
+  "apps/web/src/lib/contextWindow.ts",
+  "apps/web/src/session-logic.ts",
+]);
 const MOBILE_NATIVE_EXACT_INPUTS = new Set([
   ".editorconfig",
   "apps/.editorconfig",
@@ -190,6 +195,7 @@ function isServerTestInput(file) {
     return false;
   }
   if (isWorkspaceNodeInput(file)) return true;
+  if (SERVER_TEST_EXACT_INPUTS.has(file)) return true;
   if (file.startsWith("apps/server/") || file.startsWith("scripts/")) return true;
   if (SERVER_TEST_PACKAGE_ROOTS.some((root) => file.startsWith(root))) return true;
   if (
