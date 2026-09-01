@@ -828,6 +828,7 @@ describe("buildThreadFeed", () => {
           summary: "Clicking in the preview browser",
           summaryToolIcon: "browser",
           live: true,
+          shimmer: true,
         },
         {
           type: "activity-group",
@@ -869,6 +870,7 @@ describe("buildThreadFeed", () => {
           summaryToolIcon: "browser",
           hasFailure,
           live: true,
+          shimmer: false,
         },
         {
           type: "activity-group",
@@ -1376,9 +1378,23 @@ describe("buildThreadFeed", () => {
     });
   });
 
-  it.each(["sudo -u root pnpm test", "/bin/zsh -lc 'sudo -u root pnpm test'"])(
-    "keeps live state and the actual program on the active tool run: %s",
-    (command) => {
+  it.each(
+    [
+      "sudo -u root pnpm test",
+      "/bin/zsh -lc 'sudo -u root pnpm test'",
+      "/bin/bash -lc 'sudo -u root pnpm test'",
+    ].flatMap((command) =>
+      (
+        [
+          { lifecycleStatus: "inProgress", summary: "Running pnpm", shimmer: true },
+          { lifecycleStatus: "completed", summary: "Ran pnpm", shimmer: false },
+          { lifecycleStatus: "declined", summary: "Declined pnpm", shimmer: false },
+        ] as const
+      ).map((state) => ({ command, ...state })),
+    ),
+  )(
+    "keeps the command summary in sync with $lifecycleStatus: $command",
+    ({ command, lifecycleStatus, summary, shimmer }) => {
       const turnId = TurnId.make("turn-live-tools");
       const activity = (
         id: string,
@@ -1418,7 +1434,16 @@ describe("buildThreadFeed", () => {
           activities: [
             activity("activity-1", "success", "completed"),
             activity("activity-2", "failure", "failed", "error"),
-            activity("activity-3", "success", "completed", "tool", command),
+            activity(
+              "activity-3",
+              lifecycleStatus === "declined" ? "failure" : "success",
+              lifecycleStatus,
+              "tool",
+              command,
+            ),
+            ...(lifecycleStatus === "inProgress"
+              ? [activity("activity-4", "success", "completed", "tool", "printf done")]
+              : []),
           ],
         },
       ];
@@ -1449,10 +1474,10 @@ describe("buildThreadFeed", () => {
         true,
       ]);
       expect(rows[2]).toMatchObject({
-        summary: "Running pnpm",
+        summary,
         summaryKind: "command",
         live: true,
-        shimmer: true,
+        shimmer,
       });
       expect(rows[0]).toMatchObject({ live: false, shimmer: false });
 

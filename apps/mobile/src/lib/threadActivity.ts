@@ -1492,16 +1492,20 @@ function appendToolGroupRows(
     : activities[0]!.id;
   const groupId = `work-group:${identity}`;
   const expanded = expandedWorkGroupIds.has(groupId);
-  const latestInProgressActivity = activities.findLast(
+  const latestActiveActivity = activities.findLast(
     (activity) =>
-      isWorking && activity.lifecycleStatus === "inProgress" && activity.turnId === unsettledTurnId,
+      isWorking &&
+      activity.turnId === unsettledTurnId &&
+      (activity.lifecycleStatus === "inProgress" ||
+        (activeTail &&
+          (activity.workEntry.sourceActivityKind === "task.progress" ||
+            (activity.lifecycleStatus === undefined && activity.toolLike)))),
   );
-  const live = activeTail || latestInProgressActivity !== undefined;
-  const latestActivity = activeTail
-    ? activities.at(-1)!
-    : (latestInProgressActivity ?? activities.at(-1)!);
+  const active = latestActiveActivity !== undefined;
+  const live = activeTail || active;
+  const latestActivity = latestActiveActivity ?? activities.at(-1)!;
   const summary = live
-    ? liveToolActivitySummary(latestActivity)
+    ? liveToolActivitySummary(latestActivity, active)
     : activities.length === 1 && !activities[0]!.toolLike
       ? activities[0]!.workEntry.label
       : summarizeToolGroup(activities.map((activity) => activity.workEntry));
@@ -1523,8 +1527,7 @@ function appendToolGroupRows(
     ...(summaryToolIcon ? { summaryToolIcon } : {}),
     hasFailure: activities.findLast((activity) => activity.toolLike)?.status === "failure",
     live,
-    // Match the live label until the turn or contiguous tool run settles.
-    shimmer: live,
+    shimmer: active,
   });
   if (!expanded) {
     return;
@@ -1546,13 +1549,17 @@ function appendToolGroupRows(
   });
 }
 
-function liveToolActivitySummary(activity: ThreadFeedActivity): string {
-  const presentation = resolveWorkEntryToolPresentation(activity.workEntry, "inProgress");
+function liveToolActivitySummary(activity: ThreadFeedActivity, active: boolean): string {
+  const presentation = resolveWorkEntryToolPresentation(
+    activity.workEntry,
+    active ? "inProgress" : "completed",
+  );
   if (presentation) return presentation.displayName;
   const command = activity.workEntry.command?.trim();
   if (command) {
     const program = commandProgramName(command);
-    return program ? `Running ${program}` : "Running command";
+    const verb = active ? "Running" : activity.lifecycleStatus === "declined" ? "Declined" : "Ran";
+    return `${verb} ${program ?? "command"}`;
   }
   return activity.detail ?? activity.summary;
 }
