@@ -901,7 +901,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ChildProcessSpawner.make((command) => {
             const childProcess = command as unknown as { readonly command: string };
             const fails =
-              childProcess.command === "rustc" || childProcess.command === "powershell.exe";
+              childProcess.command === "rustc" ||
+              childProcess.command === "powershell.exe" ||
+              childProcess.command === pythonPath;
             return Effect.succeed(mockProcess(fails ? 1 : 0));
           }),
         );
@@ -919,7 +921,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         );
 
         assert.instanceOf(error, WindowsDesktopBuildPrerequisitesMissingError);
-        assert.deepStrictEqual(error.missing, ["rust", "msvc"]);
+        assert.deepStrictEqual(error.missing, ["rust", "python", "msvc"]);
         assert.equal(error.rustTarget, "x86_64-pc-windows-msvc");
         assert.include(error.message, "Visual Studio Build Tools components");
       }),

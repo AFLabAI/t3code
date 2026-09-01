@@ -838,8 +838,18 @@ const resolvePythonForNodeGyp = Effect.fn("resolvePythonForNodeGyp")(function* (
     ),
     localAppData: Config.string("LOCALAPPDATA").pipe(Config.option),
   });
+  const isPython3 = (candidate: string) =>
+    spawnAndCollectOutput(
+      ChildProcess.make(candidate, [
+        "-c",
+        "import sys; raise SystemExit(0 if sys.version_info.major == 3 else 1)",
+      ]),
+    ).pipe(
+      Effect.map((result) => result.exitCode === 0),
+      Effect.orElseSucceed(() => false),
+    );
   const configured = Option.getOrUndefined(env.configuredPython);
-  if (configured && (yield* fs.exists(configured))) {
+  if (configured && (yield* fs.exists(configured)) && (yield* isPython3(configured))) {
     return configured;
   }
 
@@ -848,7 +858,7 @@ const resolvePythonForNodeGyp = Effect.fn("resolvePythonForNodeGyp")(function* (
     if (localAppData) {
       for (const version of ["Python313", "Python312", "Python311", "Python310"]) {
         const candidate = path.join(localAppData, "Programs", "Python", version, "python.exe");
-        if (yield* fs.exists(candidate)) {
+        if ((yield* fs.exists(candidate)) && (yield* isPython3(candidate))) {
           return candidate;
         }
       }
