@@ -13,7 +13,11 @@ class MediaFileOpenError extends Schema.TaggedErrorClass<MediaFileOpenError>()(
     path: Schema.String,
     cause: Schema.Defect(),
   },
-) {}
+) {
+  override get message(): string {
+    return `Failed to open media file '${this.path}'.`;
+  }
+}
 
 class MediaFileStatError extends Schema.TaggedErrorClass<MediaFileStatError>()(
   "MediaFileStatError",
@@ -21,7 +25,11 @@ class MediaFileStatError extends Schema.TaggedErrorClass<MediaFileStatError>()(
     path: Schema.String,
     cause: Schema.Defect(),
   },
-) {}
+) {
+  override get message(): string {
+    return `Failed to read metadata for media file '${this.path}'.`;
+  }
+}
 
 /** Holds the file identity and descriptor for one HTTP request, never a copy of its bytes. */
 export interface OpenMediaFile {
