@@ -66,9 +66,9 @@ a filmstrip icon.
 
 On web and desktop, hover over a preview to see its full file path or original URL. Right-click
 to copy that reference, save an image, or copy an image to the clipboard. Use the video player's
-built-in controls to download videos. Workspace
-media also offers **Copy relative path** and **Open in file viewer**. These actions are available
-in expanded previews too.
+built-in controls to download videos. If the player cannot decode a video, its error message
+offers a link to open the source in the browser. Workspace media also offers **Copy relative
+path** and **Open in file viewer**. These actions are available in expanded previews too.
 
 On mobile, touch and hold an inline image or use a preview's **Media actions** menu to see its
 source, copy the path or URL, or choose **Save or share**. Workspace media can open in the file

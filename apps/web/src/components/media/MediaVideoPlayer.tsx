@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { cn } from "../../lib/utils";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
 import { Button } from "../ui/button";
-import { OpenOriginalMediaLink } from "./OpenOriginalMediaLink";
+import { OpenMediaLink } from "./OpenMediaLink";
 import { MediaActions, type MediaActionSource } from "./MediaActions";
 
 interface MediaVideoPlayerProps {
@@ -158,7 +158,7 @@ export function MediaVideoPlayer({
                 {retrying ? "Retrying…" : "Retry video"}
               </Button>
             ) : null}
-            <OpenOriginalMediaLink url={originalUrl} />
+            <OpenMediaLink originalUrl={originalUrl} src={latestSrc ?? src} fileName={label} />
             {expandButton}
           </span>
         </span>

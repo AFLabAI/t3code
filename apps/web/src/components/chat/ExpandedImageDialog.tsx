@@ -1,12 +1,12 @@
 import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, XIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
 import { resolveExternalWebLinkHost } from "./externalLinkContextMenu";
-import { OpenOriginalMediaLink } from "../media/OpenOriginalMediaLink";
-import { MediaActions, useMediaActions, type MediaActionSource } from "../media/MediaActions";
+import { OpenMediaLink } from "../media/OpenMediaLink";
+import { MediaActions, type MediaActionSource } from "../media/MediaActions";
 import { isContextMenuOpen } from "../../contextMenuFallback";
 
 interface ExpandedImageDialogProps {
@@ -32,8 +32,6 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const [imageOffset, setImageOffset] = useState(0);
   const [failedVideoSrc, setFailedVideoSrc] = useState<string | null>(null);
   const [failedImageSrc, setFailedImageSrc] = useState<string | null>(null);
-  const [downloadingVideoSrc, setDownloadingVideoSrc] = useState<string | null>(null);
-  const [downloadFailedVideoSrc, setDownloadFailedVideoSrc] = useState<string | null>(null);
   const index = (preview.index + imageOffset + preview.images.length) % preview.images.length;
   const item = preview.images[index];
   const source: MediaActionSource = item?.actionsSource ?? {
@@ -51,23 +49,10 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
         },
       }
     : source;
-  const { save } = useMediaActions(actionsSource);
 
   const navigateImage = useCallback((direction: -1 | 1) => {
     setImageOffset((current) => current + direction);
   }, []);
-
-  const downloadVideo = async (src: string) => {
-    setDownloadFailedVideoSrc(null);
-    setDownloadingVideoSrc(src);
-    try {
-      await save();
-    } catch {
-      setDownloadFailedVideoSrc(src);
-    } finally {
-      setDownloadingVideoSrc((current) => (current === src ? null : current));
-    }
-  };
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -100,11 +85,9 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const mediaLabel = item.type === "video" ? "video" : "image";
   const openOriginalLink =
     item.originalUrl && resolveExternalWebLinkHost(item.originalUrl) !== null ? (
-      <OpenOriginalMediaLink url={item.originalUrl} />
+      <OpenMediaLink originalUrl={item.originalUrl} />
     ) : null;
 
-  const isDownloadingVideo = downloadingVideoSrc === item.src;
-  const videoDownloadFailed = downloadFailedVideoSrc === item.src;
   return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
@@ -144,25 +127,8 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           </Button>
           {item.type === "video" && failedVideoSrc === item.src ? (
             <ExpandedMediaFailure>
-              <p>
-                {videoDownloadFailed
-                  ? "Could not download this video."
-                  : "This video could not be loaded or played."}
-              </p>
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-busy={isDownloadingVideo || undefined}
-                aria-disabled={isDownloadingVideo || undefined}
-                onClick={() => {
-                  if (isDownloadingVideo) return;
-                  void downloadVideo(item.src);
-                }}
-              >
-                <DownloadIcon />
-                {isDownloadingVideo ? "Downloading…" : "Download video"}
-              </Button>
-              {openOriginalLink}
+              <p>This video could not be loaded or played.</p>
+              <OpenMediaLink originalUrl={item.originalUrl} src={item.src} fileName={item.name} />
             </ExpandedMediaFailure>
           ) : item.type === "video" ? (
             <video
