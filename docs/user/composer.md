@@ -65,7 +65,8 @@ an initial frame when supported, but stay paused until you press Play. Video fil
 a filmstrip icon.
 
 On web and desktop, hover over a preview to see its full file path or original URL. Right-click
-to copy that reference, save the image or video, or copy an image to the clipboard. Workspace
+to copy that reference, save an image, or copy an image to the clipboard. Use the video player's
+built-in controls to download videos. Workspace
 media also offers **Copy relative path** and **Open in file viewer**. These actions are available
 in expanded previews too.
 

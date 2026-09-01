@@ -82,6 +82,8 @@ export function MediaActions({
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const menuOpen = useRef(false);
   const reference = source.reference;
+  const hasActions =
+    source.kind === "image" || reference !== undefined || source.onOpenFile !== undefined;
   const tooltip = reference?.kind === "file" ? reference.path : (reference?.url ?? source.name);
 
   const showMenu = async (position: { x: number; y: number }) => {
@@ -100,9 +102,9 @@ export function MediaActions({
       } else if (reference?.kind === "url") {
         items.push({ id: "copy-url", label: "Copy URL" });
       }
-      const unavailable = source.src === null && source.asset === undefined;
-      items.push({ id: "save", label: `Save ${source.kind}`, disabled: unavailable });
       if (source.kind === "image") {
+        const unavailable = source.src === null && source.asset === undefined;
+        items.push({ id: "save", label: "Save image", disabled: unavailable });
         items.push({ id: "copy-image", label: "Copy image", disabled: unavailable });
       }
       if (source.onOpenFile) items.push({ id: "open-file", label: "Open in file viewer" });
@@ -129,7 +131,7 @@ export function MediaActions({
       } else if (action === "save" || action === "copy-image") {
         progressToast = toastManager.add({
           type: "loading",
-          title: action === "save" ? `Preparing ${source.kind} download…` : "Copying image…",
+          title: action === "save" ? "Preparing image download…" : "Copying image…",
         });
         await (action === "save" ? save() : copyImage());
         toastManager.update(progressToast, {
@@ -156,7 +158,7 @@ export function MediaActions({
         render={children}
         tabIndex={0}
         onContextMenu={(event) => {
-          if (event.defaultPrevented) return;
+          if (!hasActions || event.defaultPrevented) return;
           event.preventDefault();
           event.stopPropagation();
           const bounds = event.currentTarget.getBoundingClientRect();
@@ -168,6 +170,7 @@ export function MediaActions({
         }}
         onKeyDown={(event) => {
           if (
+            !hasActions ||
             event.defaultPrevented ||
             !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
           )

@@ -179,16 +179,16 @@ function WorkspaceImagePreview(props: {
   }
 
   return assetUrl._tag === "Success" && imageUrl !== null ? (
-    <MediaActions source={actionsSource}>
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+      <MediaActions source={actionsSource}>
         <img
           className="max-h-full max-w-full object-contain"
           src={imageUrl}
           alt={props.alt}
           onError={() => setFailedUrl(imageUrl)}
         />
-      </div>
-    </MediaActions>
+      </MediaActions>
+    </div>
   ) : (
     <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
       <LoaderCircle className="size-5 animate-spin" />
