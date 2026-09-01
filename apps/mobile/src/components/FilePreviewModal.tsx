@@ -5,6 +5,7 @@ import { Alert, Keyboard } from "react-native";
 
 import type { DraftComposerFileAttachment } from "../lib/composerImages";
 import { loadLocalAttachmentPreview } from "../lib/localAttachmentPreview";
+import type { MediaActionsSource } from "../lib/mediaActions";
 import { useAssetUrlState } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
 import { FilePreview } from "./FilePreview";
@@ -15,6 +16,7 @@ export interface ResolvedFilePreviewSource {
   readonly name?: string;
   readonly sourceIdentifier?: string;
   readonly srcFragment?: string;
+  readonly actionsSource?: MediaActionsSource;
 }
 
 export type FilePreviewSource = Omit<ResolvedFilePreviewSource, "uri"> &

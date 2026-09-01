@@ -64,6 +64,16 @@ video embeds show a player with controls and an option to expand. Visible video 
 an initial frame when supported, but stay paused until you press Play. Video file references use
 a filmstrip icon.
 
+On web and desktop, hover over a preview to see its full file path or original URL. Right-click
+to copy that reference, save the image or video, or copy an image to the clipboard. Workspace
+media also offers **Copy relative path** and **Open in file viewer**. These actions are available
+in expanded previews too.
+
+On mobile, touch and hold an inline image or use a preview's **Media actions** menu to see its
+source, copy the path or URL, or choose **Save or share**. Workspace media can open in the file
+viewer from the same menu. Saving downloads a copy only when you request it; it does not change
+how the video buffers during playback.
+
 Use Markdown image syntax to embed either kind of media:
 
 ```markdown

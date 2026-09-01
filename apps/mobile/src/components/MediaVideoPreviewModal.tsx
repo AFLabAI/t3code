@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { Keyboard, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { downloadAndShareAttachment } from "../lib/attachmentDownload";
+import { useMediaActions } from "../lib/mediaActions";
+import { MediaActionsMenu } from "./MediaActionsMenu";
 import {
   mediaVideoPreviewUri,
   mediaVideoThumbnailKey,
@@ -13,6 +14,7 @@ import { usePreparedConnection } from "../state/session";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
 import { MediaVideoPlayer } from "./MediaVideoPlayer";
+import { MediaSourceCaption } from "./MediaSourceCaption";
 
 /** Media files stream in place. A client-side copy is made only for an explicit share. */
 export function MediaVideoPreviewModal(props: {
@@ -33,47 +35,13 @@ export function MediaVideoPreviewModal(props: {
       ? async () => mediaVideoPreviewUri(source, await refreshAssetUrl())
       : undefined;
   const uri = mediaVideoPreviewUri(source, asset._tag === "Success" ? asset.url : null);
-  const [sharing, setSharing] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const shareController = useRef<AbortController | null>(null);
+  const mediaActions = useMediaActions(source.actionsSource, props.onRequestClose);
   const unavailable =
     uri === null &&
     environmentId !== null &&
     (connection._tag === "None" || asset._tag === "Failure");
 
   useEffect(() => Keyboard.dismiss(), []);
-  useEffect(() => () => shareController.current?.abort(), []);
-
-  const share = () => {
-    if (uri === null || shareController.current) return;
-    const controller = new AbortController();
-    shareController.current = controller;
-    setSharing(true);
-    setShareError(null);
-    void (async () => {
-      const shareUri = resolvePlaybackUri ? await resolvePlaybackUri() : uri;
-      if (controller.signal.aborted) return;
-      if (shareUri === null) throw new Error("Could not load this video. Try again.");
-      await downloadAndShareAttachment({
-        url: shareUri,
-        attachment: { name: source.name, mimeType: source.mimeType },
-        signal: controller.signal,
-        sourceIdentifier: source.sourceIdentifier,
-      });
-    })()
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setShareError(error instanceof Error ? error.message : "Could not share this video.");
-        }
-      })
-      .finally(() => {
-        if (shareController.current === controller) {
-          shareController.current = null;
-          if (!controller.signal.aborted) setSharing(false);
-        }
-      });
-  };
-
   return (
     <Modal
       visible
@@ -91,6 +59,7 @@ export function MediaVideoPreviewModal(props: {
           <AppText className="flex-1 font-t3-medium text-base text-white" numberOfLines={2}>
             {source.name}
           </AppText>
+          <MediaActionsMenu media={mediaActions} inModal />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close video"
@@ -100,31 +69,27 @@ export function MediaVideoPreviewModal(props: {
             <SymbolView name="xmark" size={20} tintColor="#ffffff" type="monochrome" />
           </Pressable>
         </View>
+        <MediaSourceCaption source={mediaActions.title} />
         <MediaVideoPlayer
           uri={uri}
           resolvePlaybackUri={resolvePlaybackUri}
           name={source.name}
           thumbnailKey={mediaVideoThumbnailKey(source)}
           unavailable={unavailable}
-          paused={sharing}
+          paused={mediaActions.sharing}
           expanded
         />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Save or share video"
-          disabled={uri === null || sharing}
-          onPress={share}
+          disabled={uri === null || mediaActions.sharing}
+          onPress={mediaActions.share}
           className="mx-4 my-3 min-h-12 items-center justify-center rounded-xl bg-white/15 px-4"
         >
           <AppText className="font-t3-medium text-base text-white">
-            {sharing ? "Opening share sheet..." : "Save or share video"}
+            {mediaActions.sharing ? "Opening share sheet..." : "Save or share video"}
           </AppText>
         </Pressable>
-        {shareError ? (
-          <AppText accessibilityRole="alert" className="px-4 pb-3 text-sm text-white/80">
-            {shareError}
-          </AppText>
-        ) : null}
       </View>
     </Modal>
   );

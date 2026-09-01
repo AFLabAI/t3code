@@ -12,6 +12,8 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
+import { mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
+import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 
 import { AndroidHeaderIconButton, AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { SymbolView } from "../../components/AppSymbol";
@@ -26,6 +28,7 @@ import { isPdfFile } from "../../lib/filePreview";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { MediaVideoPreviewSource } from "../../lib/videoPreviewSource";
+import { useMediaActions, type MediaActionsSource } from "../../lib/mediaActions";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useEnvironmentQuery } from "../../state/query";
@@ -99,6 +102,7 @@ function FileContent(props: {
   readonly previewUri: string | null;
   readonly previewUnavailable: boolean;
   readonly videoSource: MediaVideoPreviewSource | null;
+  readonly mediaSource?: MediaActionsSource;
   readonly resolveVideoUri: () => Promise<string | null>;
   readonly fileContents: string | null;
   readonly fileError: string | null;
@@ -134,6 +138,7 @@ function FileContent(props: {
       <WorkspaceFileImagePreview
         accessibilityLabel={basename(props.relativePath)}
         uri={props.previewUri}
+        actionsSource={props.mediaSource}
       />
     );
   }
@@ -533,6 +538,29 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     threadId,
   });
   const assetPreviewUri = assetPreview._tag === "Success" ? assetPreview.url : null;
+  const mediaSource = useMemo<MediaActionsSource | undefined>(
+    () =>
+      environmentId !== null &&
+      threadId !== null &&
+      relativePath !== null &&
+      assetPreview.resource !== null &&
+      "path" in assetPreview.resource &&
+      typeof assetPreview.resource.path === "string" &&
+      (isImageFile || isVideoFile)
+        ? {
+            reference: mediaFileReference(assetPreview.resource.path, cwd),
+            name: basename(relativePath),
+            mimeType:
+              mediaMimeTypeFromExtension(relativePath.slice(relativePath.lastIndexOf("."))) ??
+              "application/octet-stream",
+            environmentId,
+            threadId,
+            resource: assetPreview.resource,
+          }
+        : undefined,
+    [assetPreview.resource, cwd, environmentId, isImageFile, isVideoFile, relativePath, threadId],
+  );
+  const mediaActions = useMediaActions(mediaSource);
   const videoSource = useMemo<MediaVideoPreviewSource | null>(
     () =>
       environmentId !== null &&
@@ -544,9 +572,10 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
             resource: assetPreview.resource,
             name: basename(relativePath),
             mimeType: videoMimeType({ name: relativePath, mimeType: "" }) ?? "video/mp4",
+            actionsSource: mediaSource,
           }
         : null,
-    [assetPreview.resource, environmentId, relativePath],
+    [assetPreview.resource, environmentId, relativePath, mediaSource],
   );
   const previewUri =
     assetPreviewUri === null || previewRevision === 0
@@ -625,13 +654,26 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
             onPress: () => setModeOverride({ path: relativePath, mode: "source" }),
           } as const)
         : null,
-      {
-        id: "copy-path",
-        title: "Copy path",
-        icon: "doc.on.doc",
-        inline: false,
-        onPress: () => copyTextWithHaptic(relativePath),
-      } as const,
+      ...(mediaSource
+        ? mediaActions.actions
+            .filter(({ id }) => id !== "open-file")
+            .map((action) => ({
+              id: action.id,
+              title: action.title,
+              icon:
+                action.id === "share" ? ("square.and.arrow.up" as const) : ("doc.on.doc" as const),
+              inline: false,
+              onPress: action.run,
+            }))
+        : [
+            {
+              id: "copy-path",
+              title: "Copy path",
+              icon: "doc.on.doc",
+              inline: false,
+              onPress: () => copyTextWithHaptic(relativePath),
+            } as const,
+          ]),
       isPdfFile({ name: relativePath }) && previewUri !== null
         ? ({
             id: "open-pdf",
@@ -678,6 +720,8 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     isVideoFile,
     relativePath,
     resolvedActiveMode,
+    mediaSource,
+    mediaActions.actions,
   ]);
 
   const androidFileMenuActions = useMemo<MenuAction[]>(
@@ -835,6 +879,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           previewUri={previewUri}
           previewUnavailable={assetPreview._tag === "Failure"}
           videoSource={videoSource}
+          mediaSource={mediaSource}
           resolveVideoUri={assetPreview.refresh}
           fileContents={fileData?.contents ?? null}
           fileError={fileQuery.error}

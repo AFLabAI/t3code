@@ -10,6 +10,30 @@ const input = {
 };
 
 describe("resolveMarkdownMediaPreview", () => {
+  it("decodes remote filenames once without changing the authored URL", () => {
+    const href = "https://cdn.example.com/clip%20one%2520%2Emp4?signature=a%2fb#t=2";
+    expect(resolveMarkdownMediaPreview(href, input)).toMatchObject({
+      kind: "video",
+      source: {
+        uri: href,
+        actionsSource: {
+          name: "clip one%20.mp4",
+          mimeType: "video/mp4",
+          reference: { kind: "url", url: href },
+        },
+      },
+    });
+  });
+
+  it("provides extensionless image actions only for image embeds", () => {
+    const href = "https://cdn.example.com/render?id=42";
+    expect(resolveMarkdownMediaPreview(href, input)).toBeNull();
+    expect(resolveMarkdownMediaPreview(href, { ...input, imageEmbed: true })).toMatchObject({
+      kind: "image",
+      source: { actionsSource: { reference: { kind: "url", url: href }, mimeType: "image/*" } },
+    });
+  });
+
   it.each([
     ["/tmp/frame%23one.png:12", "/tmp/frame#one.png"],
     ["/tmp/frame%3Fone.png:12:3", "/tmp/frame?one.png"],
@@ -19,7 +43,10 @@ describe("resolveMarkdownMediaPreview", () => {
   ])("keeps encoded filename and UNC semantics for %s", (href, path) => {
     expect(resolveMarkdownMediaPreview(href, input)).toMatchObject({
       kind: "image",
-      source: { resource: { path } },
+      source: {
+        resource: { path },
+        actionsSource: { reference: { kind: "file", path } },
+      },
     });
   });
 
@@ -29,6 +56,7 @@ describe("resolveMarkdownMediaPreview", () => {
       source: {
         srcFragment: "#t=2",
         resource: { path: "/tmp/clip#one.mp4" },
+        actionsSource: { reference: { kind: "file", path: "/tmp/clip#one.mp4" } },
       },
     });
   });
@@ -38,7 +66,12 @@ describe("resolveMarkdownMediaPreview", () => {
       resolveMarkdownMediaPreview("//cdn.example.com/clip.mp4?signature=a%2fb#t=2", input),
     ).toMatchObject({
       kind: "video",
-      source: { uri: "https://cdn.example.com/clip.mp4?signature=a%2fb#t=2" },
+      source: {
+        uri: "https://cdn.example.com/clip.mp4?signature=a%2fb#t=2",
+        actionsSource: {
+          reference: { kind: "url", url: "//cdn.example.com/clip.mp4?signature=a%2fb#t=2" },
+        },
+      },
     });
   });
 });

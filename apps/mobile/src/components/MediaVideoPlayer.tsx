@@ -7,6 +7,8 @@ import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
 import { VideoThumbnailImage } from "./VideoThumbnailImage";
+import { useMediaActions, type MediaActionsSource } from "../lib/mediaActions";
+import { MediaActionsMenu } from "./MediaActionsMenu";
 
 /** Loads only after Play or opening the viewer. Source replacement never starts playback itself. */
 function LoadedMediaVideo(props: {
@@ -101,9 +103,11 @@ interface MediaVideoPlayerProps {
   readonly expanded?: boolean;
   readonly paused?: boolean;
   readonly onExpand?: () => void;
+  readonly actionsSource?: MediaActionsSource;
 }
 
 function MediaVideoPlayerContent(props: MediaVideoPlayerProps) {
+  const mediaActions = useMediaActions(props.actionsSource);
   const [playbackUri, setPlaybackUri] = useState<string | null>(props.expanded ? props.uri : null);
   // Keep an opened player mounted while signing or reconnecting temporarily has no usable URL.
   if (playbackUri === null && props.expanded && props.uri !== null) setPlaybackUri(props.uri);
@@ -119,7 +123,7 @@ function MediaVideoPlayerContent(props: MediaVideoPlayerProps) {
           uri={props.uri ?? playbackUri}
           resolvePlaybackUri={props.resolvePlaybackUri}
           playRequested={!props.expanded}
-          paused={props.paused ?? false}
+          paused={(props.paused ?? false) || mediaActions.sharing}
         />
       ) : (
         <Pressable
@@ -168,6 +172,11 @@ function MediaVideoPlayerContent(props: MediaVideoPlayerProps) {
         >
           <AppText className="text-xs text-white">Expand</AppText>
         </Pressable>
+      ) : null}
+      {props.actionsSource ? (
+        <View className="absolute left-1 top-1">
+          <MediaActionsMenu media={mediaActions} inModal={props.expanded} />
+        </View>
       ) : null}
     </View>
   );

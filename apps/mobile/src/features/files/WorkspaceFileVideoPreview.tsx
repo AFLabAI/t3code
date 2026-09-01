@@ -36,6 +36,7 @@ export function WorkspaceFileVideoPreview(props: {
         resolvePlaybackUri={props.resolvePlaybackUri}
         name={props.name}
         thumbnailKey={props.thumbnailKey}
+        actionsSource={props.source?.actionsSource}
         onExpand={
           uri === null || props.source === null ? undefined : () => setPreview(props.source)
         }

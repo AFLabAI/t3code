@@ -43,6 +43,7 @@ import {
   markdownImageSourceFragment,
 } from "@t3tools/client-runtime/markdown-images";
 import { inlineCodeFilePathCandidate } from "@t3tools/client-runtime/markdown-links";
+import { mediaFileReference, mediaUrlReference } from "@t3tools/client-runtime/media-reference";
 import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -84,6 +85,7 @@ import {
 } from "./chat/ExpandedImagePreview";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { MediaVideoPlayer } from "./media/MediaVideoPlayer";
+import { MediaActions, type MediaActionSource } from "./media/MediaActions";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import {
@@ -1199,6 +1201,7 @@ function expandableMarkdownImageProps(
   src: string,
   alt: string,
   originalUrl?: string,
+  actionsSource?: MediaActionSource,
 ) {
   if (!onImageExpand) return {};
   const previewName = alt.trim() || "image";
@@ -1207,7 +1210,14 @@ function expandableMarkdownImageProps(
     event.preventDefault();
     event.stopPropagation();
     onImageExpand({
-      images: [{ src, name: previewName, ...(originalUrl ? { originalUrl } : {}) }],
+      images: [
+        {
+          src,
+          name: previewName,
+          ...(originalUrl ? { originalUrl } : {}),
+          ...(actionsSource ? { actionsSource } : {}),
+        },
+      ],
       index: 0,
     });
   };
@@ -1226,9 +1236,10 @@ function ChatMarkdownImageFallback(props: {
   readonly alt: string;
   readonly copyMarkdown?: string | undefined;
   readonly kind?: "image" | "video";
+  readonly actionsSource?: MediaActionSource;
 }) {
   const label = props.kind === "video" ? "Video unavailable" : "Image unavailable";
-  return (
+  const content = (
     <span
       data-markdown-copy={props.copyMarkdown}
       className={cn(
@@ -1242,6 +1253,11 @@ function ChatMarkdownImageFallback(props: {
       </span>
     </span>
   );
+  return props.actionsSource ? (
+    <MediaActions source={props.actionsSource}>{content}</MediaActions>
+  ) : (
+    content
+  );
 }
 
 function ChatMarkdownVideo(props: {
@@ -1252,6 +1268,7 @@ function ChatMarkdownVideo(props: {
   readonly sourceFailed?: boolean | undefined;
   readonly style?: CSSProperties | undefined;
   readonly mediaIdentity?: string | undefined;
+  readonly actionsSource?: MediaActionSource | undefined;
   readonly onRetry?: (() => Promise<void>) | undefined;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
@@ -1274,6 +1291,7 @@ function ChatMarkdownVideo(props: {
         CHAT_MARKDOWN_MEDIA_FRAME_CLASS_NAME,
       )}
       onRetry={props.onRetry}
+      actionsSource={props.actionsSource}
       onExpand={
         props.onImageExpand
           ? (src) => {
@@ -1285,6 +1303,9 @@ function ChatMarkdownVideo(props: {
                     type: "video",
                     autoPlay: false,
                     ...(props.originalUrl ? { originalUrl: props.originalUrl } : {}),
+                    ...(props.actionsSource
+                      ? { actionsSource: { ...props.actionsSource, src } }
+                      : {}),
                   },
                 ],
                 index: 0,
@@ -1308,16 +1329,45 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
   readonly copyMarkdown?: string;
   readonly srcFragment?: string;
   readonly style?: CSSProperties | undefined;
+  readonly workspaceRoot?: string | undefined;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
   const assetUrl = useAssetUrlState(props.environmentId, props.resource);
   const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, props.resource);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const resource = props.resource;
+  const path =
+    resource._tag === "media-file"
+      ? resource.path
+      : resource._tag === "workspace-file" && props.workspaceRoot
+        ? `${props.workspaceRoot.replace(/[\\/]+$/, "")}/${resource.path}`
+        : undefined;
+  const reference = path ? mediaFileReference(path, props.workspaceRoot) : undefined;
+  const relativePath = reference?.relativePath;
+  const src = assetUrl._tag === "Success" ? assetUrl.url + (props.srcFragment ?? "") : null;
+  const actionsSource: MediaActionSource = {
+    kind: props.kind ?? "image",
+    name: props.alt || (props.kind ?? "image"),
+    src,
+    asset: { environmentId: props.environmentId, resource },
+    ...(reference ? { reference } : {}),
+    ...(relativePath && resource._tag !== "attachment"
+      ? {
+          onOpenFile: () =>
+            useRightPanelStore
+              .getState()
+              .openFile(
+                { environmentId: props.environmentId, threadId: resource.threadId },
+                relativePath,
+              ),
+        }
+      : {}),
+  };
 
   if (props.kind === "video") {
     return (
       <ChatMarkdownVideo
-        src={assetUrl._tag === "Success" ? assetUrl.url + (props.srcFragment ?? "") : null}
+        src={src}
         sourceFailed={assetUrl._tag === "Failure"}
         alt={props.alt}
         copyMarkdown={props.copyMarkdown}
@@ -1325,6 +1375,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
         mediaIdentity={JSON.stringify([props.environmentId, props.resource, props.srcFragment])}
         onRetry={refreshAssetUrl}
         onImageExpand={props.onImageExpand}
+        actionsSource={actionsSource}
       />
     );
   }
@@ -1335,40 +1386,50 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
         alt={props.alt}
         copyMarkdown={props.copyMarkdown}
         kind={props.kind ?? "image"}
+        actionsSource={actionsSource}
       />
     );
   }
   if (assetUrl._tag !== "Success") {
     return (
-      <span
-        data-markdown-copy={props.copyMarkdown}
-        role="status"
-        aria-label="Loading image"
-        className={cn(
-          CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME,
-          "aspect-video w-64 max-w-full rounded-lg bg-muted/60",
-          CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME,
-        )}
-        style={props.style}
-      />
+      <MediaActions source={actionsSource}>
+        <span
+          data-markdown-copy={props.copyMarkdown}
+          role="status"
+          aria-label="Loading image"
+          className={cn(
+            CHAT_MARKDOWN_MEDIA_LAYOUT_CLASS_NAME,
+            "aspect-video w-64 max-w-full rounded-lg bg-muted/60",
+            CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME,
+          )}
+          style={props.style}
+        />
+      </MediaActions>
     );
   }
-  const src = assetUrl.url + (props.srcFragment ?? "");
   return (
-    <img
-      src={src}
-      alt={props.alt}
-      data-markdown-copy={props.copyMarkdown}
-      loading="lazy"
-      draggable={false}
-      className={cn(
-        CHAT_MARKDOWN_WORKSPACE_IMAGE_CLASS_NAME,
-        props.onImageExpand && "cursor-zoom-in",
-      )}
-      style={props.style}
-      {...expandableMarkdownImageProps(props.onImageExpand, src, props.alt)}
-      onError={() => setFailedUrl(assetUrl.url)}
-    />
+    <MediaActions source={actionsSource}>
+      <img
+        src={src ?? undefined}
+        alt={props.alt}
+        data-markdown-copy={props.copyMarkdown}
+        loading="lazy"
+        draggable={false}
+        className={cn(
+          CHAT_MARKDOWN_WORKSPACE_IMAGE_CLASS_NAME,
+          props.onImageExpand && "cursor-zoom-in",
+        )}
+        style={props.style}
+        {...expandableMarkdownImageProps(
+          props.onImageExpand,
+          src ?? assetUrl.url,
+          props.alt,
+          undefined,
+          actionsSource,
+        )}
+        onError={() => setFailedUrl(assetUrl.url)}
+      />
+    </MediaActions>
   );
 });
 
@@ -1967,6 +2028,9 @@ function ChatMarkdown({
         httpBaseUrl:
           preparedConnection._tag === "Some" ? preparedConnection.value.httpBaseUrl : undefined,
         createAssetUrl,
+        onOpenFile: threadRef
+          ? (path) => useRightPanelStore.getState().openFile(threadRef, path)
+          : undefined,
       }).then(
         (preview) => {
           if (preview && mediaRequestId.current === requestId) expandMedia(preview);
@@ -2549,6 +2613,13 @@ function ChatMarkdown({
         if (imageSource._tag === "Direct") {
           const originalUrl =
             resolveExternalWebLinkHost(imageSource.uri) !== null ? imageSource.uri : undefined;
+          const reference = mediaUrlReference(imageSource.uri);
+          const actionsSource: MediaActionSource = {
+            kind,
+            name: altText || kind,
+            src: imageSource.uri,
+            ...(reference ? { reference } : {}),
+          };
           if (kind === "video") {
             return (
               <ChatMarkdownVideo
@@ -2558,23 +2629,32 @@ function ChatMarkdown({
                 originalUrl={originalUrl}
                 style={authoredSizeStyle}
                 onImageExpand={imageExpand}
+                actionsSource={actionsSource}
               />
             );
           }
           return (
-            <img
-              {...props}
-              src={imageSource.uri}
-              alt={altText}
-              loading="lazy"
-              className={cn(
-                props.className,
-                CHAT_MARKDOWN_IMAGE_SIZE_CLASS_NAME,
-                imageExpand && "cursor-zoom-in",
-              )}
-              style={authoredSizeStyle}
-              {...expandableMarkdownImageProps(imageExpand, imageSource.uri, altText, originalUrl)}
-            />
+            <MediaActions source={actionsSource}>
+              <img
+                {...props}
+                src={imageSource.uri}
+                alt={altText}
+                loading="lazy"
+                className={cn(
+                  props.className,
+                  CHAT_MARKDOWN_IMAGE_SIZE_CLASS_NAME,
+                  imageExpand && "cursor-zoom-in",
+                )}
+                style={authoredSizeStyle}
+                {...expandableMarkdownImageProps(
+                  imageExpand,
+                  imageSource.uri,
+                  altText,
+                  originalUrl,
+                  actionsSource,
+                )}
+              />
+            </MediaActions>
           );
         }
         if (imageSource._tag === "WorkspaceFile" && threadRef) {
@@ -2591,6 +2671,7 @@ function ChatMarkdown({
               copyMarkdown={copyMarkdown}
               srcFragment={markdownImageSourceFragment(classifiedSrc)}
               style={authoredSizeStyle}
+              workspaceRoot={cwd}
               onImageExpand={imageExpand}
             />
           );

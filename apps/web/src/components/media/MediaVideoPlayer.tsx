@@ -5,6 +5,7 @@ import { cn } from "../../lib/utils";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
 import { Button } from "../ui/button";
 import { OpenOriginalMediaLink } from "./OpenOriginalMediaLink";
+import { MediaActions, type MediaActionSource } from "./MediaActions";
 
 interface MediaVideoPlayerProps {
   readonly src: string | null;
@@ -19,6 +20,7 @@ interface MediaVideoPlayerProps {
   readonly copyMarkdown?: string | undefined;
   readonly onExpand?: ((src: string) => void) | undefined;
   readonly onRetry?: (() => Promise<void>) | undefined;
+  readonly actionsSource?: MediaActionSource | undefined;
 }
 
 /** Keeps native range streaming and playback state consistent across inline and file previews. */
@@ -35,6 +37,7 @@ export function MediaVideoPlayer({
   copyMarkdown,
   onExpand,
   onRetry,
+  actionsSource,
 }: MediaVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackSource, setPlaybackSource] = useState<{
@@ -128,7 +131,7 @@ export function MediaVideoPlayer({
       </Button>
     ) : null;
 
-  return (
+  const player = (
     <span
       className={cn("relative inline-block align-middle", className)}
       style={style}
@@ -190,4 +193,5 @@ export function MediaVideoPlayer({
       {!failed && expandButton}
     </span>
   );
+  return actionsSource ? <MediaActions source={actionsSource}>{player}</MediaActions> : player;
 }

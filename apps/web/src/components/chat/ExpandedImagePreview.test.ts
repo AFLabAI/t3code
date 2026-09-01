@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { ComposerFileAttachment } from "../../composerDraftStore";
-import {
-  attachVideoThumbnail,
-  buildExpandedImagePreview,
-  downloadVideoPreview,
-} from "./ExpandedImagePreview";
+import { downloadMedia } from "../media/mediaContent";
+import { attachVideoThumbnail, buildExpandedImagePreview } from "./ExpandedImagePreview";
 
 describe("buildExpandedImagePreview", () => {
   it("builds a video preview for a local video attachment", () => {
@@ -49,7 +46,7 @@ describe("buildExpandedImagePreview", () => {
     vi.stubGlobal("document", { createElement: () => anchor });
 
     try {
-      await downloadVideoPreview(source, "demo.mp4");
+      await downloadMedia(source, "demo.mp4");
 
       expect(anchor.download).toBe("demo.mp4");
       expect(anchor.href).toMatch(/^blob:/);

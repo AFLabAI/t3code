@@ -101,6 +101,8 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/Vid
 import { VideoAttachmentTile } from "../../components/VideoAttachmentTile";
 import { MediaVideoPlayer } from "../../components/MediaVideoPlayer";
 import { resolveMarkdownMediaPreview } from "../../lib/markdownMedia";
+import { useMediaActions, type MediaActionsSource } from "../../lib/mediaActions";
+import { MediaActionsMenu } from "../../components/MediaActionsMenu";
 import {
   mediaVideoPreviewUri,
   mediaVideoThumbnailKey,
@@ -470,9 +472,11 @@ function ThreadMarkdownImageView(props: {
   readonly sourceKey: string;
   readonly unavailable: boolean;
   readonly alt: string | null;
+  readonly actionsSource?: MediaActionsSource;
   readonly onPressPreview: (source: FilePreviewSource) => void;
 }) {
   const sourceIdentifier = useId();
+  const mediaActions = useMediaActions(props.actionsSource);
   const [availableWidth, setAvailableWidth] = useState(0);
   const [sourceSize, setSourceSize] = useState<{ width: number; height: number } | null>(null);
   const [failedUri, setFailedUri] = useState<string | null>(null);
@@ -515,36 +519,51 @@ function ThreadMarkdownImageView(props: {
           ) : (
             <ActivityIndicator />
           )}
+          {props.actionsSource ? (
+            <View className="absolute right-1 top-1">
+              <MediaActionsMenu media={mediaActions} />
+            </View>
+          ) : null}
         </View>
       ) : (
         <PresentationSource identifier={sourceIdentifier} style={{ alignSelf: "flex-start" }}>
-          <Pressable
-            accessibilityRole="imagebutton"
-            accessibilityLabel={props.alt ?? "Markdown image"}
-            onPress={() =>
-              props.onPressPreview({
-                kind: "image",
-                uri: props.uri!,
-                name: props.alt ?? "Image",
-                sourceIdentifier,
-              })
-            }
-            style={{ alignSelf: "flex-start" }}
-          >
-            <View
-              className="items-center justify-center overflow-hidden rounded-[10px] bg-md-code-bg"
-              style={{
-                ...frameStyle,
-              }}
-            >
-              <ThreadMarkdownImageRequest
-                key={props.uri}
-                uri={props.uri}
-                onLoad={setSourceSize}
-                onError={() => setFailedUri(props.uri)}
-              />
-            </View>
-          </Pressable>
+          <View>
+            <MediaActionsMenu media={mediaActions}>
+              <Pressable
+                accessibilityRole="imagebutton"
+                accessibilityLabel={props.alt ?? "Markdown image"}
+                onPress={() =>
+                  props.onPressPreview({
+                    kind: "image",
+                    uri: props.uri!,
+                    name: props.alt ?? "Image",
+                    sourceIdentifier,
+                    actionsSource: props.actionsSource,
+                  })
+                }
+                style={{ alignSelf: "flex-start" }}
+              >
+                <View
+                  className="items-center justify-center overflow-hidden rounded-[10px] bg-md-code-bg"
+                  style={{
+                    ...frameStyle,
+                  }}
+                >
+                  <ThreadMarkdownImageRequest
+                    key={props.uri}
+                    uri={props.uri}
+                    onLoad={setSourceSize}
+                    onError={() => setFailedUri(props.uri)}
+                  />
+                </View>
+              </Pressable>
+            </MediaActionsMenu>
+            {props.actionsSource ? (
+              <View className="absolute right-1 top-1">
+                <MediaActionsMenu media={mediaActions} />
+              </View>
+            ) : null}
+          </View>
         </PresentationSource>
       )}
       {props.alt ? (
@@ -594,6 +613,7 @@ function ThreadMarkdownImage(props: {
   readonly resource: Extract<AssetResource, { readonly _tag: "attachment" | "media-file" }>;
   readonly alt: string | null;
   readonly srcFragment?: string;
+  readonly actionsSource?: MediaActionsSource;
   readonly onPressPreview: (source: FilePreviewSource) => void;
 }) {
   const assetUrl = useAssetUrlState(props.environmentId, props.resource);
@@ -608,6 +628,7 @@ function ThreadMarkdownImage(props: {
       }
       unavailable={assetUrl._tag === "Failure"}
       alt={props.alt}
+      actionsSource={props.actionsSource}
       onPressPreview={props.onPressPreview}
     />
   );
@@ -654,6 +675,7 @@ function ThreadMarkdownVideo(props: {
       thumbnailKey={thumbnailKey}
       thumbnailVisible={visible}
       unavailable={"resource" in source && asset._tag === "Failure"}
+      actionsSource={source.actionsSource}
       onExpand={() => props.onExpand(source)}
     />
   );
@@ -2086,6 +2108,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         environmentId: props.environmentId,
         threadId: props.threadId,
         workspaceRoot: props.workspaceRoot,
+        imageEmbed: true,
       });
       if (media?.kind === "video") {
         return (
@@ -2104,6 +2127,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             sourceKey={imageSource.uri}
             unavailable={false}
             alt={image.alt}
+            actionsSource={media?.source.actionsSource}
             onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
           />
         );
@@ -2121,6 +2145,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           }}
           alt={image.alt}
           srcFragment={markdownImageSourceFragment(image.href)}
+          actionsSource={media?.source.actionsSource}
           onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
         />
       );
@@ -2133,12 +2158,26 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         threadId: props.threadId,
         workspaceRoot: props.workspaceRoot,
       });
+      const media = viewedImage
+        ? resolveMarkdownMediaPreview(image.href, {
+            environmentId: props.environmentId,
+            threadId: props.threadId,
+            workspaceRoot: props.workspaceRoot,
+            imageEmbed: true,
+          })
+        : null;
+      const actionsSource = media?.source.actionsSource;
       return viewedImage ? (
         <ThreadMarkdownImage
           environmentId={props.environmentId}
           resource={viewedImage.resource}
           alt={viewedImage.alt}
           srcFragment={viewedImage.srcFragment}
+          actionsSource={
+            actionsSource && "resource" in actionsSource
+              ? { ...actionsSource, resource: viewedImage.resource }
+              : undefined
+          }
           onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
         />
       ) : null;

@@ -10,6 +10,7 @@ import {
   classifyMarkdownImageSource,
   markdownImageSourceFragment,
 } from "@t3tools/client-runtime/markdown-images";
+import { mediaFileReference, mediaUrlReference } from "@t3tools/client-runtime/media-reference";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
   squashAtomCommandFailure,
@@ -17,6 +18,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
 import { resolveExternalWebLinkHost } from "./externalLinkContextMenu";
+import type { MediaActionSource } from "../media/MediaActions";
 
 export interface ExpandedImageItem {
   src: string;
@@ -25,6 +27,7 @@ export interface ExpandedImageItem {
   autoPlay?: boolean;
   /** Authored remote destination to open when embedding fails, never a generated asset URL. */
   originalUrl?: string;
+  actionsSource?: MediaActionSource;
 }
 
 export interface ExpandedImagePreview {
@@ -39,6 +42,7 @@ export async function resolveMarkdownMediaPreview(input: {
   cwd?: string | undefined;
   threadRef?: ScopedThreadRef | undefined;
   httpBaseUrl?: string | undefined;
+  onOpenFile?: ((relativePath: string) => void) | undefined;
   createAssetUrl: (input: {
     environmentId: EnvironmentId;
     input: { resource: AssetResource };
@@ -68,18 +72,24 @@ export async function resolveMarkdownMediaPreview(input: {
           : "image";
   if (kind === null) return null;
 
+  const reference =
+    source._tag === "Direct" ? mediaUrlReference(source.uri) : mediaFileReference(path, input.cwd);
+  const relativePath = reference?.kind === "file" ? reference.relativePath : undefined;
   let src: string;
+  let asset: MediaActionSource["asset"];
   if (source._tag === "Direct") {
     src = source.uri;
   } else {
     if (!input.threadRef || !input.httpBaseUrl) {
       throw new Error("Reconnect to this environment and open the media again.");
     }
-    const result = await input.createAssetUrl({
+    asset = {
       environmentId: input.threadRef.environmentId,
-      input: {
-        resource: { _tag: "media-file", threadId: input.threadRef.threadId, path },
-      },
+      resource: { _tag: "media-file", threadId: input.threadRef.threadId, path },
+    };
+    const result = await input.createAssetUrl({
+      environmentId: asset.environmentId,
+      input: { resource: asset.resource },
     });
     if (result._tag === "Failure") throw squashAtomCommandFailure(result);
     const assetUrl = resolveAssetUrl(input.httpBaseUrl, result.value.relativeUrl);
@@ -95,6 +105,16 @@ export async function resolveMarkdownMediaPreview(input: {
         ...(source._tag === "Direct" && resolveExternalWebLinkHost(src) !== null
           ? { originalUrl: src }
           : {}),
+        actionsSource: {
+          kind,
+          name: name || kind,
+          src,
+          ...(reference ? { reference } : {}),
+          ...(asset ? { asset } : {}),
+          ...(relativePath && input.onOpenFile
+            ? { onOpenFile: () => input.onOpenFile?.(relativePath) }
+            : {}),
+        },
       },
     ],
     index: 0,
@@ -105,17 +125,6 @@ export function attachVideoThumbnail(video: HTMLVideoElement, file: File): () =>
   const url = URL.createObjectURL(file);
   video.src = url;
   return () => URL.revokeObjectURL(url);
-}
-
-export async function downloadVideoPreview(src: string, name: string): Promise<void> {
-  const response = await fetch(src);
-  if (!response.ok) throw new Error(`Could not download video (${response.status}).`);
-  const url = URL.createObjectURL(await response.blob());
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = name;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 export function buildExpandedImagePreview(

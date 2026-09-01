@@ -1,6 +1,7 @@
 import type { AssetResource, ChatFileAttachment, EnvironmentId } from "@t3tools/contracts";
 
 import type { DraftComposerFileAttachment } from "./composerImages";
+import type { MediaActionsSource } from "./mediaActions";
 
 export type MediaVideoPreviewSource = {
   readonly type: "media";
@@ -8,6 +9,7 @@ export type MediaVideoPreviewSource = {
   readonly mimeType: string;
   readonly sourceIdentifier?: string;
   readonly srcFragment?: string;
+  readonly actionsSource?: MediaActionsSource;
 } & (
   | { readonly uri: string }
   | {
