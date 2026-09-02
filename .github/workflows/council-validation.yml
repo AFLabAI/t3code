@@ -43,8 +43,8 @@ jobs:
         if: always()
         run: |
           set +e
-          vp check > /tmp/vp-check-output.txt 2>&1
-          VP_EXIT_CODE=$?
+          vp check 2>&1 | tee /tmp/vp-check-output.txt
+          VP_EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
           echo "## VP Check Full Diagnostic Output" >> $GITHUB_STEP_SUMMARY
@@ -56,8 +56,15 @@ jobs:
           cat /tmp/vp-check-output.txt >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
-          cat /tmp/vp-check-output.txt
           exit $VP_EXIT_CODE
+
+      - name: Upload vp check diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vp-check-diagnostics
+          path: /tmp/vp-check-output.txt
+          retention-days: 7
 
       - name: Typecheck
         run: vpr typecheck
