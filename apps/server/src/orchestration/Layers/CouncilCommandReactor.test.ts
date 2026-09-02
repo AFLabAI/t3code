@@ -1,13 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import * as Effect from "effect/Effect";
-import * as DateTime from "effect/DateTime";
-import { EventId, ThreadId, CommandId } from "@t3tools/contracts";
+import { describe, it, expect, vi } from "vitest";
 import type { CouncilDecision, CouncilEvent } from "../../council/CouncilClient.ts";
 
 describe("CouncilCommandReactor", () => {
   let mockCouncilClient: any;
   let mockOrchestrationEngine: any;
-  let mockProjectionSnapshotQuery: any;
 
   beforeEach(() => {
     mockCouncilClient = {
@@ -19,10 +15,6 @@ describe("CouncilCommandReactor", () => {
 
     mockOrchestrationEngine = {
       dispatch: vi.fn().mockResolvedValue({ sequence: 1 }),
-    };
-
-    mockProjectionSnapshotQuery = {
-      getThreadDetailById: vi.fn(),
     };
   });
 
@@ -274,7 +266,6 @@ describe("CouncilCommandReactor", () => {
     it("handles idempotent Council results correctly", () => {
       // Same cycleId submitted twice → single ExecutionCandidate (or approval request)
       // Thread state deduplicates via dispatcher sequence number
-      const cycleId = "cycle-xyz";
       const decision1 = "EXECUTE" as const;
       const decision2 = "EXECUTE" as const;
       expect(decision1).toBe(decision2);
