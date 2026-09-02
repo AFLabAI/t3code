@@ -39,6 +39,34 @@ jobs:
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
 
+      - name: Diagnose git environment
+        if: always()
+        run: |
+          echo "## Git Environment Diagnostics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment Variables" >> $GITHUB_STEP_SUMMARY
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE" >> $GITHUB_STEP_SUMMARY
+          echo "GITHUB_SHA: $GITHUB_SHA" >> $GITHUB_STEP_SUMMARY
+          echo "GITHUB_REF: $GITHUB_REF" >> $GITHUB_STEP_SUMMARY
+          echo "GITHUB_REF_NAME: $GITHUB_REF_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Git State" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          pwd >> $GITHUB_STEP_SUMMARY
+          git --version >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git version failed" >> $GITHUB_STEP_SUMMARY
+          git status --porcelain=v1 >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git status --porcelain failed" >> $GITHUB_STEP_SUMMARY
+          git status >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git status failed" >> $GITHUB_STEP_SUMMARY
+          git rev-parse --show-toplevel >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git rev-parse failed" >> $GITHUB_STEP_SUMMARY
+          git rev-parse --is-inside-work-tree >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git is-inside-work-tree failed" >> $GITHUB_STEP_SUMMARY
+          git rev-parse HEAD >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git rev-parse HEAD failed" >> $GITHUB_STEP_SUMMARY
+          git branch --show-current >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git branch failed" >> $GITHUB_STEP_SUMMARY
+          git remote -v >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git remote failed" >> $GITHUB_STEP_SUMMARY
+          git config --show-origin --get-all safe.directory >> $GITHUB_STEP_SUMMARY 2>&1 || echo "safe.directory not set" >> $GITHUB_STEP_SUMMARY
+          git submodule status >> $GITHUB_STEP_SUMMARY 2>&1 || echo "no submodules" >> $GITHUB_STEP_SUMMARY
+          git worktree list >> $GITHUB_STEP_SUMMARY 2>&1 || echo "git worktree failed" >> $GITHUB_STEP_SUMMARY
+          find . -maxdepth 2 -name .git -type f -o -name .git -type d 2>/dev/null | head -5 >> $GITHUB_STEP_SUMMARY || echo "find .git failed" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
       - name: Check
         if: always()
         run: |
@@ -49,21 +77,21 @@ jobs:
 
           echo "## VP Check Diagnostics" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Exit Code:** \`$VP_EXIT_CODE\`" >> $GITHUB_STEP_SUMMARY
+          echo "**VP_CHECK_ACTUAL_EXIT = \`$VP_EXIT_CODE\`**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ $VP_EXIT_CODE -ne 0 ]; then
-            echo "### Found Errors:" >> $GITHUB_STEP_SUMMARY
+            echo "### VP Check Failed - Full Output:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat /tmp/vp-check-output.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
 
-            # Extract error lines (those starting with "error:" or containing file:line:rule patterns)
-            ERROR_COUNT=$(grep -E "error:|^[^ ].*:[0-9]+:" /tmp/vp-check-output.txt | wc -l)
-            echo "**Total Errors Found: $ERROR_COUNT**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            grep -E "error:|^[^ ].*:[0-9]+:" /tmp/vp-check-output.txt | head -50 >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ERROR_COUNT=$(grep -c "error:" /tmp/vp-check-output.txt || echo 0)
+            echo "**VP_CHECK_ACTUAL_ERRORS = \`$ERROR_COUNT\`**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ VP Check PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "**VP_CHECK_ACTUAL_ERRORS = \`0\`**" >> $GITHUB_STEP_SUMMARY
           fi
 
           exit $VP_EXIT_CODE
