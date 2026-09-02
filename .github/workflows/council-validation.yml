@@ -47,22 +47,14 @@ jobs:
           VP_EXIT_CODE=$?
           set -e
 
-          echo "## vp check Diagnostic Report" >> $GITHUB_STEP_SUMMARY
+          echo "## VP Check Full Diagnostic Output" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Exit Code:** $VP_EXIT_CODE" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ $VP_EXIT_CODE -ne 0 ]; then
-            echo "### Output (first 100 lines):" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            head -100 /tmp/vp-check-output.txt >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
-            # Emit GitHub annotations for errors
-            grep -E "error|Error|ERROR" /tmp/vp-check-output.txt | head -10 | while read line; do
-              echo "::error::$line"
-            done
-          fi
+          echo "### Complete Output:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`text" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/vp-check-output.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
           cat /tmp/vp-check-output.txt
           exit $VP_EXIT_CODE
