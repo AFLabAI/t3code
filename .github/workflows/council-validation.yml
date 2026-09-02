@@ -14,6 +14,42 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  format-recovery:
+    name: Format Recovery (Temporary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Run formatter
+        run: vp check --fix
+
+      - name: Capture formatter output
+        run: |
+          git status --short > ci-format-fix-status.txt
+          git diff --stat > ci-format-fix-stat.txt
+          git diff > ci-format-fix.patch
+
+      - name: Upload formatter patch
+        uses: actions/upload-artifact@v7
+        with:
+          name: formatter-patch
+          path: |
+            ci-format-fix.patch
+            ci-format-fix-stat.txt
+            ci-format-fix-status.txt
+          retention-days: 7
+
   check:
     name: Check
     runs-on: ubuntu-latest
