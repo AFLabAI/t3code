@@ -134,6 +134,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       httpBaseUrl: profile.httpBaseUrl,
       wsBaseUrl: profile.wsBaseUrl,
       bearerToken: credential.token,
+      connectionMethod: "direct",
     });
     return {
       environmentId: authorized.environmentId,
@@ -237,6 +238,7 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
       httpBaseUrl: prepared.bootstrap.httpBaseUrl,
       wsBaseUrl: prepared.bootstrap.wsBaseUrl,
       bearerToken: prepared.bearerToken,
+      connectionMethod: "direct",
     });
     return {
       environmentId: authorized.environmentId,
