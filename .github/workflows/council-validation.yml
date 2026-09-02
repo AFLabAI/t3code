@@ -14,6 +14,75 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  format-and-commit:
+    name: Format & Auto-Commit (Temporary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Run formatter
+        run: vpr fmt
+
+      - name: Safety gate - verify only formatter changes
+        run: |
+          echo "Files changed:"
+          git status --short
+          echo "---"
+          echo "Diff stat:"
+          git diff --stat
+          echo "---"
+          echo "Sample diff (first 500 lines):"
+          git diff | head -500
+          echo "---"
+          SEMANTIC_CHANGES=$(git diff | grep -E '^\+.*\(|^\+.*return |^\+.*function|^\+.*const.*=.*new|^\+.*export' | grep -v '^\+.*,$' | grep -v '^\+.*);' | grep -v '^\+\s*$' | wc -l)
+          echo "Potential semantic changes detected: $SEMANTIC_CHANGES"
+          if [ $SEMANTIC_CHANGES -gt 5 ]; then
+            echo "ERROR: Suspicious changes detected, refusing auto-commit"
+            exit 1
+          fi
+
+      - name: Check if changes exist
+        id: check_changes
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure Git
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "CI Formatter"
+          git config user.email "ci-formatter@example.com"
+
+      - name: Auto-commit formatter changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git add -A
+          git commit -m "chore: normalize formatting for CI validation"
+          git push origin council-v1-validation
+
+      - name: Report formatter status
+        run: |
+          echo "FORMAT_CHANGED_FILES=$(git status --short | wc -l)" >> $GITHUB_ENV
+          echo "FORMAT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "FORMAT_PUSH=PASS" >> $GITHUB_ENV
+
   check:
     name: Check
     runs-on: ubuntu-latest
