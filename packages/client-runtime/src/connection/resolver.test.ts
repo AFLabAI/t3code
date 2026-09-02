@@ -180,6 +180,12 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
         deviceId: Effect.succeed(Option.some("device-1")),
       }),
     ),
+    Layer.succeed(
+      ClientCapabilities.ClientPresentation,
+      ClientCapabilities.ClientPresentation.of({
+        get: Effect.succeed({ label: "Test Client" }),
+      }),
+    ),
     Layer.succeed(RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization, remote),
     Layer.succeed(ClientCapabilities.SshEnvironmentGateway, ssh),
     Layer.succeed(
