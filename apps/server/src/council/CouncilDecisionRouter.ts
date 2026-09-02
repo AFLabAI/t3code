@@ -1,4 +1,4 @@
-import type { CouncilDecision, CouncilDecisionType } from "./CouncilClient.ts";
+import type { CouncilDecision } from "./CouncilClient.ts";
 
 export type DecisionRoute =
   | { type: "EXECUTE"; requiresApproval: boolean }

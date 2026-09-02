@@ -1,16 +1,16 @@
-import { describe, it, before, after } from "node:test";
-import assert from "node:assert";
-import * as http from "node:http";
+import * as NodeTest from "node:test";
+import * as NodeAssert from "node:assert";
+import * as NodeHttp from "node:http";
 import type { CouncilDecision, CouncilEvent } from "../apps/server/src/council/CouncilClient.ts";
 
 // Mock HTTP server setup
-let mockServer: http.Server;
+let mockServer: NodeHttp.Server;
 let serverPort: number;
 const mockResponses: Record<string, any> = {};
 
 function startMockServer(): Promise<number> {
   return new Promise((resolve) => {
-    mockServer = http.createServer((req, res) => {
+    mockServer = NodeHttp.createServer((req, res) => {
       res.setHeader("Content-Type", "application/json");
 
       // Health check
@@ -136,151 +136,153 @@ async function testDecisionRetrieval(baseUrl: string, cycleId: string): Promise<
   return (await response.json()) as CouncilDecision;
 }
 
-describe("CouncilClient HTTP interface (NO-INSTALL TESTS)", () => {
+NodeTest.describe("CouncilClient HTTP interface (NO-INSTALL TESTS)", () => {
   let baseUrl: string;
 
-  before(async () => {
+  NodeTest.before(async () => {
     const port = await startMockServer();
     baseUrl = `http://127.0.0.1:${port}`;
   });
 
-  after(async () => {
+  NodeTest.after(async () => {
     await stopMockServer();
   });
 
-  describe("Health check", () => {
-    it("performs health check and returns true on OK response", async () => {
+  NodeTest.describe("Health check", () => {
+    NodeTest.it("performs health check and returns true on OK response", async () => {
       const healthy = await testHealthCheck(baseUrl);
-      assert.strictEqual(healthy, true);
+      NodeAssert.default.strictEqual(healthy, true);
     });
   });
 
-  describe("Goal submission", () => {
-    it("submits goal and receives cycleId", async () => {
+  NodeTest.describe("Goal submission", () => {
+    NodeTest.it("submits goal and receives cycleId", async () => {
       const cycleId = await testGoalSubmission(baseUrl);
-      assert.ok(cycleId);
-      assert.ok(cycleId.startsWith("mock-cycle-"));
+      NodeAssert.default.ok(cycleId);
+      NodeAssert.default.ok(cycleId.startsWith("mock-cycle-"));
     });
 
-    it("goal submission creates valid cycleId for subsequent queries", async () => {
+    NodeTest.it("goal submission creates valid cycleId for subsequent queries", async () => {
       const cycleId = await testGoalSubmission(baseUrl);
       const events = await testCycleStatus(baseUrl, cycleId);
-      assert.strictEqual(events.length > 0, true);
+      NodeAssert.default.strictEqual(events.length > 0, true);
     });
   });
 
-  describe("Cycle polling and transcript", () => {
-    it("retrieves cycle status with events", async () => {
+  NodeTest.describe("Cycle polling and transcript", () => {
+    NodeTest.it("retrieves cycle status with events", async () => {
       const cycleId = "test-cycle-1";
       const events = await testCycleStatus(baseUrl, cycleId);
 
-      assert.ok(Array.isArray(events));
-      assert.ok(events.length > 0);
+      NodeAssert.default.ok(Array.isArray(events));
+      NodeAssert.default.ok(events.length > 0);
     });
 
-    it("cycle events include all required fields", async () => {
+    NodeTest.it("cycle events include all required fields", async () => {
       const cycleId = "test-cycle-2";
       const events = await testCycleStatus(baseUrl, cycleId);
 
       for (const event of events) {
-        assert.ok(event.cycleId);
-        assert.ok(event.eventType);
-        assert.ok(event.content);
-        assert.ok(event.timestamp);
+        NodeAssert.default.ok(event.cycleId);
+        NodeAssert.default.ok(event.eventType);
+        NodeAssert.default.ok(event.content);
+        NodeAssert.default.ok(event.timestamp);
       }
     });
 
-    it("cycle events include Planner phase", async () => {
+    NodeTest.it("cycle events include Planner phase", async () => {
       const cycleId = "test-cycle-3";
       const events = await testCycleStatus(baseUrl, cycleId);
 
       const plannerEvent = events.find((e) => e.eventType === "planner_started");
-      assert.ok(plannerEvent);
+      NodeAssert.default.ok(plannerEvent);
     });
 
-    it("cycle events include Critic phase", async () => {
+    NodeTest.it("cycle events include Critic phase", async () => {
       const cycleId = "test-cycle-4";
       const events = await testCycleStatus(baseUrl, cycleId);
 
       const criticEvent = events.find((e) => e.eventType === "critic_started");
-      assert.ok(criticEvent);
-      assert.strictEqual(criticEvent?.brain, "CRITIC");
+      NodeAssert.default.ok(criticEvent);
+      NodeAssert.default.strictEqual(criticEvent?.brain, "CRITIC");
     });
 
-    it("cycle events include decision ready marker", async () => {
+    NodeTest.it("cycle events include decision ready marker", async () => {
       const cycleId = "test-cycle-5";
       const events = await testCycleStatus(baseUrl, cycleId);
 
       const decisionEvent = events.find((e) => e.eventType === "decision_ready");
-      assert.ok(decisionEvent);
+      NodeAssert.default.ok(decisionEvent);
     });
   });
 
-  describe("Decision retrieval", () => {
-    it("retrieves decision for cycleId", async () => {
+  NodeTest.describe("Decision retrieval", () => {
+    NodeTest.it("retrieves decision for cycleId", async () => {
       const cycleId = "test-cycle-6";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
-      assert.ok(decision);
-      assert.strictEqual(decision.cycleId, cycleId);
+      NodeAssert.default.ok(decision);
+      NodeAssert.default.strictEqual(decision.cycleId, cycleId);
     });
 
-    it("decision includes decision type", async () => {
+    NodeTest.it("decision includes decision type", async () => {
       const cycleId = "test-cycle-7";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
-      assert.ok(
+      NodeAssert.default.ok(
         ["EXECUTE", "REVISE", "RESEARCH", "MORE_EVIDENCE", "ASK_USER", "BLOCKED"].includes(
           decision.decision,
         ),
       );
     });
 
-    it("decision includes reasoning", async () => {
+    NodeTest.it("decision includes reasoning", async () => {
       const cycleId = "test-cycle-8";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
-      assert.ok(decision.reasoning);
-      assert.ok(decision.reasoning.length > 0);
+      NodeAssert.default.ok(decision.reasoning);
+      NodeAssert.default.ok(decision.reasoning.length > 0);
     });
 
-    it("decision includes risk level", async () => {
+    NodeTest.it("decision includes risk level", async () => {
       const cycleId = "test-cycle-9";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
-      assert.ok(["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(decision.riskLevel || "MEDIUM"));
+      NodeAssert.default.ok(
+        ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(decision.riskLevel || "MEDIUM"),
+      );
     });
 
-    it("EXECUTE decision includes proposal", async () => {
+    NodeTest.it("EXECUTE decision includes proposal", async () => {
       const cycleId = "test-cycle-10";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
       if (decision.decision === "EXECUTE") {
-        assert.ok(decision.executionProposal);
+        NodeAssert.default.ok(decision.executionProposal);
       }
     });
 
-    it("decision requiresApproval field is boolean", async () => {
+    NodeTest.it("decision requiresApproval field is boolean", async () => {
       const cycleId = "test-cycle-11";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
-      assert.strictEqual(typeof decision.requiresApproval, "boolean");
+      NodeAssert.default.strictEqual(typeof decision.requiresApproval, "boolean");
     });
   });
 
-  describe("End-to-end flow", () => {
-    it("completes submit → poll → decide cycle", async () => {
+  NodeTest.describe("End-to-end flow", () => {
+    NodeTest.it("completes submit → poll → decide cycle", async () => {
       // Submit
       const cycleId = await testGoalSubmission(baseUrl);
-      assert.ok(cycleId);
+      NodeAssert.default.ok(cycleId);
 
       // Poll
       const events = await testCycleStatus(baseUrl, cycleId);
-      assert.ok(events.length > 0);
+      NodeAssert.default.ok(events.length > 0);
 
       // Decide
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
-      assert.ok(decision.decision);
+      NodeAssert.default.ok(decision.decision);
     });
   });
 });

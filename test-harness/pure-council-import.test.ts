@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert";
+import * as NodeTest from "node:test";
+import * as NodeAssert from "node:assert";
 import {
   routeCouncilDecision,
   requiresCouncilApproval,
@@ -7,15 +7,15 @@ import {
   mapCouncilEventIdentity,
 } from "../apps/server/src/council/CouncilDecisionRouter.ts";
 
-describe("Pure Council module imports", () => {
-  it("imports CouncilDecisionRouter without dependencies", () => {
-    assert.ok(routeCouncilDecision);
-    assert.ok(requiresCouncilApproval);
-    assert.ok(createExecutionCandidatePayload);
-    assert.ok(mapCouncilEventIdentity);
+NodeTest.describe("Pure Council module imports", () => {
+  NodeTest.it("imports CouncilDecisionRouter without dependencies", () => {
+    NodeAssert.default.ok(routeCouncilDecision);
+    NodeAssert.default.ok(requiresCouncilApproval);
+    NodeAssert.default.ok(createExecutionCandidatePayload);
+    NodeAssert.default.ok(mapCouncilEventIdentity);
   });
 
-  it("functions are callable", () => {
+  NodeTest.it("functions are callable", () => {
     const decision = {
       cycleId: "test",
       decision: "EXECUTE" as const,
@@ -24,7 +24,7 @@ describe("Pure Council module imports", () => {
     };
 
     const route = routeCouncilDecision(decision);
-    assert.ok(route);
-    assert.strictEqual(route.type, "EXECUTE");
+    NodeAssert.default.ok(route);
+    NodeAssert.default.strictEqual(route.type, "EXECUTE");
   });
 });

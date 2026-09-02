@@ -1,13 +1,13 @@
-import { describe, it } from "node:test";
-import assert from "node:assert";
+import * as NodeTest from "node:test";
+import * as NodeAssert from "node:assert";
 
-describe("Node built-in test runner", () => {
-  it("should run assertions", () => {
-    assert.strictEqual(1 + 1, 2);
+NodeTest.describe("Node built-in test runner", () => {
+  NodeTest.it("should run assertions", () => {
+    NodeAssert.default.strictEqual(1 + 1, 2);
   });
 
-  it("should support describe/it nesting", () => {
+  NodeTest.it("should support describe/it nesting", () => {
     const result = true;
-    assert.ok(result);
+    NodeAssert.default.ok(result);
   });
 });

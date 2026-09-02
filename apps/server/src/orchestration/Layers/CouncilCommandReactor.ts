@@ -19,7 +19,7 @@ import {
   CouncilCommandReactor,
   type CouncilCommandReactorShape,
 } from "../Services/CouncilCommandReactor.ts";
-import { forkParked, ServerActivation } from "../../serverActivation.ts";
+import { forkParked } from "../../serverActivation.ts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 type CouncilIntentEvent = Extract<

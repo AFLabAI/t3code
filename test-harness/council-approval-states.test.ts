@@ -1,15 +1,14 @@
-import { describe, it } from "node:test";
-import assert from "node:assert";
+import * as NodeTest from "node:test";
+import * as NodeAssert from "node:assert";
 import {
   routeCouncilDecision,
-  requiresCouncilApproval,
   createExecutionCandidatePayload,
 } from "../apps/server/src/council/CouncilDecisionRouter.ts";
 import type { CouncilDecision } from "../apps/server/src/council/CouncilClient.ts";
 
-describe("Council → Approval State Integration", () => {
-  describe("LOW risk EXECUTE", () => {
-    it("routes to READY_FOR_EXECUTOR without approval gate", () => {
+NodeTest.describe("Council → Approval State Integration", () => {
+  NodeTest.describe("LOW risk EXECUTE", () => {
+    NodeTest.it("routes to READY_FOR_EXECUTOR without approval gate", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-1",
         decision: "EXECUTE",
@@ -22,12 +21,12 @@ describe("Council → Approval State Integration", () => {
       const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
       const route = routeCouncilDecision(decision);
 
-      assert.strictEqual(requiresApproval, false);
-      assert.strictEqual(route.type, "EXECUTE");
-      assert.strictEqual(route.requiresApproval, false);
+      NodeAssert.default.strictEqual(requiresApproval, false);
+      NodeAssert.default.strictEqual(route.type, "EXECUTE");
+      NodeAssert.default.strictEqual(route.requiresApproval, false);
     });
 
-    it("creates ExecutionCandidate for low-risk EXECUTE", () => {
+    NodeTest.it("creates ExecutionCandidate for low-risk EXECUTE", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-2",
         decision: "EXECUTE",
@@ -42,14 +41,14 @@ describe("Council → Approval State Integration", () => {
         goal: "Low risk task",
       });
 
-      assert.strictEqual(payload.decision, "EXECUTE");
-      assert.strictEqual(payload.riskLevel, "LOW");
-      assert.strictEqual(payload.requiresApproval, false);
+      NodeAssert.default.strictEqual(payload.decision, "EXECUTE");
+      NodeAssert.default.strictEqual(payload.riskLevel, "LOW");
+      NodeAssert.default.strictEqual(payload.requiresApproval, false);
     });
   });
 
-  describe("MEDIUM risk EXECUTE", () => {
-    it("routes to READY_FOR_EXECUTOR by default", () => {
+  NodeTest.describe("MEDIUM risk EXECUTE", () => {
+    NodeTest.it("routes to READY_FOR_EXECUTOR by default", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-3",
         decision: "EXECUTE",
@@ -60,12 +59,12 @@ describe("Council → Approval State Integration", () => {
 
       const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
 
-      assert.strictEqual(requiresApproval, false);
+      NodeAssert.default.strictEqual(requiresApproval, false);
     });
   });
 
-  describe("HIGH risk EXECUTE", () => {
-    it("creates approval request (not direct ExecutionCandidate)", () => {
+  NodeTest.describe("HIGH risk EXECUTE", () => {
+    NodeTest.it("creates approval request (not direct ExecutionCandidate)", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-4",
         decision: "EXECUTE",
@@ -76,10 +75,10 @@ describe("Council → Approval State Integration", () => {
       };
 
       const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
-      assert.strictEqual(requiresApproval, true);
+      NodeAssert.default.strictEqual(requiresApproval, true);
     });
 
-    it("approval request contains Council context", () => {
+    NodeTest.it("approval request contains Council context", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-5",
         decision: "EXECUTE",
@@ -100,15 +99,15 @@ describe("Council → Approval State Integration", () => {
         goal: "Deploy release v2.0",
       };
 
-      assert.ok(approvalPayload.cycleId);
-      assert.ok(approvalPayload.councilCycleId);
-      assert.strictEqual(approvalPayload.decision, "EXECUTE");
-      assert.ok(approvalPayload.reasoning);
-      assert.ok(approvalPayload.proposal);
-      assert.strictEqual(approvalPayload.riskLevel, "HIGH");
+      NodeAssert.default.ok(approvalPayload.cycleId);
+      NodeAssert.default.ok(approvalPayload.councilCycleId);
+      NodeAssert.default.strictEqual(approvalPayload.decision, "EXECUTE");
+      NodeAssert.default.ok(approvalPayload.reasoning);
+      NodeAssert.default.ok(approvalPayload.proposal);
+      NodeAssert.default.strictEqual(approvalPayload.riskLevel, "HIGH");
     });
 
-    it("user approval moves to READY_FOR_EXECUTOR", () => {
+    NodeTest.it("user approval moves to READY_FOR_EXECUTOR", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-6",
         decision: "EXECUTE",
@@ -120,11 +119,11 @@ describe("Council → Approval State Integration", () => {
       // WAITING_USER_APPROVAL → user approves → READY_FOR_EXECUTOR
       const approvalRequired = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
 
-      assert.strictEqual(approvalRequired, true);
+      NodeAssert.default.strictEqual(approvalRequired, true);
       // After approval, executor would process this
     });
 
-    it("user rejection moves to BLOCKED", () => {
+    NodeTest.it("user rejection moves to BLOCKED", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-7",
         decision: "EXECUTE",
@@ -136,12 +135,12 @@ describe("Council → Approval State Integration", () => {
       // WAITING_USER_APPROVAL → user rejects → BLOCKED
       // No ExecutionCandidate created
       const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
-      assert.strictEqual(requiresApproval, true);
+      NodeAssert.default.strictEqual(requiresApproval, true);
     });
   });
 
-  describe("CRITICAL risk EXECUTE", () => {
-    it("requires approval gate", () => {
+  NodeTest.describe("CRITICAL risk EXECUTE", () => {
+    NodeTest.it("requires approval gate", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-8",
         decision: "EXECUTE",
@@ -151,10 +150,10 @@ describe("Council → Approval State Integration", () => {
       };
 
       const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
-      assert.strictEqual(requiresApproval, true);
+      NodeAssert.default.strictEqual(requiresApproval, true);
     });
 
-    it("approval decision determines execution", () => {
+    NodeTest.it("approval decision determines execution", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-9",
         decision: "EXECUTE",
@@ -166,15 +165,15 @@ describe("Council → Approval State Integration", () => {
 
       // WAITING_USER_APPROVAL is mandatory
       const shouldBeApprovalGated = decision.riskLevel === "CRITICAL";
-      assert.strictEqual(shouldBeApprovalGated, true);
+      NodeAssert.default.strictEqual(shouldBeApprovalGated, true);
 
       // reject → BLOCKED (no execution)
       // accept → READY_FOR_EXECUTOR (executor runs later)
     });
   });
 
-  describe("ASK_USER decision", () => {
-    it("routes to WAITING_USER_APPROVAL (no ExecutionCandidate)", () => {
+  NodeTest.describe("ASK_USER decision", () => {
+    NodeTest.it("routes to WAITING_USER_APPROVAL (no ExecutionCandidate)", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-10",
         decision: "ASK_USER",
@@ -183,14 +182,14 @@ describe("Council → Approval State Integration", () => {
       };
 
       const route = routeCouncilDecision(decision);
-      assert.strictEqual(route.type, "ASK_USER");
+      NodeAssert.default.strictEqual(route.type, "ASK_USER");
 
       // No ExecutionCandidate created, awaits user input
     });
   });
 
-  describe("BLOCKED decision", () => {
-    it("routes to BLOCKED state (no execution)", () => {
+  NodeTest.describe("BLOCKED decision", () => {
+    NodeTest.it("routes to BLOCKED state (no execution)", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-11",
         decision: "BLOCKED",
@@ -199,15 +198,15 @@ describe("Council → Approval State Integration", () => {
       };
 
       const route = routeCouncilDecision(decision);
-      assert.strictEqual(route.type, "BLOCKED");
+      NodeAssert.default.strictEqual(route.type, "BLOCKED");
 
       // No ExecutionCandidate, no approval request
       // Terminal state unless user revises goal
     });
   });
 
-  describe("RESEARCH decision", () => {
-    it("routes to RESEARCH state (holding)", () => {
+  NodeTest.describe("RESEARCH decision", () => {
+    NodeTest.it("routes to RESEARCH state (holding)", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-12",
         decision: "RESEARCH",
@@ -216,12 +215,12 @@ describe("Council → Approval State Integration", () => {
       };
 
       const route = routeCouncilDecision(decision);
-      assert.strictEqual(route.type, "RESEARCH");
+      NodeAssert.default.strictEqual(route.type, "RESEARCH");
     });
   });
 
-  describe("MORE_EVIDENCE decision", () => {
-    it("routes to MORE_EVIDENCE state (holding)", () => {
+  NodeTest.describe("MORE_EVIDENCE decision", () => {
+    NodeTest.it("routes to MORE_EVIDENCE state (holding)", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-13",
         decision: "MORE_EVIDENCE",
@@ -230,12 +229,12 @@ describe("Council → Approval State Integration", () => {
       };
 
       const route = routeCouncilDecision(decision);
-      assert.strictEqual(route.type, "MORE_EVIDENCE");
+      NodeAssert.default.strictEqual(route.type, "MORE_EVIDENCE");
     });
   });
 
-  describe("Approval idempotency", () => {
-    it("duplicate approval does not create duplicate ExecutionCandidate", () => {
+  NodeTest.describe("Approval idempotency", () => {
+    NodeTest.it("duplicate approval does not create duplicate ExecutionCandidate", () => {
       // Same cycleId + decision → same ExecutionCandidate ID
       const decision: CouncilDecision = {
         cycleId: "cycle-14",
@@ -258,10 +257,10 @@ describe("Council → Approval State Integration", () => {
       });
 
       // Both payloads should be identical (idempotent)
-      assert.deepStrictEqual(payload1, payload2);
+      NodeAssert.default.deepStrictEqual(payload1, payload2);
     });
 
-    it("duplicate Council result does not create duplicate approval request", () => {
+    NodeTest.it("duplicate Council result does not create duplicate approval request", () => {
       // Same cycleId → same approval request ID
       // Thread state prevents duplicate processing
       const cycleId = "cycle-15";
@@ -269,12 +268,12 @@ describe("Council → Approval State Integration", () => {
       // First result: creates approval request
       // Second result: idempotent (same cycleId, same request ID)
       // Decider should track this via thread state
-      assert.ok(cycleId);
+      NodeAssert.default.ok(cycleId);
     });
   });
 
-  describe("Already READY_FOR_EXECUTOR does not regress", () => {
-    it("second approval decision is no-op", () => {
+  NodeTest.describe("Already READY_FOR_EXECUTOR does not regress", () => {
+    NodeTest.it("second approval decision is no-op", () => {
       // Once READY_FOR_EXECUTOR, already approved
       // Second approval attempt should not change state
       const decision: CouncilDecision = {
@@ -289,12 +288,12 @@ describe("Council → Approval State Integration", () => {
       // 1st: create ExecutionCandidate → READY_FOR_EXECUTOR
       // 2nd: already in READY, no-op
       const route = routeCouncilDecision(decision);
-      assert.strictEqual(route.type, "EXECUTE");
+      NodeAssert.default.strictEqual(route.type, "EXECUTE");
     });
   });
 
-  describe("Rejected candidate cannot silently execute", () => {
-    it("BLOCKED stays non-executable", () => {
+  NodeTest.describe("Rejected candidate cannot silently execute", () => {
+    NodeTest.it("BLOCKED stays non-executable", () => {
       const decision: CouncilDecision = {
         cycleId: "cycle-17",
         decision: "BLOCKED",
@@ -303,15 +302,15 @@ describe("Council → Approval State Integration", () => {
       };
 
       const route = routeCouncilDecision(decision);
-      assert.strictEqual(route.type, "BLOCKED");
+      NodeAssert.default.strictEqual(route.type, "BLOCKED");
 
       // No ExecutionCandidate created
       // Blocked state is terminal (no execution path)
     });
   });
 
-  describe("Cycle ID stability", () => {
-    it("cycleId persists through approval flow", () => {
+  NodeTest.describe("Cycle ID stability", () => {
+    NodeTest.it("cycleId persists through approval flow", () => {
       const cycleId = "cycle-18";
       const decision: CouncilDecision = {
         cycleId,
@@ -328,7 +327,7 @@ describe("Council → Approval State Integration", () => {
       });
 
       // cycleId is immutable through approval chain
-      assert.strictEqual(payload.cycleId, cycleId);
+      NodeAssert.default.strictEqual(payload.cycleId, cycleId);
     });
   });
 });
