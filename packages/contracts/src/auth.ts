@@ -165,10 +165,19 @@ export const AuthClientMetadataDeviceType = Schema.Literals([
 ]);
 export type AuthClientMetadataDeviceType = typeof AuthClientMetadataDeviceType.Type;
 
+export const ClientConnectionMethod = Schema.Literals(["direct", "relay", "proxy"]);
+export type ClientConnectionMethod = typeof ClientConnectionMethod.Type;
+
 export const AuthClientPresentationMetadata = Schema.Struct({
   label: Schema.optionalKey(TrimmedNonEmptyString),
   deviceType: Schema.optionalKey(AuthClientMetadataDeviceType),
   os: Schema.optionalKey(TrimmedNonEmptyString),
+  surface: Schema.optionalKey(TrimmedNonEmptyString),
+  appVersion: Schema.optionalKey(TrimmedNonEmptyString),
+  webDeployment: Schema.optionalKey(TrimmedNonEmptyString),
+  browser: Schema.optionalKey(TrimmedNonEmptyString),
+  osMajorVersion: Schema.optionalKey(TrimmedNonEmptyString),
+  deviceModel: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthClientPresentationMetadata = typeof AuthClientPresentationMetadata.Type;
 
