@@ -82,7 +82,7 @@ export class CouncilClient {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(goal),
-        })
+        }),
       );
 
       if (!response.ok) {
@@ -98,7 +98,7 @@ export class CouncilClient {
   getCycleStatus(cycleId: string): Effect.Effect<CouncilEvent[], Error> {
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise(() =>
-        fetch(`${this.baseUrl}/api/transcript?cycleId=${cycleId}`)
+        fetch(`${this.baseUrl}/api/transcript?cycleId=${cycleId}`),
       );
 
       if (!response.ok) {
@@ -113,7 +113,7 @@ export class CouncilClient {
   getDecision(cycleId: string): Effect.Effect<CouncilDecision, Error> {
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise(() =>
-        fetch(`${this.baseUrl}/api/decision?cycleId=${cycleId}`)
+        fetch(`${this.baseUrl}/api/decision?cycleId=${cycleId}`),
       );
 
       if (!response.ok) {
@@ -129,7 +129,7 @@ export class CouncilClient {
     return Effect.gen(function* () {
       try {
         const response = yield* Effect.tryPromise(() =>
-          fetch(`${this.baseUrl}/api/health`, { signal: AbortSignal.timeout(3000) })
+          fetch(`${this.baseUrl}/api/health`, { signal: AbortSignal.timeout(3000) }),
         );
         return response.ok;
       } catch {

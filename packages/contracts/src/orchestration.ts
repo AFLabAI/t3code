@@ -1268,7 +1268,8 @@ export const ThreadCouncilApprovalRequestedPayload = Schema.Struct({
   requiresApproval: Schema.Boolean,
   createdAt: IsoDateTime,
 });
-export type ThreadCouncilApprovalRequestedPayload = typeof ThreadCouncilApprovalRequestedPayload.Type;
+export type ThreadCouncilApprovalRequestedPayload =
+  typeof ThreadCouncilApprovalRequestedPayload.Type;
 
 export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,

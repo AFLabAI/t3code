@@ -229,7 +229,11 @@ describe("CouncilClient HTTP interface (NO-INSTALL TESTS)", () => {
       const cycleId = "test-cycle-7";
       const decision = await testDecisionRetrieval(baseUrl, cycleId);
 
-      assert.ok(["EXECUTE", "REVISE", "RESEARCH", "MORE_EVIDENCE", "ASK_USER", "BLOCKED"].includes(decision.decision));
+      assert.ok(
+        ["EXECUTE", "REVISE", "RESEARCH", "MORE_EVIDENCE", "ASK_USER", "BLOCKED"].includes(
+          decision.decision,
+        ),
+      );
     });
 
     it("decision includes reasoning", async () => {
