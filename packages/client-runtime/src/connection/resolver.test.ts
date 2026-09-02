@@ -183,7 +183,8 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
     Layer.succeed(
       ClientCapabilities.ClientPresentation,
       ClientCapabilities.ClientPresentation.of({
-        get: Effect.succeed({ label: "Test Client" }),
+        metadata: { label: "Test Client" },
+        scopes: [],
       }),
     ),
     Layer.succeed(RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization, remote),
