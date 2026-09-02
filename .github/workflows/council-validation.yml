@@ -34,21 +34,20 @@ jobs:
       - name: Run formatter
         run: vpr fmt
 
-      - name: Capture formatter output
+      - name: Capture and output formatter results
         run: |
           git status --short > ci-format-fix-status.txt
           git diff --stat > ci-format-fix-stat.txt
           git diff > ci-format-fix.patch
-
-      - name: Upload formatter patch
-        uses: actions/upload-artifact@v7
-        with:
-          name: formatter-patch
-          path: |
-            ci-format-fix.patch
-            ci-format-fix-stat.txt
-            ci-format-fix-status.txt
-          retention-days: 7
+          echo "::group::Formatter Status"
+          cat ci-format-fix-status.txt
+          echo "::endgroup::"
+          echo "::group::Formatter Stat"
+          cat ci-format-fix-stat.txt
+          echo "::endgroup::"
+          echo "::group::Formatter Patch"
+          cat ci-format-fix.patch
+          echo "::endgroup::"
 
   check:
     name: Check
