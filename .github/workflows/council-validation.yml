@@ -47,24 +47,26 @@ jobs:
           VP_EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
-          echo "## VP Check Full Diagnostic Output" >> $GITHUB_STEP_SUMMARY
+          echo "## VP Check Diagnostics" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Exit Code:** $VP_EXIT_CODE" >> $GITHUB_STEP_SUMMARY
+          echo "**Exit Code:** \`$VP_EXIT_CODE\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Complete Output:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`text" >> $GITHUB_STEP_SUMMARY
-          cat /tmp/vp-check-output.txt >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          if [ $VP_EXIT_CODE -ne 0 ]; then
+            echo "### Found Errors:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Extract error lines (those starting with "error:" or containing file:line:rule patterns)
+            ERROR_COUNT=$(grep -E "error:|^[^ ].*:[0-9]+:" /tmp/vp-check-output.txt | wc -l)
+            echo "**Total Errors Found: $ERROR_COUNT**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            grep -E "error:|^[^ ].*:[0-9]+:" /tmp/vp-check-output.txt | head -50 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
           exit $VP_EXIT_CODE
-
-      - name: Upload vp check diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vp-check-diagnostics
-          path: /tmp/vp-check-output.txt
-          retention-days: 7
 
       - name: Typecheck
         run: vpr typecheck
