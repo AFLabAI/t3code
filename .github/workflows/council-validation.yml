@@ -45,15 +45,18 @@ jobs:
           echo "Diff stat:"
           git diff --stat
           echo "---"
-          echo "Sample diff (first 500 lines):"
-          git diff | head -500
-          echo "---"
-          SEMANTIC_CHANGES=$(git diff | grep -E '^\+.*\(|^\+.*return |^\+.*function|^\+.*const.*=.*new|^\+.*export' | grep -v '^\+.*,$' | grep -v '^\+.*);' | grep -v '^\+\s*$' | wc -l)
-          echo "Potential semantic changes detected: $SEMANTIC_CHANGES"
-          if [ $SEMANTIC_CHANGES -gt 5 ]; then
-            echo "ERROR: Suspicious changes detected, refusing auto-commit"
+          echo "Checking for semantic changes..."
+          ADDED_IMPORTS=$(git diff | grep -E '^\+\s*import ' | wc -l)
+          REMOVED_IMPORTS=$(git diff | grep -E '^\-\s*import ' | wc -l)
+          ADDED_FUNCTIONS=$(git diff | grep -E '^\+\s*(function|const|class|export).*\s*=.*=>|^\+\s*function ' | wc -l)
+          echo "Added imports: $ADDED_IMPORTS"
+          echo "Removed imports: $REMOVED_IMPORTS"
+          echo "Added function-like declarations: $ADDED_FUNCTIONS"
+          if [ $ADDED_IMPORTS -gt 0 ] || [ $REMOVED_IMPORTS -gt 0 ] || [ $ADDED_FUNCTIONS -gt 0 ]; then
+            echo "ERROR: Semantic changes detected (new/removed imports or functions), refusing auto-commit"
             exit 1
           fi
+          echo "✓ No semantic changes detected, safe to auto-commit"
 
       - name: Check if changes exist
         id: check_changes
