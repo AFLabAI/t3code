@@ -326,11 +326,13 @@ PHASE 4 — Execution Candidate (COMPLETE)
 ## PHASE 2 — COMPLETED ✓
 
 **Deliverables:**
+
 - Explicit Council dispatch routing (not fake provider mode)
 - Test structure: 23 test cases (architecture verified, bodies not yet implemented)
 - Verified architecture: Council path independent from ProviderService
 
 **Status — Phase 2.5 (Make Tests Real):**
+
 - Council mode integrated into orchestration dispatcher ✓
 - ExecutionCandidate IS structured (payload: cycleId, goal, proposal, reasoning, risk, requiresApproval) ✓
 - Council path verified independent ✓
@@ -338,6 +340,7 @@ PHASE 4 — Execution Candidate (COMPLETE)
 - Test runner blocked: vite-plus dependency issue (environment, not Council code)
 
 **Semantic Contract Decision:**
+
 - Added "council" to ProviderInteractionMode
 - Rationale: existing type is generic enough (interaction mode level, not just provider)
 - Not ideal naming (ProviderInteractionMode is provider-scoped), but minimal semantic debt
@@ -345,6 +348,7 @@ PHASE 4 — Execution Candidate (COMPLETE)
 - Current approach: explicit routing disambiguates Council from provider at dispatcher level
 
 **Ready for:**
+
 - Phase 3: Approval integration (test framework not blocking logic)
 - Provider regression test (if environment unfixed)
 - Live E2E (when Python Council service available)
@@ -356,29 +360,33 @@ PHASE 4 — Execution Candidate (COMPLETE)
 ### Pre-requisite checks — PHASE 2.5 RESULTS
 
 ✓ 1. Dispatcher routing verified
-   - Council mode creates thread.council-goal-requested ✓
-   - Standard mode creates turn-start-requested ✓
-   - ProviderCommandReactor untouched ✓
-   - Routing logic implemented in ws.ts dispatchNormalizedCommand ✓
+
+- Council mode creates thread.council-goal-requested ✓
+- Standard mode creates turn-start-requested ✓
+- ProviderCommandReactor untouched ✓
+- Routing logic implemented in ws.ts dispatchNormalizedCommand ✓
 
 ✓ 2. ExecutionCandidate verified STRUCTURED
-   - activity.kind = "council.execution-candidate" ✓
-   - payload contains: cycleId, decision, reasoning, proposal, riskLevel, requiresApproval ✓
-   - NOT free-form text ✓
-   - tone set based on risk level (warning for HIGH/CRITICAL) ✓
-   - Ox not invoked ✓
+
+- activity.kind = "council.execution-candidate" ✓
+- payload contains: cycleId, decision, reasoning, proposal, riskLevel, requiresApproval ✓
+- NOT free-form text ✓
+- tone set based on risk level (warning for HIGH/CRITICAL) ✓
+- Ox not invoked ✓
 
 ✗ 3. Provider regression
-   - Test runner blocked: vite-plus dependency (environment issue)
-   - Blocker: external to Council code
-   - Cannot run full regression suite without environment fix
-   - Regression test structure would be straightforward once environment unfixed
+
+- Test runner blocked: vite-plus dependency (environment issue)
+- Blocker: external to Council code
+- Cannot run full regression suite without environment fix
+- Regression test structure would be straightforward once environment unfixed
 
 ✗ 4. Test implementation
-   - Test structure created (23 cases, all skeletons) ✓
-   - Test bodies not yet implemented (blocked by test runner)
-   - Full mock-based tests require Effect runtime understanding
-   - Blockers: vite-plus dependency, environment setup
+
+- Test structure created (23 cases, all skeletons) ✓
+- Test bodies not yet implemented (blocked by test runner)
+- Full mock-based tests require Effect runtime understanding
+- Blockers: vite-plus dependency, environment setup
 
 ### PHASE 2 REMAINING (if needed)
 
@@ -387,6 +395,7 @@ PHASE 4 — Execution Candidate (COMPLETE)
 Location: apps/server/src/orchestration/Layers/CouncilCommandReactor.test.ts
 
 Test bodies: 15 cases covering
+
 - Mock CouncilClient setup
 - Happy path: goal → submit → poll → decision
 - Error paths: timeout, submission failure, decision failure
@@ -395,6 +404,7 @@ Test bodies: 15 cases covering
 - Safety: no Ox, no shell, no ProviderService
 
 Mocking strategy:
+
 - Mock CouncilClient (all methods return test data)
 - Mock orchestrationEngine.dispatch (spy on calls)
 - Mock projectionSnapshotQuery (return test thread)
@@ -406,6 +416,7 @@ Effort: 2-3 hours (full mock setup + assertions)
 Location: apps/server/src/orchestration/Dispatcher.test.ts
 
 Test bodies: 8 cases covering
+
 - Council mode routing: creates correct event, extracts text
 - Standard mode regression: untouched by Council integration
 - Architecture: no ProviderService, no fake models
@@ -417,6 +428,7 @@ Effort: 1-2 hours (mock command, verify event creation)
 Do NOT implement yet.
 
 When all Phase 2 tests pass:
+
 - Approval integration (HIGH/CRITICAL risk gating)
 - Wire to T3 approval request infrastructure
 - NOT live Ollama E2E yet
@@ -426,6 +438,7 @@ When all Phase 2 tests pass:
 ## BLOCKERS RESOLVED (Phase 2)
 
 ### BLOCKER 2: Provider integration FIXED ✓
+
 - Implemented explicit Council dispatch routing
 - thread.turn.start with interactionMode=council
 - Route to CouncilCommandReactor (not ProviderCommandReactor)
@@ -433,17 +446,20 @@ When all Phase 2 tests pass:
 - Standard provider path unchanged
 
 ### BLOCKER 1: FIXED ✓ (4339d3bd)
+
 - Contract support added for thread.council-goal-requested
 - Unblocks type checking and build validation
 
 ### BLOCKER 2: Missing Provider Integration
 
 Current state:
+
 - Reactor can receive events, but no UI/frontend sends "thread.council-goal-requested" events
 - Need entry point in ProviderCommandReactor or dispatcher to route Council goals
 - Currently only ProviderCommandReactor reacts to "thread.turn-start-requested"
 
 Fix:
+
 - Add metadata check in dispatcher or ProviderCommandReactor
 - Route goals with metadata.mode = "council" to CouncilCommandReactor
 - OR add explicit Council goal event handler
@@ -455,6 +471,7 @@ Estimated effort: 30 minutes (pattern matching, event routing)
 Location: `tests/orchestration/CouncilCommandReactor.test.ts`
 
 Test cases:
+
 1. submitGoal happy path → cycleId returned
 2. getCycleStatus polling → events emitted as they arrive
 3. getDecision ready → ExecutionCandidate created
@@ -467,6 +484,7 @@ Test cases:
 10. Error: getDecision fails → failure activity emitted
 
 Mock setup:
+
 - Mock CouncilClient (all methods return test data)
 - Mock orchestrationEngine.dispatch (spy on calls)
 - Mock projectionSnapshotQuery.getThreadDetailById (return test thread)
@@ -476,11 +494,13 @@ Estimated effort: 2-3 hours
 ### TASK 2: Approval Integration
 
 Current state:
+
 - ExecutionCandidate created with requiresApproval flag
 - HIGH/CRITICAL risk auto-flagged
 - But no integration with T3 approval request system
 
 Fix:
+
 - If requiresApproval=true, create approval request activity
 - Use existing approval request pattern from ProviderCommandReactor
 - Model: check thread.session.activeTurnId, emit "thread.approval-response-requested" event
@@ -490,11 +510,13 @@ Estimated effort: 1-2 hours
 ### TASK 3: End-to-End Test
 
 Prerequisites:
+
 - Build succeeds (blockers 1-2 fixed)
 - Unit tests pass
 - Python Council service running (local, port 8000)
 
 Flow:
+
 1. Create thread
 2. Send "thread.council-goal-requested" with real goal text
 3. Wait for decision
@@ -535,6 +557,7 @@ git status
 ```
 
 Then:
+
 1. Inspect ProviderCommandReactor.ts (pattern)
 2. Create CouncilCommandReactor.ts (new layer)
 3. Write tests
@@ -554,6 +577,7 @@ Then:
 **Blocker: MACHINE RAM EXHAUSTION**
 
 Diagnostic attempt:
+
 - Discovered vite-plus in catalog: 0.2.2 (@voidzero-dev/vite-plus-core@0.2.2)
 - Catalog defined in pnpm-workspace.yaml
 - Attempted: pnpm install
@@ -562,18 +586,21 @@ Diagnostic attempt:
 - Root cause: Machine insufficient RAM for full monorepo dependency install
 
 **Impact:**
+
 - Test framework inaccessible (vite-plus/vp command not available)
 - Test runners cannot start
 - Regression test suite unreachable
 - Test bodies remain unimplemented (only skeletons created)
 
 **Code verification possible without test framework:**
+
 - ExecutionCandidate: STRUCTURED ✓ (inspected source code)
 - Dispatcher routing: IMPLEMENTED ✓ (code review completed)
 - Council path independence: VERIFIED ✓ (architecture audit passed)
 - Ox disconnected: CONFIRMED ✓ (code inspection)
 
 **Cannot verify without test execution:**
+
 - Planner event emission (runtime)
 - Critic event emission (runtime)
 - Revision event emission (runtime)
@@ -596,22 +623,26 @@ OR proceed with Phase 3 understanding that Unit/Regression tests cannot yet vali
 ## PHASE 2.5C — RECOVERY ATTEMPT: HARDWARE BLOCKER CONFIRMED
 
 **Attempted:**
+
 - Filtered pnpm install with memory limits
 - Command: `NODE_OPTIONS="--max-old-space-size=1536" pnpm --filter "t3" --filter "@t3tools/contracts" install --frozen-lockfile`
 
 **Result: FAILED**
+
 ```
 Progress: resolved 393, reused 391, downloaded 0, added 391
 [ERR_PNPM_ERR_SQLITE_ERROR] out of memory
 ```
 
 **Root Cause Analysis:**
+
 1. Full install OOM: JavaScript heap out of memory (35 MB)
 2. Filtered install OOM: pnpm store sqlite database out of memory (391 packages)
 3. Memory limit: 1536 MB Node, machine ~8GB physical
 4. Conclusion: Even filtered install exhausts available RAM
 
 **Approaches Exhausted:**
+
 - ✗ Full pnpm install
 - ✗ Filtered pnpm install (1536 MB conservative limit)
 - ✗ Cached/offline mode (requires first install success)
@@ -622,6 +653,7 @@ Progress: resolved 393, reused 391, downloaded 0, added 391
 Machine cannot complete dependency installation for testing/typecheck.
 
 **Code Status:**
+
 - Council architecture: ✓ Verified (static inspection)
 - ExecutionCandidate: ✓ Structured (code review)
 - Dispatcher routing: ✓ Implemented (code review)
@@ -643,6 +675,7 @@ OR upgrade machine resources
 **BREAKTHROUGH: Lightweight Test Environment via Native Node TypeScript**
 
 **Discovery:**
+
 ```
 NODE_VERSION = v24.16.0
 NATIVE_TS_SUPPORT = --experimental-strip-types ✓ (available)
@@ -652,6 +685,7 @@ Result: Can execute TypeScript tests WITHOUT pnpm install
 ```
 
 **Extracted Pure Functions (No Effect dependency):**
+
 ```
 apps/server/src/council/CouncilDecisionRouter.ts
   - routeCouncilDecision(decision) → DecisionRoute
@@ -661,6 +695,7 @@ apps/server/src/council/CouncilDecisionRouter.ts
 ```
 
 **Test Results:**
+
 ```
 SUITE 1: test-harness/council-decision-router.test.ts
   Tests: 22
@@ -686,6 +721,7 @@ PASS RATE: 100%
 ```
 
 **Architecture Verification:**
+
 ```
 Pure Logic Extracted = ✓ (CouncilDecisionRouter)
 ExecutionCandidate Tested = ✓ (payload structure verified)
@@ -701,6 +737,7 @@ NO_EFFECT_DEPENDENCIES = TRUE (in test logic)
 ```
 
 **Comparison: Declared vs Real Tests**
+
 ```
 Previous skeleton tests = 23 (15 CouncilCommandReactor + 8 Dispatcher)
   - All expect(true).toBe(true) placeholders
@@ -715,6 +752,7 @@ Improvement = +69% real tests (39 vs 23 declared)
 ```
 
 **Hardware Blocker Reclassification:**
+
 ```
 BEFORE (Phase 2.5C):
   FULL_PNPM_INSTALL_BLOCKED = TRUE
@@ -724,13 +762,13 @@ BEFORE (Phase 2.5C):
 AFTER (Phase 2.5D):
   FULL_PNPM_INSTALL_BLOCKED = TRUE (unchanged)
   FILTERED_PNPM_INSTALL_BLOCKED = TRUE (unchanged)
-  
+
   BUT:
   NO_INSTALL_TEST_METHOD = DISCOVERED ✓
   LIGHTWEIGHT_PURE_LOGIC_TESTING = POSSIBLE ✓
   COUNCIL_DECISION_LOGIC_TESTED = TRUE ✓
   HTTP_CLIENT_INTERFACE_TESTED = TRUE ✓
-  
+
   HARDWARE_ENVIRONMENT_BLOCKER: PARTIAL
     - Full T3 monorepo test environment: STILL BLOCKED (OOM)
     - Council pure logic testing: NOW AVAILABLE ✓
@@ -740,6 +778,7 @@ AFTER (Phase 2.5D):
 ```
 
 **Code Status After Phase 2.5D:**
+
 ```
 ✓ Council decision routing: TESTED + VERIFIED
 ✓ ExecutionCandidate payload: TESTED + VERIFIED
@@ -758,6 +797,7 @@ AFTER (Phase 2.5D):
 ```
 
 **What Phase 2.5D Proves:**
+
 1. Council pure logic is testable without full monorepo
 2. HTTP interface contracts are correct
 3. Decision routing covers all 6 types
@@ -766,6 +806,7 @@ AFTER (Phase 2.5D):
 6. Node 24 native TypeScript is viable for lightweight testing
 
 **What Phase 2.5D Does NOT Prove:**
+
 1. Full monorepo compatibility (still OOM)
 2. Effect-dependent reactor behavior (needs Effect runtime)
 3. Type safety of Effect integration (needs vite-plus)
@@ -773,6 +814,7 @@ AFTER (Phase 2.5D):
 5. Real Python Council compatibility (no real service)
 
 **Files Created:**
+
 ```
 apps/server/src/council/CouncilDecisionRouter.ts (62 lines)
 test-harness/council-decision-router.test.ts (230 lines)
@@ -928,6 +970,7 @@ FAIL: 0
 ```
 
 **Files Modified:**
+
 ```
 packages/contracts/src/orchestration.ts
   + ThreadCouncilApprovalRequestedPayload struct
@@ -942,6 +985,7 @@ apps/server/src/orchestration/Layers/CouncilCommandReactor.ts
 ```
 
 **Files Created:**
+
 ```
 test-harness/council-approval-states.test.ts (275 lines)
 ```
@@ -1004,7 +1048,7 @@ PHASE = 3C Recovery (prep for external validation)
 ```
 FULL E2E PATH VERIFIED:
 
-UI (external) 
+UI (external)
   ↓
 ws.ts (dispatchNormalizedCommand)
   → interactionMode="council" check
@@ -1235,4 +1279,3 @@ Tests are real and executable.
 Safety constraints are maintained.
 
 Awaiting: External environment (GitHub Actions or machine with sufficient RAM) to complete full runtime validation.
-
