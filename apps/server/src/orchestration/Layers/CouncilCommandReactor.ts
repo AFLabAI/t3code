@@ -105,7 +105,7 @@ const make = Effect.gen(function* () {
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     return yield* projectionSnapshotQuery
       .getThreadDetailById(threadId)
-      .pipe(Effect.map((opt) => opt.toUndefined?.()));
+      .pipe(Effect.map((opt) => opt.getOrUndefined?.()));
   });
 
   const emitCouncilEvent = (input: {
@@ -162,7 +162,7 @@ const make = Effect.gen(function* () {
             id: eventId,
             tone:
               input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
-                ? "warning"
+                ? "error"
                 : "info",
             kind: "council.execution-candidate",
             summary: `Council Decision: ${input.decision.decision}`,
@@ -387,10 +387,10 @@ const make = Effect.gen(function* () {
 
           yield* orchestrationEngine
             .dispatch({
-              type: "thread.approval-response-requested",
+              type: "thread.approval.respond",
               commandId: requestId,
               threadId: input.threadId,
-              requestId: requestId,
+              requestId,
               decision: "decline", // Default to decline, awaits user approval
               createdAt: new Date().toISOString(),
             })
