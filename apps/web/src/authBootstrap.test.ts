@@ -266,7 +266,7 @@ describe("resolveInitialServerAuthGateState", () => {
       status: "requires-auth",
       auth: LOOPBACK_AUTH,
     });
-    expect(attempts).toBe(4);
+    expect(attempts).toBe(5);
   });
 
   it("takes a pairing token from the location hash and strips it immediately", async () => {
