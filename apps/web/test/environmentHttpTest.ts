@@ -35,6 +35,7 @@ interface EnvironmentHttpTestScenario {
   readonly pairingCredential?: (
     payload: AuthCreatePairingCredentialInput,
   ) => Effect.Effect<AuthPairingCredentialResult>;
+  readonly devBootstrap?: () => Effect.Effect<AuthPairingCredentialResult>;
 }
 
 export interface EnvironmentHttpTestCalls {
@@ -42,6 +43,7 @@ export interface EnvironmentHttpTestCalls {
   session: number;
   browserSession: Array<AuthBrowserSessionRequest>;
   pairingCredential: Array<AuthCreatePairingCredentialInput>;
+  devBootstrap: number;
 }
 
 const unexpectedEndpoint = (endpoint: string) =>
@@ -66,6 +68,7 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
     session: 0,
     browserSession: [],
     pairingCredential: [],
+    devBootstrap: 0,
   };
 
   const client = await Effect.runPromise(
@@ -115,7 +118,14 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
             .handle("revokePairingLink", () => unexpectedEndpoint("auth.revokePairingLink"))
             .handle("clients", () => unexpectedEndpoint("auth.clients"))
             .handle("revokeClient", () => unexpectedEndpoint("auth.revokeClient"))
-            .handle("revokeOtherClients", () => unexpectedEndpoint("auth.revokeOtherClients")),
+            .handle("revokeOtherClients", () => unexpectedEndpoint("auth.revokeOtherClients"))
+            .handle(
+              "devBootstrap",
+              Effect.fn("test.environment.auth.devBootstrap")(function* () {
+                calls.devBootstrap += 1;
+                return yield* scenario.devBootstrap?.() ?? unexpectedEndpoint("auth.devBootstrap");
+              }),
+            ),
         ),
       ]),
       Effect.provideService(EnvironmentAuthenticatedAuth, authenticatedAuth),

@@ -335,9 +335,7 @@ async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
   if (!credentialToUse && currentSession.auth.policy === "loopback-browser") {
     try {
       const devBootstrap = await runPrimaryHttp(
-        PrimaryEnvironmentHttpClient.pipe(
-          Effect.flatMap((client) => client.auth.devBootstrap({ headers: {} })),
-        ),
+        PrimaryEnvironmentHttpClient.pipe(Effect.flatMap((client) => client.auth.devBootstrap({}))),
       );
       credentialToUse = devBootstrap.credential;
       devBootstrapToken = (devBootstrap as any).access_token ?? null;
