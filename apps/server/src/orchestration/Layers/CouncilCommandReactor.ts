@@ -280,9 +280,12 @@ const make = Effect.gen(function* () {
       const currentTime = yield* Clock.currentTimeMillis;
       const elapsed = currentTime - startTime;
       if (elapsed > Duration.toMillis(maxWaitTime)) {
-        return yield* new Error(
-          `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
+        yield* Effect.fail(
+          new Error(
+            `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
+          ),
         );
+        return undefined as never;
       }
 
       state = yield* pollCouncilCycle(state);
@@ -295,7 +298,8 @@ const make = Effect.gen(function* () {
       yield* Effect.sleep(COUNCIL_POLL_INTERVAL);
     }
 
-    return yield* new Error(`Council cycle ${cycleId} failed to complete`);
+    yield* Effect.fail(new Error(`Council cycle ${cycleId} failed to complete`));
+    return undefined as never;
   });
 
   const handleCouncilGoal = Effect.fn("handleCouncilGoal")(function* (input: {
@@ -328,7 +332,7 @@ const make = Effect.gen(function* () {
           threadId: input.threadId,
           summary: "Council goal submission failed",
           detail,
-        }).pipe(Effect.andThen(() => Effect.fail(new Error(detail))));
+        }).pipe(Effect.andThen(() => Effect.fail(cause)));
       }),
     );
 
@@ -345,7 +349,7 @@ const make = Effect.gen(function* () {
           summary: "Council decision retrieval failed",
           detail,
           cycleId,
-        }).pipe(Effect.andThen(() => Effect.fail(new Error(detail))));
+        }).pipe(Effect.andThen(() => Effect.fail(cause)));
       }),
     );
 

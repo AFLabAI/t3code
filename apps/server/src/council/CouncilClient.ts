@@ -69,16 +69,17 @@ export interface CouncilClientShape {
 }
 
 export class CouncilClient {
-  private baseUrl: string;
+  readonly baseUrl: string;
 
   constructor(baseUrl: string = "http://127.0.0.1:8000") {
     this.baseUrl = baseUrl;
   }
 
-  submitGoal(goal: CouncilGoal): Effect.Effect<string, Error> {
+  submitGoal = (goal: CouncilGoal): Effect.Effect<string, Error> => {
+    const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise(() =>
-        fetch(`${this.baseUrl}/api/goal`, {
+        fetch(`${baseUrl}/api/goal`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(goal),
@@ -87,54 +88,57 @@ export class CouncilClient {
 
       if (!response.ok) {
         const text = yield* Effect.tryPromise(() => response.text());
-        throw new Error(`Council submit failed: ${response.status} ${text}`);
+        yield* Effect.fail(new Error(`Council submit failed: ${response.status} ${text}`));
       }
 
       const data = yield* Effect.tryPromise(() => response.json() as Promise<{ cycleId: string }>);
       return data.cycleId;
     });
-  }
+  };
 
-  getCycleStatus(cycleId: string): Effect.Effect<CouncilEvent[], Error> {
+  getCycleStatus = (cycleId: string): Effect.Effect<CouncilEvent[], Error> => {
+    const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise(() =>
-        fetch(`${this.baseUrl}/api/transcript?cycleId=${cycleId}`),
+        fetch(`${baseUrl}/api/transcript?cycleId=${cycleId}`),
       );
 
       if (!response.ok) {
-        throw new Error(`Council transcript fetch failed: ${response.status}`);
+        yield* Effect.fail(new Error(`Council transcript fetch failed: ${response.status}`));
       }
 
       const data = yield* Effect.tryPromise(() => response.json() as Promise<CouncilEvent[]>);
       return data;
     });
-  }
+  };
 
-  getDecision(cycleId: string): Effect.Effect<CouncilDecision, Error> {
+  getDecision = (cycleId: string): Effect.Effect<CouncilDecision, Error> => {
+    const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise(() =>
-        fetch(`${this.baseUrl}/api/decision?cycleId=${cycleId}`),
+        fetch(`${baseUrl}/api/decision?cycleId=${cycleId}`),
       );
 
       if (!response.ok) {
-        throw new Error(`Council decision fetch failed: ${response.status}`);
+        yield* Effect.fail(new Error(`Council decision fetch failed: ${response.status}`));
       }
 
       const data = yield* Effect.tryPromise(() => response.json() as Promise<CouncilDecision>);
       return data;
     });
-  }
+  };
 
-  health(): Effect.Effect<boolean, Error> {
+  health = (): Effect.Effect<boolean, Error> => {
+    const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       try {
         const response = yield* Effect.tryPromise(() =>
-          fetch(`${this.baseUrl}/api/health`, { signal: AbortSignal.timeout(3000) }),
+          fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(3000) }),
         );
         return response.ok;
       } catch {
         return false;
       }
     });
-  }
+  };
 }
