@@ -134,7 +134,7 @@ const make = Effect.gen(function* () {
               kind: "council.event",
               summary: `Council ${input.councilEventType}`,
               payload: {
-                brain: input.brain,
+                ...(input.brain ? { brain: input.brain } : {}),
                 content: input.content,
                 cycleId: input.cycleId,
                 councilEventType: input.councilEventType,
@@ -359,6 +359,8 @@ const make = Effect.gen(function* () {
           // Create approval request instead of direct ExecutionCandidate
           const approvalRequestId = yield* serverCommandId("council-approval-request");
           const approvalEventId = yield* serverEventId();
+          const now = yield* Clock.currentTimeMillis;
+          const isoString = new Date(now).toISOString();
 
           yield* orchestrationEngine
             .dispatch({
@@ -380,9 +382,9 @@ const make = Effect.gen(function* () {
                   goal: input.goalText,
                 },
                 turnId: null,
-                createdAt: yield* Effect.sync(() => new Date().toISOString()),
+                createdAt: isoString,
               },
-              createdAt: yield* Effect.sync(() => new Date().toISOString()),
+              createdAt: isoString,
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -406,7 +408,7 @@ const make = Effect.gen(function* () {
               threadId: input.threadId,
               requestId,
               decision: "decline", // Default to decline, awaits user approval
-              createdAt: yield* Effect.sync(() => new Date().toISOString()),
+              createdAt: isoString,
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -454,12 +456,12 @@ const make = Effect.gen(function* () {
           );
 
           // Emit execution result as evidence
-          if (executionResult.success) {
+          if (executionResult.success && executionResult.output) {
             yield* emitCouncilEvent({
               threadId: input.threadId,
               councilEventType: "execution_result",
               brain: "RealOx",
-              content: `✓ ${executionResult.output || "Execution completed"}`,
+              content: `✓ ${executionResult.output}`,
               cycleId,
             }).pipe(Effect.catchCause(() => Effect.void));
           }
