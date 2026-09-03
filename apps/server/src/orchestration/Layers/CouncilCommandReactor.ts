@@ -1,9 +1,12 @@
 import { CommandId, EventId, type OrchestrationEvent, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import {
@@ -103,9 +106,8 @@ const make = Effect.gen(function* () {
   const councilClient = new CouncilClient();
 
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    return yield* projectionSnapshotQuery
-      .getThreadDetailById(threadId)
-      .pipe(Effect.map((opt) => opt.getOrUndefined?.()));
+    const opt = yield* projectionSnapshotQuery.getThreadDetailById(threadId);
+    return opt.pipe(Option.getOrUndefined);
   });
 
   const emitCouncilEvent = (input: {
@@ -136,7 +138,7 @@ const make = Effect.gen(function* () {
               councilEventType: input.councilEventType,
             },
             turnId: null,
-            createdAt: new Date().toISOString(),
+            createdAt: yield * Effect.sync(() => new Date().toISOString()),
           },
           createdAt: new Date().toISOString(),
         }),
@@ -175,7 +177,7 @@ const make = Effect.gen(function* () {
               requiresApproval: input.decision.requiresApproval,
             },
             turnId: null,
-            createdAt: new Date().toISOString(),
+            createdAt: yield * Effect.sync(() => new Date().toISOString()),
           },
           createdAt: new Date().toISOString(),
         }),
@@ -207,7 +209,7 @@ const make = Effect.gen(function* () {
               ...(input.cycleId ? { cycleId: input.cycleId } : {}),
             },
             turnId: null,
-            createdAt: new Date().toISOString(),
+            createdAt: yield * Effect.sync(() => new Date().toISOString()),
           },
           createdAt: new Date().toISOString(),
         }),
@@ -262,9 +264,10 @@ const make = Effect.gen(function* () {
       status: "polling",
     };
 
-    const startTime = Date.now();
+    const startTime = yield* Clock.currentTimeMillis;
     while (state.status === "polling") {
-      const elapsed = Date.now() - startTime;
+      const currentTime = yield* Clock.currentTimeMillis;
+      const elapsed = currentTime - startTime;
       if (elapsed > Duration.toMillis(maxWaitTime)) {
         return yield* new Error(
           `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
@@ -366,9 +369,9 @@ const make = Effect.gen(function* () {
                   goal: input.goalText,
                 },
                 turnId: null,
-                createdAt: new Date().toISOString(),
+                createdAt: yield* Effect.sync(() => new Date().toISOString()),
               },
-              createdAt: new Date().toISOString(),
+              createdAt: yield* Effect.sync(() => new Date().toISOString()),
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -392,7 +395,7 @@ const make = Effect.gen(function* () {
               threadId: input.threadId,
               requestId,
               decision: "decline", // Default to decline, awaits user approval
-              createdAt: new Date().toISOString(),
+              createdAt: yield* Effect.sync(() => new Date().toISOString()),
             })
             .pipe(
               Effect.catchCause((cause) =>
