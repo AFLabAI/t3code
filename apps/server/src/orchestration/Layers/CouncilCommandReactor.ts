@@ -2,7 +2,6 @@ import { CommandId, EventId, type OrchestrationEvent, type ThreadId } from "@t3t
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -122,25 +121,29 @@ const make = Effect.gen(function* () {
       eventId: serverEventId(),
     }).pipe(
       Effect.flatMap(({ commandId, eventId }) =>
-        orchestrationEngine.dispatch({
-          type: "thread.activity.append",
-          commandId,
-          threadId: input.threadId,
-          activity: {
-            id: eventId,
-            tone: "info",
-            kind: "council.event",
-            summary: `Council ${input.councilEventType}`,
-            payload: {
-              brain: input.brain,
-              content: input.content,
-              cycleId: input.cycleId,
-              councilEventType: input.councilEventType,
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const isoString = new Date(now).toISOString();
+          return yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId,
+            threadId: input.threadId,
+            activity: {
+              id: eventId,
+              tone: "info",
+              kind: "council.event",
+              summary: `Council ${input.councilEventType}`,
+              payload: {
+                brain: input.brain,
+                content: input.content,
+                cycleId: input.cycleId,
+                councilEventType: input.councilEventType,
+              },
+              turnId: null,
+              createdAt: isoString,
             },
-            turnId: null,
-            createdAt: yield * Effect.sync(() => new Date().toISOString()),
-          },
-          createdAt: new Date().toISOString(),
+            createdAt: isoString,
+          });
         }),
       ),
     );
@@ -156,30 +159,34 @@ const make = Effect.gen(function* () {
       eventId: serverEventId(),
     }).pipe(
       Effect.flatMap(({ commandId, eventId }) =>
-        orchestrationEngine.dispatch({
-          type: "thread.activity.append",
-          commandId,
-          threadId: input.threadId,
-          activity: {
-            id: eventId,
-            tone:
-              input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
-                ? "error"
-                : "info",
-            kind: "council.execution-candidate",
-            summary: `Council Decision: ${input.decision.decision}`,
-            payload: {
-              cycleId: input.cycleId,
-              decision: input.decision.decision,
-              reasoning: input.decision.reasoning,
-              proposal: input.decision.executionProposal,
-              riskLevel: input.decision.riskLevel,
-              requiresApproval: input.decision.requiresApproval,
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const isoString = new Date(now).toISOString();
+          return yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId,
+            threadId: input.threadId,
+            activity: {
+              id: eventId,
+              tone:
+                input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
+                  ? "error"
+                  : "info",
+              kind: "council.execution-candidate",
+              summary: `Council Decision: ${input.decision.decision}`,
+              payload: {
+                cycleId: input.cycleId,
+                decision: input.decision.decision,
+                reasoning: input.decision.reasoning,
+                proposal: input.decision.executionProposal,
+                riskLevel: input.decision.riskLevel,
+                requiresApproval: input.decision.requiresApproval,
+              },
+              turnId: null,
+              createdAt: isoString,
             },
-            turnId: null,
-            createdAt: yield * Effect.sync(() => new Date().toISOString()),
-          },
-          createdAt: new Date().toISOString(),
+            createdAt: isoString,
+          });
         }),
       ),
     );
@@ -195,23 +202,27 @@ const make = Effect.gen(function* () {
       eventId: serverEventId(),
     }).pipe(
       Effect.flatMap(({ commandId, eventId }) =>
-        orchestrationEngine.dispatch({
-          type: "thread.activity.append",
-          commandId,
-          threadId: input.threadId,
-          activity: {
-            id: eventId,
-            tone: "error",
-            kind: "council.error",
-            summary: input.summary,
-            payload: {
-              detail: input.detail,
-              ...(input.cycleId ? { cycleId: input.cycleId } : {}),
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const isoString = new Date(now).toISOString();
+          return yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId,
+            threadId: input.threadId,
+            activity: {
+              id: eventId,
+              tone: "error",
+              kind: "council.error",
+              summary: input.summary,
+              payload: {
+                detail: input.detail,
+                ...(input.cycleId ? { cycleId: input.cycleId } : {}),
+              },
+              turnId: null,
+              createdAt: isoString,
             },
-            turnId: null,
-            createdAt: yield * Effect.sync(() => new Date().toISOString()),
-          },
-          createdAt: new Date().toISOString(),
+            createdAt: isoString,
+          });
         }),
       ),
     );
