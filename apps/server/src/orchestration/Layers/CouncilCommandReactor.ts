@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import {
   CouncilClient,
@@ -44,11 +45,20 @@ type CouncilIntentEvent = Extract<
 const COUNCIL_POLL_INTERVAL = Duration.millis(500);
 const COUNCIL_POLL_TIMEOUT = Duration.seconds(120);
 
+const CouncilTimeoutError = (message: string) => ({
+  _tag: "CouncilTimeoutError" as const,
+  message,
+});
+type CouncilTimeoutError = ReturnType<typeof CouncilTimeoutError>;
+
+const CouncilCycleError = (message: string) => ({ _tag: "CouncilCycleError" as const, message });
+type CouncilCycleError = ReturnType<typeof CouncilCycleError>;
+
 type CouncilCycleState = {
   cycleId: string;
   goalText: string;
   threadId: ThreadId;
-  events: CouncilEvent[];
+  events: readonly CouncilEvent[];
   decision?: CouncilDecision;
   status: "polling" | "complete" | "failed";
 };
@@ -101,6 +111,7 @@ const invokeRealOxExecutor = (input: {
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
+  const httpClient = yield* HttpClient.HttpClient;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
@@ -227,8 +238,14 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const pollCouncilCycle = (state: CouncilCycleState): Effect.Effect<CouncilCycleState, Error> =>
-    Effect.gen(function* () {
+  const pollCouncilCycle = (
+    state: CouncilCycleState,
+  ): Effect.Effect<
+    CouncilCycleState,
+    CouncilTimeoutError | CouncilCycleError | Error,
+    HttpClient.HttpClient
+  > => {
+    return Effect.gen(function* () {
       const events = yield* councilClient.getCycleStatus(state.cycleId);
 
       for (const event of events.slice(state.events.length)) {
@@ -245,24 +262,39 @@ const make = Effect.gen(function* () {
       if (isDecisionReady && !state.decision) {
         const decision = yield* councilClient.getDecision(state.cycleId);
         return {
-          ...state,
-          events,
+          cycleId: state.cycleId,
+          goalText: state.goalText,
+          threadId: state.threadId,
+          events: events as CouncilEvent[],
           decision,
           status: "complete" as const,
         };
       }
 
       return {
-        ...state,
-        events,
+        cycleId: state.cycleId,
+        goalText: state.goalText,
+        threadId: state.threadId,
+        events: events as CouncilEvent[],
+        decision: state.decision,
+        status: state.status,
       };
-    });
+    }) as Effect.Effect<
+      CouncilCycleState,
+      CouncilTimeoutError | CouncilCycleError | Error,
+      HttpClient.HttpClient
+    >;
+  };
 
   const waitForCouncilDecision = (
     cycleId: string,
     threadId: ThreadId,
     maxWaitTime: Duration.Duration,
-  ): Effect.Effect<CouncilDecision, Error> =>
+  ): Effect.Effect<
+    CouncilDecision,
+    CouncilTimeoutError | CouncilCycleError | Error,
+    HttpClient.HttpClient
+  > =>
     Effect.gen(function* () {
       let state: CouncilCycleState = {
         cycleId,
@@ -277,7 +309,7 @@ const make = Effect.gen(function* () {
         const currentTime = yield* Clock.currentTimeMillis;
         const elapsed = currentTime - startTime;
         if (elapsed > Duration.toMillis(maxWaitTime)) {
-          const timeoutError = new Error(
+          const timeoutError = CouncilTimeoutError(
             `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
           );
           return yield* Effect.fail(timeoutError);
@@ -292,7 +324,7 @@ const make = Effect.gen(function* () {
         yield* Effect.sleep(COUNCIL_POLL_INTERVAL);
       }
 
-      const completeError = new Error(`Council cycle ${cycleId} failed to complete`);
+      const completeError = CouncilCycleError(`Council cycle ${cycleId} failed to complete`);
       return yield* Effect.fail(completeError);
     });
 
@@ -300,7 +332,14 @@ const make = Effect.gen(function* () {
     threadId: ThreadId;
     goalText: string;
     createdAt: string;
-  }): Effect.Effect<void, Error> =>
+  }): Effect.Effect<
+    void,
+    | CouncilTimeoutError
+    | CouncilCycleError
+    | Error
+    | Cause.Cause<CouncilTimeoutError | CouncilCycleError | Error>,
+    HttpClient.HttpClient
+  > =>
     Effect.gen(function* () {
       const thread = yield* resolveThread(input.threadId);
       if (!thread) {
@@ -473,7 +512,16 @@ const make = Effect.gen(function* () {
       }
     });
 
-  const processDomainEvent = (event: CouncilIntentEvent): Effect.Effect<void, Error> =>
+  const processDomainEvent = (
+    event: CouncilIntentEvent,
+  ): Effect.Effect<
+    void,
+    | CouncilTimeoutError
+    | CouncilCycleError
+    | Error
+    | Cause.Cause<CouncilTimeoutError | CouncilCycleError | Error>,
+    HttpClient.HttpClient
+  > =>
     Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({
         "orchestration.event_type": event.type,

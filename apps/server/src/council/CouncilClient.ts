@@ -106,11 +106,14 @@ export class CouncilClient {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
-      return yield* HttpClientRequest.get(`${baseUrl}/api/transcript?cycleId=${cycleId}`).pipe(
+      const events = yield* HttpClientRequest.get(
+        `${baseUrl}/api/transcript?cycleId=${cycleId}`,
+      ).pipe(
         httpClient.execute,
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Array(CouncilEvent))),
       );
+      return Array.from(events);
     });
   };
 
