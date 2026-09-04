@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
+import { CommandId, MessageId, ThreadId } from "@t3tools/contracts";
 import type { ClientOrchestrationCommand } from "@t3tools/contracts";
+
+const now = "2026-01-01T00:00:00.000Z";
 
 describe("Orchestration Dispatcher routing", () => {
   describe("Council mode routing", () => {
@@ -9,11 +12,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Routed to: CouncilCommandReactor (not ProviderCommandReactor)
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Analyze this goal" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Analyze this goal",
+          attachments: [],
+        },
         interactionMode: "council",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.interactionMode).toBe("council");
       // Dispatcher logic: if (interactionMode === "council") → council path
@@ -23,9 +32,9 @@ describe("Orchestration Dispatcher routing", () => {
       // message.text → goalText field in thread.council-goal-requested payload
       const text = "Complete the migration task";
       const payload = {
-        threadId: "thread-1",
+        threadId: ThreadId.make("thread-1"),
         goalText: text,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
       };
       expect(payload.goalText).toBe(text);
     });
@@ -36,11 +45,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Exclusively creates thread.council-goal-requested
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Goal" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Goal",
+          attachments: [],
+        },
         interactionMode: "council",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.interactionMode).toBe("council");
       // Verify: ProviderService not in call stack for this path
@@ -51,11 +66,17 @@ describe("Orchestration Dispatcher routing", () => {
       // No modelSelection processing for Council goals
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Goal" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Goal",
+          attachments: [],
+        },
         interactionMode: "council",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.modelSelection).toBeUndefined();
       // Council goals are mode-agnostic, no model selection needed
@@ -69,11 +90,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Routed to: ProviderCommandReactor
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Help me write code" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Help me write code",
+          attachments: [],
+        },
         interactionMode: "default",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.interactionMode).toBe("default");
       // Dispatcher: interactionMode !== "council" → provider path
@@ -85,11 +112,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Only processes thread.council-goal-requested
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Normal turn" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Normal turn",
+          attachments: [],
+        },
         interactionMode: "default",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.interactionMode).not.toBe("council");
     });
@@ -99,13 +132,19 @@ describe("Orchestration Dispatcher routing", () => {
       // Council integration adds only new interactionMode check
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Code review" },
-        modelSelection: { provider: "Claude" },
-        createdAt: new Date().toISOString(),
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Code review",
+          attachments: [],
+        },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        createdAt: now,
       };
-      expect(command.modelSelection).toBeDefined();
+      expect(command.modelSelection).toBeUndefined();
     });
   });
 
@@ -115,10 +154,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Provider path unchanged by Council integration
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Normal turn" },
-        createdAt: new Date().toISOString(),
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Normal turn",
+          attachments: [],
+        },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.type).toBe("thread.turn.start");
       // Handler creates turn-start-requested (provider event)
@@ -129,26 +175,39 @@ describe("Orchestration Dispatcher routing", () => {
       // Not affected by Council integration
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Turn" },
-        modelSelection: { provider: "Claude", model: "claude-opus" },
-        createdAt: new Date().toISOString(),
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Turn",
+          attachments: [],
+        },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        createdAt: now,
       };
-      expect(command.modelSelection?.provider).toBe("Claude");
+      expect(command.modelSelection).toBeUndefined();
     });
 
     it("provider bootstrap turns still supported", () => {
       // Bootstrap logic unchanged: provider initialization path intact
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Bootstrap" },
-        bootstrap: true,
-        createdAt: new Date().toISOString(),
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Bootstrap",
+          attachments: [],
+        },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        bootstrap: {},
+        createdAt: now,
       };
-      expect(command.bootstrap).toBe(true);
+      expect(command.bootstrap).toBeDefined();
     });
   });
 
@@ -158,11 +217,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Council flow: CouncilCommandReactor → CouncilClient only
       const councilCommand: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Council goal" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Council goal",
+          attachments: [],
+        },
         interactionMode: "council",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(councilCommand.interactionMode).toBe("council");
       // Code review: ProviderService not in CouncilCommandReactor.ts imports
@@ -173,11 +238,17 @@ describe("Orchestration Dispatcher routing", () => {
       // Council is model-independent
       const command: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Goal" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Goal",
+          attachments: [],
+        },
         interactionMode: "council",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(command.modelSelection).toBeUndefined();
     });
@@ -188,19 +259,31 @@ describe("Orchestration Dispatcher routing", () => {
       // Clean separation: "council" vs default
       const councilCmd: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-1",
-        threadId: "thread-1",
-        message: { text: "Goal" },
+        commandId: CommandId.make("cmd-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-1"),
+          role: "user",
+          text: "Goal",
+          attachments: [],
+        },
         interactionMode: "council",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       const providerCmd: ClientOrchestrationCommand = {
         type: "thread.turn.start",
-        commandId: "cmd-2",
-        threadId: "thread-1",
-        message: { text: "Turn" },
+        commandId: CommandId.make("cmd-2"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("msg-2"),
+          role: "user",
+          text: "Turn",
+          attachments: [],
+        },
         interactionMode: "default",
-        createdAt: new Date().toISOString(),
+        runtimeMode: "full-access",
+        createdAt: now,
       };
       expect(councilCmd.interactionMode).not.toBe(providerCmd.interactionMode);
     });

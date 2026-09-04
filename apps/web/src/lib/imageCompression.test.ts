@@ -27,6 +27,9 @@ function makeFile(sizeBytes: number, type = "image/png"): File {
  * `supportsWebp: false` makes `convertToBlob` hand back a differently-typed
  * blob for WebP requests, which is how a real browser signals it cannot
  * encode that format.
+ *
+ * For performance in tests with large/unbounded sizes, caches the oversized blob
+ * so repeated calls don't recreate expensive data structures.
  */
 function stubCanvasPipeline(
   sizeForQuality: (quality: number) => number,
@@ -35,6 +38,8 @@ function stubCanvasPipeline(
   const supportsWebp = options?.supportsWebp ?? true;
   const close = vi.fn();
   const fillRect = vi.fn();
+  const blobCache = new Map<string, Blob>();
+
   vi.stubGlobal(
     "createImageBitmap",
     vi.fn(async () => ({ width: 4000, height: 3000, close })),
@@ -55,7 +60,18 @@ function stubCanvasPipeline(
       }
       async convertToBlob({ type, quality }: { type: string; quality: number }) {
         const resolvedType = type === "image/webp" && !supportsWebp ? "image/png" : type;
-        return new Blob([new Uint8Array(sizeForQuality(quality))], { type: resolvedType });
+        const requestedSize = sizeForQuality(quality);
+        const cacheKey = `${resolvedType}:${requestedSize}`;
+
+        if (!blobCache.has(cacheKey)) {
+          // For very large sizes, create a smaller blob that still encodes to > budget.
+          // 1MB binary → ~1.33M base64 chars, which overflows the 1.3M char budget.
+          // This avoids expensive repeated allocation/base64 encoding of massive blobs.
+          const binarySize = Math.min(requestedSize, 1_000_000);
+          blobCache.set(cacheKey, new Blob([new Uint8Array(binarySize)], { type: resolvedType }));
+        }
+
+        return blobCache.get(cacheKey)!;
       }
     },
   );
