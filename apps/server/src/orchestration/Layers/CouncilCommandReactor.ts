@@ -2,6 +2,7 @@ import { CommandId, EventId, type OrchestrationEvent, type ThreadId } from "@t3t
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -102,6 +103,8 @@ const make = Effect.gen(function* () {
 
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
 
+  const getCurrentIsoString = Effect.map(DateTime.now, DateTime.formatIso);
+
   const councilClient = new CouncilClient();
 
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
@@ -119,31 +122,28 @@ const make = Effect.gen(function* () {
     Effect.all({
       commandId: serverCommandId("council-event"),
       eventId: serverEventId(),
+      isoString: getCurrentIsoString,
     }).pipe(
-      Effect.flatMap(({ commandId, eventId }) =>
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const isoString = new Date(now).toISOString();
-          return yield* orchestrationEngine.dispatch({
-            type: "thread.activity.append",
-            commandId,
-            threadId: input.threadId,
-            activity: {
-              id: eventId,
-              tone: "info",
-              kind: "council.event",
-              summary: `Council ${input.councilEventType}`,
-              payload: {
-                ...(input.brain ? { brain: input.brain } : {}),
-                content: input.content,
-                cycleId: input.cycleId,
-                councilEventType: input.councilEventType,
-              },
-              turnId: null,
-              createdAt: isoString,
+      Effect.flatMap(({ commandId, eventId, isoString }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone: "info",
+            kind: "council.event",
+            summary: `Council ${input.councilEventType}`,
+            payload: {
+              ...(input.brain ? { brain: input.brain } : {}),
+              content: input.content,
+              cycleId: input.cycleId,
+              councilEventType: input.councilEventType,
             },
+            turnId: null,
             createdAt: isoString,
-          });
+          },
+          createdAt: isoString,
         }),
       ),
     );
@@ -157,36 +157,33 @@ const make = Effect.gen(function* () {
     Effect.all({
       commandId: serverCommandId("council-execution-candidate"),
       eventId: serverEventId(),
+      isoString: getCurrentIsoString,
     }).pipe(
-      Effect.flatMap(({ commandId, eventId }) =>
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const isoString = new Date(now).toISOString();
-          return yield* orchestrationEngine.dispatch({
-            type: "thread.activity.append",
-            commandId,
-            threadId: input.threadId,
-            activity: {
-              id: eventId,
-              tone:
-                input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
-                  ? "error"
-                  : "info",
-              kind: "council.execution-candidate",
-              summary: `Council Decision: ${input.decision.decision}`,
-              payload: {
-                cycleId: input.cycleId,
-                decision: input.decision.decision,
-                reasoning: input.decision.reasoning,
-                proposal: input.decision.executionProposal,
-                riskLevel: input.decision.riskLevel,
-                requiresApproval: input.decision.requiresApproval,
-              },
-              turnId: null,
-              createdAt: isoString,
+      Effect.flatMap(({ commandId, eventId, isoString }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone:
+              input.decision.riskLevel === "CRITICAL" || input.decision.riskLevel === "HIGH"
+                ? "error"
+                : "info",
+            kind: "council.execution-candidate",
+            summary: `Council Decision: ${input.decision.decision}`,
+            payload: {
+              cycleId: input.cycleId,
+              decision: input.decision.decision,
+              reasoning: input.decision.reasoning,
+              proposal: input.decision.executionProposal,
+              riskLevel: input.decision.riskLevel,
+              requiresApproval: input.decision.requiresApproval,
             },
+            turnId: null,
             createdAt: isoString,
-          });
+          },
+          createdAt: isoString,
         }),
       ),
     );
@@ -200,316 +197,300 @@ const make = Effect.gen(function* () {
     Effect.all({
       commandId: serverCommandId("council-failure"),
       eventId: serverEventId(),
+      isoString: getCurrentIsoString,
     }).pipe(
-      Effect.flatMap(({ commandId, eventId }) =>
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const isoString = new Date(now).toISOString();
-          return yield* orchestrationEngine.dispatch({
-            type: "thread.activity.append",
-            commandId,
-            threadId: input.threadId,
-            activity: {
-              id: eventId,
-              tone: "error",
-              kind: "council.error",
-              summary: input.summary,
-              payload: {
-                detail: input.detail,
-                ...(input.cycleId ? { cycleId: input.cycleId } : {}),
-              },
-              turnId: null,
-              createdAt: isoString,
+      Effect.flatMap(({ commandId, eventId, isoString }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone: "error",
+            kind: "council.error",
+            summary: input.summary,
+            payload: {
+              detail: input.detail,
+              ...(input.cycleId ? { cycleId: input.cycleId } : {}),
             },
+            turnId: null,
             createdAt: isoString,
-          });
+          },
+          createdAt: isoString,
         }),
       ),
     );
 
-  const pollCouncilCycle = Effect.fn("pollCouncilCycle")(function* (
-    state: CouncilCycleState,
-  ): Effect.Effect<CouncilCycleState, Error, never> {
-    const events = yield* councilClient.getCycleStatus(state.cycleId);
+  const pollCouncilCycle = (state: CouncilCycleState): Effect.Effect<CouncilCycleState> =>
+    Effect.gen(function* () {
+      const events = yield* councilClient.getCycleStatus(state.cycleId);
 
-    // Emit new events
-    const previousEventCount = state.events.length;
-    for (const event of events.slice(previousEventCount)) {
-      yield* emitCouncilEvent({
-        threadId: state.threadId,
-        councilEventType: event.eventType,
-        brain: event.brain,
-        content: event.content,
-        cycleId: state.cycleId,
-      }).pipe(Effect.catchCause(() => Effect.void));
-    }
+      for (const event of events.slice(state.events.length)) {
+        yield* emitCouncilEvent({
+          threadId: state.threadId,
+          councilEventType: event.eventType,
+          brain: event.brain,
+          content: event.content,
+          cycleId: state.cycleId,
+        }).pipe(Effect.catchCause(() => Effect.void));
+      }
 
-    // Check if decision is ready
-    const isDecisionReady = events.some((e) => e.eventType === "decision_ready");
-    if (isDecisionReady && !state.decision) {
-      const decision = yield* councilClient.getDecision(state.cycleId);
+      const isDecisionReady = events.some((e) => e.eventType === "decision_ready");
+      if (isDecisionReady && !state.decision) {
+        const decision = yield* councilClient.getDecision(state.cycleId);
+        return {
+          ...state,
+          events,
+          decision,
+          status: "complete" as const,
+        };
+      }
+
       return {
         ...state,
         events,
-        decision,
-        status: "complete" as const,
       };
-    }
+    });
 
-    return {
-      ...state,
-      events,
-    };
-  });
-
-  const waitForCouncilDecision = Effect.fn("waitForCouncilDecision")(function* (
+  const waitForCouncilDecision = (
     cycleId: string,
     threadId: ThreadId,
     maxWaitTime: Duration.Duration,
-  ): Effect.Effect<CouncilDecision, Error, never> {
-    let state: CouncilCycleState = {
-      cycleId,
-      goalText: "",
-      threadId,
-      events: [],
-      status: "polling",
-    };
+  ): Effect.Effect<CouncilDecision> =>
+    Effect.gen(function* () {
+      let state: CouncilCycleState = {
+        cycleId,
+        goalText: "",
+        threadId,
+        events: [],
+        status: "polling",
+      };
 
-    const startTime = yield* Clock.currentTimeMillis;
-    while (state.status === "polling") {
-      const currentTime = yield* Clock.currentTimeMillis;
-      const elapsed = currentTime - startTime;
-      if (elapsed > Duration.toMillis(maxWaitTime)) {
-        yield* Effect.fail(
-          new Error(
-            `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
-          ),
-        );
-        return undefined as never;
+      const startTime = yield* Clock.currentTimeMillis;
+      while (state.status === "polling") {
+        const currentTime = yield* Clock.currentTimeMillis;
+        const elapsed = currentTime - startTime;
+        if (elapsed > Duration.toMillis(maxWaitTime)) {
+          return yield* Effect.fail(
+            new Error(
+              `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
+            ),
+          );
+        }
+
+        state = yield* pollCouncilCycle(state);
+
+        if (state.status === "complete" && state.decision) {
+          return state.decision;
+        }
+
+        yield* Effect.sleep(COUNCIL_POLL_INTERVAL);
       }
 
-      state = yield* pollCouncilCycle(state);
+      return yield* Effect.fail(new Error(`Council cycle ${cycleId} failed to complete`));
+    });
 
-      if (state.status === "complete" && state.decision) {
-        return state.decision;
-      }
-
-      // Backoff before next poll
-      yield* Effect.sleep(COUNCIL_POLL_INTERVAL);
-    }
-
-    yield* Effect.fail(new Error(`Council cycle ${cycleId} failed to complete`));
-    return undefined as never;
-  });
-
-  const handleCouncilGoal = Effect.fn("handleCouncilGoal")(function* (input: {
+  const handleCouncilGoal = (input: {
     threadId: ThreadId;
     goalText: string;
     createdAt: string;
-  }) {
-    const thread = yield* resolveThread(input.threadId);
-    if (!thread) {
-      yield* emitCouncilFailure({
+  }): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const thread = yield* resolveThread(input.threadId);
+      if (!thread) {
+        yield* emitCouncilFailure({
+          threadId: input.threadId,
+          summary: "Council goal rejected",
+          detail: `Thread ${input.threadId} not found`,
+        });
+        return;
+      }
+
+      const councilGoal: CouncilGoal = {
         threadId: input.threadId,
-        summary: "Council goal rejected",
-        detail: `Thread ${input.threadId} not found`,
-      });
-      return;
-    }
+        text: input.goalText,
+        createdAt: input.createdAt,
+      };
 
-    // Construct CouncilGoal
-    const councilGoal: CouncilGoal = {
-      threadId: input.threadId,
-      text: input.goalText,
-      createdAt: input.createdAt,
-    };
-
-    // Submit to Council
-    const cycleId = yield* councilClient.submitGoal(councilGoal).pipe(
-      Effect.catchCause((cause) => {
-        const detail = Cause.pretty(cause);
-        return emitCouncilFailure({
-          threadId: input.threadId,
-          summary: "Council goal submission failed",
-          detail,
-        }).pipe(Effect.andThen(() => Effect.fail(cause)));
-      }),
-    );
-
-    // Poll for decision
-    const decision = yield* waitForCouncilDecision(
-      cycleId,
-      input.threadId,
-      COUNCIL_POLL_TIMEOUT,
-    ).pipe(
-      Effect.catchCause((cause) => {
-        const detail = Cause.pretty(cause);
-        return emitCouncilFailure({
-          threadId: input.threadId,
-          summary: "Council decision retrieval failed",
-          detail,
-          cycleId,
-        }).pipe(Effect.andThen(() => Effect.fail(cause)));
-      }),
-    );
-
-    // Route based on decision type and risk level
-    switch (decision.decision) {
-      case "EXECUTE": {
-        // Check if approval is required (HIGH/CRITICAL risk)
-        const requiresApproval = decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
-
-        if (requiresApproval) {
-          // Create approval request instead of direct ExecutionCandidate
-          const approvalRequestId = yield* serverCommandId("council-approval-request");
-          const approvalEventId = yield* serverEventId();
-          const now = yield* Clock.currentTimeMillis;
-          const isoString = new Date(now).toISOString();
-
-          yield* orchestrationEngine
-            .dispatch({
-              type: "thread.activity.append",
-              commandId: approvalRequestId,
-              threadId: input.threadId,
-              activity: {
-                id: approvalEventId,
-                tone: "approval",
-                kind: "council.approval.requested",
-                summary: `Council Approval Required: ${decision.decision}`,
-                payload: {
-                  cycleId,
-                  councilCycleId: cycleId,
-                  decision: decision.decision,
-                  reasoning: decision.reasoning,
-                  proposal: decision.executionProposal,
-                  riskLevel: decision.riskLevel,
-                  goal: input.goalText,
-                },
-                turnId: null,
-                createdAt: isoString,
-              },
-              createdAt: isoString,
-            })
-            .pipe(
-              Effect.catchCause((cause) =>
-                Effect.logWarning("failed to create council approval request activity", {
-                  cycleId,
-                  threadId: input.threadId,
-                  cause: Cause.pretty(cause),
-                }),
-              ),
-            );
-
-          // Emit approval-response-requested event to put thread in waiting state
-          const requestId = yield* crypto.randomUUIDv4.pipe(
-            Effect.map((uuid) => CommandId.make(`server:council-approval:${uuid}`)),
-          );
-
-          yield* orchestrationEngine
-            .dispatch({
-              type: "thread.approval.respond",
-              commandId: requestId,
-              threadId: input.threadId,
-              requestId,
-              decision: "decline", // Default to decline, awaits user approval
-              createdAt: isoString,
-            })
-            .pipe(
-              Effect.catchCause((cause) =>
-                Effect.logWarning("failed to emit approval-response-requested", {
-                  cycleId,
-                  threadId: input.threadId,
-                  cause: Cause.pretty(cause),
-                }),
-              ),
-            );
-        } else {
-          // Low/Medium risk: create ExecutionCandidate + invoke Real Ox
-          yield* createExecutionCandidate({
+      const cycleId = yield* councilClient.submitGoal(councilGoal).pipe(
+        Effect.catchCause((cause) => {
+          const detail = Cause.pretty(cause);
+          return emitCouncilFailure({
             threadId: input.threadId,
+            summary: "Council goal submission failed",
+            detail,
+          }).pipe(Effect.andThen(() => Effect.fail(cause)));
+        }),
+      );
+
+      const decision = yield* waitForCouncilDecision(
+        cycleId,
+        input.threadId,
+        COUNCIL_POLL_TIMEOUT,
+      ).pipe(
+        Effect.catchCause((cause) => {
+          const detail = Cause.pretty(cause);
+          return emitCouncilFailure({
+            threadId: input.threadId,
+            summary: "Council decision retrieval failed",
+            detail,
             cycleId,
-            goal: input.goalText,
-            decision,
-          }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("failed to create execution candidate", {
-                cycleId,
+          }).pipe(Effect.andThen(() => Effect.fail(cause)));
+        }),
+      );
+
+      switch (decision.decision) {
+        case "EXECUTE": {
+          const requiresApproval =
+            decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
+
+          if (requiresApproval) {
+            const [approvalRequestId, approvalEventId, isoString] = yield* Effect.all({
+              approvalRequestId: serverCommandId("council-approval-request"),
+              approvalEventId: serverEventId(),
+              isoString: getCurrentIsoString,
+            });
+
+            yield* orchestrationEngine
+              .dispatch({
+                type: "thread.activity.append",
+                commandId: approvalRequestId,
                 threadId: input.threadId,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          );
-
-          // Invoke Real Ox executor for goal execution
-          const executionResult = yield* invokeRealOxExecutor({
-            goal: input.goalText,
-            cycleId,
-            threadId: input.threadId,
-          }).pipe(
-            Effect.catchCause((cause) => {
-              const detail = Cause.pretty(cause);
-              return Effect.logWarning("real ox execution failed", { cycleId, cause: detail }).pipe(
-                Effect.andThen(() =>
-                  Effect.succeed({
-                    success: false,
-                    error: detail,
+                activity: {
+                  id: approvalEventId,
+                  tone: "approval",
+                  kind: "council.approval.requested",
+                  summary: `Council Approval Required: ${decision.decision}`,
+                  payload: {
+                    cycleId,
+                    councilCycleId: cycleId,
+                    decision: decision.decision,
+                    reasoning: decision.reasoning,
+                    proposal: decision.executionProposal,
+                    riskLevel: decision.riskLevel,
+                    goal: input.goalText,
+                  },
+                  turnId: null,
+                  createdAt: isoString,
+                },
+                createdAt: isoString,
+              })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("failed to create council approval request activity", {
+                    cycleId,
+                    threadId: input.threadId,
+                    cause: Cause.pretty(cause),
                   }),
                 ),
               );
-            }),
-          );
 
-          // Emit execution result as evidence
-          if (executionResult.success && executionResult.output) {
-            yield* emitCouncilEvent({
+            const requestId = yield* crypto.randomUUIDv4.pipe(
+              Effect.map((uuid) => CommandId.make(`server:council-approval:${uuid}`)),
+            );
+
+            yield* orchestrationEngine
+              .dispatch({
+                type: "thread.approval.respond",
+                commandId: requestId,
+                threadId: input.threadId,
+                requestId,
+                decision: "decline",
+                createdAt: isoString,
+              })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("failed to emit approval-response-requested", {
+                    cycleId,
+                    threadId: input.threadId,
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+              );
+          } else {
+            yield* createExecutionCandidate({
               threadId: input.threadId,
-              councilEventType: "execution_result",
-              brain: "RealOx",
-              content: `✓ ${executionResult.output}`,
               cycleId,
-            }).pipe(Effect.catchCause(() => Effect.void));
+              goal: input.goalText,
+              decision,
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to create execution candidate", {
+                  cycleId,
+                  threadId: input.threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
+
+            const executionResult = yield* invokeRealOxExecutor({
+              goal: input.goalText,
+              cycleId,
+              threadId: input.threadId,
+            }).pipe(
+              Effect.catchCause((cause) => {
+                const detail = Cause.pretty(cause);
+                return Effect.logWarning("real ox execution failed", {
+                  cycleId,
+                  cause: detail,
+                }).pipe(
+                  Effect.andThen(() =>
+                    Effect.succeed({
+                      success: false,
+                      error: detail,
+                    } as ExecutionResult),
+                  ),
+                );
+              }),
+            );
+
+            if (executionResult.success && executionResult.output) {
+              yield* emitCouncilEvent({
+                threadId: input.threadId,
+                councilEventType: "execution_result",
+                brain: "RealOx",
+                content: `✓ ${executionResult.output}`,
+                cycleId,
+              }).pipe(Effect.catchCause(() => Effect.void));
+            }
           }
+          break;
         }
-        break;
+        case "ASK_USER":
+        case "BLOCKED":
+        case "RESEARCH":
+        case "MORE_EVIDENCE":
+          break;
+        case "REVISE":
+          break;
       }
-      case "ASK_USER":
-      case "BLOCKED":
-      case "RESEARCH":
-      case "MORE_EVIDENCE":
-        // Decision recorded in activity, no further action
-        break;
-      case "REVISE":
-        // Could implement revision loop, but for MVP just record
-        break;
-    }
-  });
-
-  const processDomainEvent = Effect.fn("processDomainEvent")(function* (event: CouncilIntentEvent) {
-    yield* Effect.annotateCurrentSpan({
-      "orchestration.event_type": event.type,
-      "orchestration.thread_id": event.payload.threadId,
-      ...(event.commandId ? { "orchestration.command_id": event.commandId } : {}),
-    });
-    yield* increment(orchestrationEventsProcessedTotal, {
-      eventType: event.type,
     });
 
-    switch (event.type) {
-      case "thread.council-goal-requested":
-        yield* handleCouncilGoal({
-          threadId: event.payload.threadId,
-          goalText: event.payload.goalText,
-          createdAt: event.payload.createdAt,
-        });
-        return;
-      case "thread.turn-start-requested":
-        // Ignore for now, handled by ProviderCommandReactor
-        return;
-      case "thread.session-stop-requested":
-        // Ignore for now
-        return;
-    }
-  });
+  const processDomainEvent = (event: CouncilIntentEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      yield* Effect.annotateCurrentSpan({
+        "orchestration.event_type": event.type,
+        "orchestration.thread_id": event.payload.threadId,
+        ...(event.commandId ? { "orchestration.command_id": event.commandId } : {}),
+      });
+      yield* increment(orchestrationEventsProcessedTotal, {
+        eventType: event.type,
+      });
+
+      switch (event.type) {
+        case "thread.council-goal-requested":
+          yield* handleCouncilGoal({
+            threadId: event.payload.threadId,
+            goalText: event.payload.goalText,
+            createdAt: event.payload.createdAt,
+          });
+          return;
+        case "thread.turn-start-requested":
+          return;
+        case "thread.session-stop-requested":
+          return;
+      }
+    });
 
   const processDomainEventSafely = (event: CouncilIntentEvent) =>
     processDomainEvent(event).pipe(
@@ -526,15 +507,17 @@ const make = Effect.gen(function* () {
 
   const worker = yield* makeDrainableWorker(processDomainEventSafely);
 
-  const start: CouncilCommandReactorShape["start"] = Effect.fn("start")(function* () {
-    const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
-      if (event.type === "thread.council-goal-requested") {
-        return yield* worker.enqueue(event);
-      }
-    });
+  const start: CouncilCommandReactorShape["start"] = () =>
+    Effect.gen(function* () {
+      const processEvent = (event: OrchestrationEvent): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          if (event.type === "thread.council-goal-requested") {
+            yield* worker.enqueue(event);
+          }
+        });
 
-    yield* forkParked(Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent));
-  });
+      yield* forkParked(Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent));
+    });
 
   return {
     start,

@@ -6,6 +6,7 @@ import * as Scope from "effect/Scope";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { CouncilCommandReactor } from "../Services/CouncilCommandReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
@@ -32,6 +33,15 @@ describe("OrchestrationReactor", () => {
           Layer.succeed(ProviderRuntimeIngestionService, {
             start: () => {
               started.push("provider-runtime-ingestion");
+              return Effect.void;
+            },
+            drain: Effect.void,
+          }),
+        ),
+        Layer.provideMerge(
+          Layer.succeed(CouncilCommandReactor, {
+            start: () => {
+              started.push("council-command-reactor");
               return Effect.void;
             },
             drain: Effect.void,
@@ -82,6 +92,7 @@ describe("OrchestrationReactor", () => {
 
     expect(started).toEqual([
       "provider-runtime-ingestion",
+      "council-command-reactor",
       "provider-command-reactor",
       "checkpoint-reactor",
       "thread-deletion-reactor",
