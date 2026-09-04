@@ -7,6 +7,7 @@
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { HttpBody } from "effect/unstable/http";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
@@ -65,13 +66,14 @@ export type CouncilDecision = typeof CouncilDecision.Type;
 
 // Client service
 export interface CouncilClientShape {
-  submitGoal(goal: CouncilGoal): Effect.Effect<string, Error>; // returns cycleId
-  getCycleStatus(cycleId: string): Effect.Effect<CouncilEvent[], Error>;
-  getDecision(cycleId: string): Effect.Effect<CouncilDecision, Error>;
-  health(): Effect.Effect<boolean, Error>;
+  submitGoal(goal: CouncilGoal): Effect.Effect<string, Error, HttpClient.HttpClient>; // returns cycleId
+  getCycleStatus(cycleId: string): Effect.Effect<CouncilEvent[], Error, HttpClient.HttpClient>;
+  getDecision(cycleId: string): Effect.Effect<CouncilDecision, Error, HttpClient.HttpClient>;
+  health(): Effect.Effect<boolean, Error, HttpClient.HttpClient>;
 }
 
 const CouncilResponseSchema = Schema.Struct({ cycleId: Schema.String });
+const encodeGoal = Schema.encodeEffect(CouncilGoal);
 
 export class CouncilClient {
   readonly baseUrl: string;
@@ -80,16 +82,15 @@ export class CouncilClient {
     this.baseUrl = baseUrl;
   }
 
-  submitGoal = (goal: CouncilGoal): Effect.Effect<string, Error> => {
+  submitGoal = (goal: CouncilGoal): Effect.Effect<string, Error, HttpClient.HttpClient> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
-      const goalJson = yield* Schema.encodeUnknown(CouncilGoal)(goal).pipe(
-        Effect.flatMap((obj) => Effect.sync(() => JSON.stringify(obj))),
-      );
+      const encodedGoal = yield* encodeGoal(goal);
+      const body = yield* HttpBody.json(encodedGoal);
       const data = yield* HttpClientRequest.post(`${baseUrl}/api/goal`, {
         headers: { "Content-Type": "application/json" },
-        body: goalJson,
+        body,
       }).pipe(
         httpClient.execute,
         Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -99,7 +100,9 @@ export class CouncilClient {
     });
   };
 
-  getCycleStatus = (cycleId: string): Effect.Effect<CouncilEvent[], Error> => {
+  getCycleStatus = (
+    cycleId: string,
+  ): Effect.Effect<CouncilEvent[], Error, HttpClient.HttpClient> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
@@ -111,7 +114,7 @@ export class CouncilClient {
     });
   };
 
-  getDecision = (cycleId: string): Effect.Effect<CouncilDecision, Error> => {
+  getDecision = (cycleId: string): Effect.Effect<CouncilDecision, Error, HttpClient.HttpClient> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
@@ -123,14 +126,14 @@ export class CouncilClient {
     });
   };
 
-  health = (): Effect.Effect<boolean, Error> => {
+  health = (): Effect.Effect<boolean, Error, HttpClient.HttpClient> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
       return yield* HttpClientRequest.get(`${baseUrl}/api/health`).pipe(
         httpClient.execute,
         Effect.map((response) => response.status === 200),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       );
     });
   };

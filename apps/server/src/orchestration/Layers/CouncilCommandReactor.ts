@@ -1,4 +1,10 @@
-import { CommandId, EventId, type OrchestrationEvent, type ThreadId } from "@t3tools/contracts";
+import {
+  ApprovalRequestId,
+  CommandId,
+  EventId,
+  type OrchestrationEvent,
+  type ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -56,7 +62,7 @@ type ExecutionResult = {
 
 const parseAndExecuteGoal = (goal: string): ExecutionResult => {
   const match = goal.match(/[Cc]reate\s+file\s+(\S+)\s+with\s+(?:exact\s+)?content:\s*(.+)$/s);
-  if (!match) {
+  if (!match || !match[1] || !match[2]) {
     return { success: false, error: "Could not parse file creation intent from goal" };
   }
 
@@ -91,7 +97,7 @@ const invokeRealOxExecutor = (input: {
   goal: string;
   cycleId: string;
   threadId: ThreadId;
-}): Effect.Effect<ExecutionResult> => Effect.sync(() => parseAndExecuteGoal(input.goal));
+}): Effect.Effect<ExecutionResult, never> => Effect.sync(() => parseAndExecuteGoal(input.goal));
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
@@ -221,7 +227,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const pollCouncilCycle = (state: CouncilCycleState): Effect.Effect<CouncilCycleState> =>
+  const pollCouncilCycle = (state: CouncilCycleState): Effect.Effect<CouncilCycleState, Error> =>
     Effect.gen(function* () {
       const events = yield* councilClient.getCycleStatus(state.cycleId);
 
@@ -229,7 +235,7 @@ const make = Effect.gen(function* () {
         yield* emitCouncilEvent({
           threadId: state.threadId,
           councilEventType: event.eventType,
-          brain: event.brain,
+          ...(event.brain ? { brain: event.brain } : {}),
           content: event.content,
           cycleId: state.cycleId,
         }).pipe(Effect.catchCause(() => Effect.void));
@@ -256,7 +262,7 @@ const make = Effect.gen(function* () {
     cycleId: string,
     threadId: ThreadId,
     maxWaitTime: Duration.Duration,
-  ): Effect.Effect<CouncilDecision> =>
+  ): Effect.Effect<CouncilDecision, Error> =>
     Effect.gen(function* () {
       let state: CouncilCycleState = {
         cycleId,
@@ -271,11 +277,10 @@ const make = Effect.gen(function* () {
         const currentTime = yield* Clock.currentTimeMillis;
         const elapsed = currentTime - startTime;
         if (elapsed > Duration.toMillis(maxWaitTime)) {
-          return yield* Effect.fail(
-            new Error(
-              `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
-            ),
+          const timeoutError = new Error(
+            `Council decision timeout after ${Duration.toMillis(maxWaitTime)}ms for cycle ${cycleId}`,
           );
+          return yield* Effect.fail(timeoutError);
         }
 
         state = yield* pollCouncilCycle(state);
@@ -287,14 +292,15 @@ const make = Effect.gen(function* () {
         yield* Effect.sleep(COUNCIL_POLL_INTERVAL);
       }
 
-      return yield* Effect.fail(new Error(`Council cycle ${cycleId} failed to complete`));
+      const completeError = new Error(`Council cycle ${cycleId} failed to complete`);
+      return yield* Effect.fail(completeError);
     });
 
   const handleCouncilGoal = (input: {
     threadId: ThreadId;
     goalText: string;
     createdAt: string;
-  }): Effect.Effect<void> =>
+  }): Effect.Effect<void, Error> =>
     Effect.gen(function* () {
       const thread = yield* resolveThread(input.threadId);
       if (!thread) {
@@ -345,7 +351,7 @@ const make = Effect.gen(function* () {
             decision.riskLevel === "HIGH" || decision.riskLevel === "CRITICAL";
 
           if (requiresApproval) {
-            const [approvalRequestId, approvalEventId, isoString] = yield* Effect.all({
+            const { approvalRequestId, approvalEventId, isoString } = yield* Effect.all({
               approvalRequestId: serverCommandId("council-approval-request"),
               approvalEventId: serverEventId(),
               isoString: getCurrentIsoString,
@@ -386,13 +392,14 @@ const make = Effect.gen(function* () {
               );
 
             const requestId = yield* crypto.randomUUIDv4.pipe(
-              Effect.map((uuid) => CommandId.make(`server:council-approval:${uuid}`)),
+              Effect.map((uuid) => ApprovalRequestId.make(`server:council-approval:${uuid}`)),
             );
+            const respondCommandId = yield* serverCommandId("council-approval-respond");
 
             yield* orchestrationEngine
               .dispatch({
                 type: "thread.approval.respond",
-                commandId: requestId,
+                commandId: respondCommandId,
                 threadId: input.threadId,
                 requestId,
                 decision: "decline",
@@ -466,7 +473,7 @@ const make = Effect.gen(function* () {
       }
     });
 
-  const processDomainEvent = (event: CouncilIntentEvent): Effect.Effect<void> =>
+  const processDomainEvent = (event: CouncilIntentEvent): Effect.Effect<void, Error> =>
     Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({
         "orchestration.event_type": event.type,

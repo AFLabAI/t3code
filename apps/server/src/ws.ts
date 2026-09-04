@@ -967,7 +967,11 @@ const makeWsRpcLayer = (
 
       const dispatchNormalizedCommand = (
         normalizedCommand: OrchestrationCommand,
-      ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
+      ): Effect.Effect<
+        { readonly sequence: number },
+        OrchestrationDispatchCommandError,
+        Crypto.Crypto
+      > =>
         Effect.gen(function* () {
           const dispatchEffect = Effect.gen(function* () {
             if (
@@ -1019,7 +1023,7 @@ const makeWsRpcLayer = (
 
           const crypto = yield* Crypto.Crypto;
           return yield* startup
-            .enqueueCommand(dispatchEffect.pipe(Effect.provide(crypto)))
+            .enqueueCommand(dispatchEffect.pipe(Effect.provideService(Crypto.Crypto, crypto)))
             .pipe(
               Effect.mapError((cause) =>
                 toDispatchCommandError(cause, "Failed to dispatch orchestration command"),

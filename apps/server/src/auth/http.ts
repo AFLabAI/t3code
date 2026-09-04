@@ -451,7 +451,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             );
             return { ...credential, access_token: token.access_token };
           },
-          Effect.catchAllCause((cause) =>
+          Effect.catchCause((cause) =>
             failEnvironmentInternal("dev_bootstrap_issuance_failed", cause),
           ),
         ),
