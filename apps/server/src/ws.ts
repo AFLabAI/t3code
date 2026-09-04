@@ -1016,8 +1016,9 @@ const makeWsRpcLayer = (
             );
         });
 
+        const crypto = yield * Crypto.Crypto;
         return startup
-          .enqueueCommand(dispatchEffect)
+          .enqueueCommand(dispatchEffect.pipe(Effect.provide(crypto)))
           .pipe(
             Effect.mapError((cause) =>
               toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
