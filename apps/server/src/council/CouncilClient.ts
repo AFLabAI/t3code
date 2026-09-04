@@ -7,6 +7,9 @@
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import { ThreadId } from "@t3tools/contracts";
 
 // Council contracts
@@ -69,7 +72,6 @@ export interface CouncilClientShape {
 }
 
 const CouncilResponseSchema = Schema.Struct({ cycleId: Schema.String });
-const CouncilErrorSchema = Schema.Struct({ detail: Schema.String });
 
 export class CouncilClient {
   readonly baseUrl: string;
@@ -81,30 +83,18 @@ export class CouncilClient {
   submitGoal = (goal: CouncilGoal): Effect.Effect<string, Error> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
-      const goalJson = yield* Schema.encode(CouncilGoal)(goal);
-      const response = yield* Effect.tryPromise({
-        try: () =>
-          fetch(`${baseUrl}/api/goal`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: goalJson,
-          }),
-        catch: (e) => new Error(`Council submit fetch failed: ${String(e)}`),
-      });
-
-      if (!response.ok) {
-        const text = yield* Effect.tryPromise({
-          try: () => response.text(),
-          catch: () => "unknown error",
-        });
-        return yield* Effect.fail(new Error(`Council submit failed: ${response.status} ${text}`));
-      }
-
-      const responseText = yield* Effect.tryPromise({
-        try: () => response.text(),
-        catch: (e) => new Error(`Failed to read response: ${String(e)}`),
-      });
-      const data = yield* Schema.parseJson(CouncilResponseSchema)(responseText);
+      const httpClient = yield* HttpClient.HttpClient;
+      const goalJson = yield* Schema.encodeUnknown(CouncilGoal)(goal).pipe(
+        Effect.flatMap((obj) => Effect.sync(() => JSON.stringify(obj))),
+      );
+      const data = yield* HttpClientRequest.post(`${baseUrl}/api/goal`, {
+        headers: { "Content-Type": "application/json" },
+        body: goalJson,
+      }).pipe(
+        httpClient.execute,
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(CouncilResponseSchema)),
+      );
       return data.cycleId;
     });
   };
@@ -112,57 +102,36 @@ export class CouncilClient {
   getCycleStatus = (cycleId: string): Effect.Effect<CouncilEvent[], Error> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
-      const response = yield* Effect.tryPromise({
-        try: () => fetch(`${baseUrl}/api/transcript?cycleId=${cycleId}`),
-        catch: (e) => new Error(`Council transcript fetch failed: ${String(e)}`),
-      });
-
-      if (!response.ok) {
-        return yield* Effect.fail(new Error(`Council transcript fetch failed: ${response.status}`));
-      }
-
-      const responseText = yield* Effect.tryPromise({
-        try: () => response.text(),
-        catch: (e) => new Error(`Failed to read response: ${String(e)}`),
-      });
-      const data = yield* Schema.parseJson(Schema.Array(CouncilEvent))(responseText);
-      return data;
+      const httpClient = yield* HttpClient.HttpClient;
+      return yield* HttpClientRequest.get(`${baseUrl}/api/transcript?cycleId=${cycleId}`).pipe(
+        httpClient.execute,
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Array(CouncilEvent))),
+      );
     });
   };
 
   getDecision = (cycleId: string): Effect.Effect<CouncilDecision, Error> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
-      const response = yield* Effect.tryPromise({
-        try: () => fetch(`${baseUrl}/api/decision?cycleId=${cycleId}`),
-        catch: (e) => new Error(`Council decision fetch failed: ${String(e)}`),
-      });
-
-      if (!response.ok) {
-        return yield* Effect.fail(new Error(`Council decision fetch failed: ${response.status}`));
-      }
-
-      const responseText = yield* Effect.tryPromise({
-        try: () => response.text(),
-        catch: (e) => new Error(`Failed to read response: ${String(e)}`),
-      });
-      const data = yield* Schema.parseJson(CouncilDecision)(responseText);
-      return data;
+      const httpClient = yield* HttpClient.HttpClient;
+      return yield* HttpClientRequest.get(`${baseUrl}/api/decision?cycleId=${cycleId}`).pipe(
+        httpClient.execute,
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(CouncilDecision)),
+      );
     });
   };
 
   health = (): Effect.Effect<boolean, Error> => {
     const baseUrl = this.baseUrl;
     return Effect.gen(function* () {
-      return yield* Effect.tryPromise({
-        try: async () => {
-          const response = await fetch(`${baseUrl}/api/health`, {
-            signal: AbortSignal.timeout(3000),
-          });
-          return response.ok;
-        },
-        catch: () => false,
-      });
+      const httpClient = yield* HttpClient.HttpClient;
+      return yield* HttpClientRequest.get(`${baseUrl}/api/health`).pipe(
+        httpClient.execute,
+        Effect.map((response) => response.status === 200),
+        Effect.catchAll(() => Effect.succeed(false)),
+      );
     });
   };
 }
