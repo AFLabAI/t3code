@@ -111,7 +111,6 @@ const invokeRealOxExecutor = (input: {
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
-  const httpClient = yield* HttpClient.HttpClient;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
@@ -586,11 +585,8 @@ const make = Effect.gen(function* () {
             const snapshotOpt = yield* projectionSnapshotQuery
               .getThreadDetailById(event.payload.threadId)
               .pipe(Effect.option);
-            const thread = snapshotOpt.pipe(
-              Option.map((s) => s.thread),
-              Option.getOrUndefined,
-            );
-            if (thread?.interactionMode === "council") {
+            const threadOpt = snapshotOpt.pipe(Option.map((s) => s.thread));
+            if (Option.isSome(threadOpt) && threadOpt.value.interactionMode === "council") {
               yield* worker.enqueue(event);
             }
           }
