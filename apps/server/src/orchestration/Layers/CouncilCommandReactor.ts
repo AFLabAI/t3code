@@ -540,8 +540,22 @@ const make = Effect.gen(function* () {
             createdAt: event.payload.createdAt,
           });
           return;
-        case "thread.turn-start-requested":
+        case "thread.turn-start-requested": {
+          if (event.payload.interactionMode === "council") {
+            const thread = yield* resolveThread(event.payload.threadId);
+            if (thread) {
+              const message = thread.messages?.find((m) => m.id === event.payload.messageId);
+              if (message) {
+                yield* handleCouncilGoal({
+                  threadId: event.payload.threadId,
+                  goalText: message.text,
+                  createdAt: event.payload.createdAt,
+                });
+              }
+            }
+          }
           return;
+        }
         case "thread.session-stop-requested":
           return;
       }
@@ -568,6 +582,17 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           if (event.type === "thread.council-goal-requested") {
             yield* worker.enqueue(event);
+          } else if (event.type === "thread.turn-start-requested") {
+            const snapshotOpt = yield* projectionSnapshotQuery
+              .getThreadDetailById(event.payload.threadId)
+              .pipe(Effect.option);
+            const thread = snapshotOpt.pipe(
+              Option.map((s) => s.thread),
+              Option.getOrUndefined,
+            );
+            if (thread?.interactionMode === "council") {
+              yield* worker.enqueue(event);
+            }
           }
         });
 
