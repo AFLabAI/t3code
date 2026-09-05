@@ -26,4 +26,3 @@ export declare function resolveCatalogDependencies(
   catalog: Record<string, string>,
   workspacePackage: string,
 ): Record<string, string>;
-export {};

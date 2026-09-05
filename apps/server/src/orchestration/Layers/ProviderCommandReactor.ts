@@ -1408,8 +1408,11 @@ const make = Effect.gen(function* () {
         const snapshotOpt = yield* projectionSnapshotQuery
           .getThreadDetailById(event.payload.threadId)
           .pipe(Effect.option);
-        if (Option.isSome(snapshotOpt) && snapshotOpt.value.interactionMode === "council") {
-          return;
+        if (Option.isSome(snapshotOpt)) {
+          const snapshot: any = snapshotOpt.value;
+          if (snapshot.interactionMode === "council") {
+            return;
+          }
         }
       }
 

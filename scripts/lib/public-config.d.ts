@@ -19,4 +19,3 @@ export declare function loadRepoEnv({
   readonly repoRoot?: string;
 }): Record<string, string | undefined>;
 export declare function resolvePublicConfig(...sources: readonly Environment[]): T3CodePublicConfig;
-export {};

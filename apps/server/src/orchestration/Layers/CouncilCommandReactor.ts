@@ -585,8 +585,11 @@ const make = Effect.gen(function* () {
             const threadOpt = yield* projectionSnapshotQuery
               .getThreadDetailById(event.payload.threadId)
               .pipe(Effect.option);
-            if (Option.isSome(threadOpt) && threadOpt.value.interactionMode === "council") {
-              yield* worker.enqueue(event);
+            if (Option.isSome(threadOpt)) {
+              const thread: any = threadOpt.value;
+              if (thread.interactionMode === "council") {
+                yield* worker.enqueue(event);
+              }
             }
           }
         });

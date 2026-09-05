@@ -9,4 +9,3 @@ export declare const getDefaultBuildArch: (
   platform: BuildPlatform,
   platformConfig: PlatformConfig,
 ) => Effect.Effect<BuildArch, Config.ConfigError, never>;
-export {};

@@ -114,4 +114,3 @@ export declare const shareDevServer: (input: { readonly webPort: number }) => Ef
   DevServeFailedError | TailnetNameMissingError | TailscaleUnavailableError,
   ChildProcessSpawner.ChildProcessSpawner
 >;
-export {};
