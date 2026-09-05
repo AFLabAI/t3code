@@ -3200,7 +3200,9 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
   const toggleInteractionMode = useCallback(() => {
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
+    const nextMode =
+      interactionMode === "default" ? "plan" : interactionMode === "plan" ? "council" : "default";
+    handleInteractionModeChange(nextMode);
   }, [handleInteractionModeChange, interactionMode]);
   const createBrowserSurface = useCallback(() => {
     if (!activeThreadRef) return;

@@ -305,8 +305,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   const RuntimeModeIcon = runtimeModeOption.icon;
   const interactionModeTooltip =
     props.interactionMode === "plan"
-      ? "Plan mode — click to return to normal build mode"
-      : "Default mode — click to enter plan mode";
+      ? "Plan mode — click to advance to council mode"
+      : props.interactionMode === "council"
+        ? "Council mode — click to return to normal build mode"
+        : "Default mode — click to enter plan mode";
 
   const interactionModeToggle = props.showInteractionModeToggle ? (
     <>
@@ -317,7 +319,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             <ComposerControl
               className={cn(
                 "shrink-0 whitespace-nowrap",
-                props.interactionMode === "plan"
+                props.interactionMode === "plan" || props.interactionMode === "council"
                   ? "bg-accent text-accent-foreground hover:bg-accent/80"
                   : "text-secondary-label hover:text-foreground",
               )}
@@ -329,11 +331,17 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         >
           {props.interactionMode === "plan" ? (
             <ComposerControlIcon icon={PencilRulerIcon} className="text-current opacity-100" />
+          ) : props.interactionMode === "council" ? (
+            <ComposerControlIcon icon={SparklesIcon} className="text-current opacity-100" />
           ) : (
             <ComposerControlIcon icon={BotIcon} opticalSize="large" />
           )}
           <span className="sr-only sm:not-sr-only">
-            {props.interactionMode === "plan" ? "Plan" : "Build"}
+            {props.interactionMode === "plan"
+              ? "Plan"
+              : props.interactionMode === "council"
+                ? "Council"
+                : "Build"}
           </span>
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
