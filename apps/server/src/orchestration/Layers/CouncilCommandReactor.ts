@@ -582,10 +582,9 @@ const make = Effect.gen(function* () {
           if (event.type === "thread.council-goal-requested") {
             yield* worker.enqueue(event);
           } else if (event.type === "thread.turn-start-requested") {
-            const snapshotOpt = yield* projectionSnapshotQuery
+            const threadOpt = yield* projectionSnapshotQuery
               .getThreadDetailById(event.payload.threadId)
               .pipe(Effect.option);
-            const threadOpt = snapshotOpt.pipe(Option.map((s) => s.thread));
             if (Option.isSome(threadOpt) && threadOpt.value.interactionMode === "council") {
               yield* worker.enqueue(event);
             }

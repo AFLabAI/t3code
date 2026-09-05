@@ -26,9 +26,7 @@ describe("CouncilCommandReactor Routing", () => {
         const threadId = "thread-1";
 
         // Simulate the CouncilCommandReactor filtering logic
-        const snapshotOpt = yield* mockSnapshotQuery
-          .getThreadDetailById(threadId)
-          .pipe(Effect.option);
+        const snapshotOpt = yield* mockSnapshotQuery.getThreadDetailById().pipe(Effect.option);
         const threadOpt = snapshotOpt.pipe(Option.map((s: any) => s.thread));
         if (Option.isSome(threadOpt) && threadOpt.value.interactionMode === "council") {
           enqueuedEvents.push(eventType);
