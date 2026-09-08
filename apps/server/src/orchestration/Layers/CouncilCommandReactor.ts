@@ -22,6 +22,7 @@ import {
   type CouncilEvent,
   type CouncilGoal,
 } from "../../council/CouncilClient.ts";
+import { relayToOxViaOpenCode, type ExecutionRequest } from "../../council/OpenCodeBridge.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -468,14 +469,18 @@ const make = Effect.gen(function* () {
               ),
             );
 
-            const executionResult = yield* invokeRealOxExecutor({
-              goal: input.goalText,
-              cycleId,
-              threadId: input.threadId,
-            }).pipe(
+            const executionResult = yield* Effect.sync(() =>
+              relayToOxViaOpenCode({
+                cycleId,
+                goal: input.goalText,
+                proposal: decision.executionProposal,
+                riskLevel: decision.riskLevel,
+                threadId: input.threadId,
+              }),
+            ).pipe(
               Effect.catchCause((cause) => {
                 const detail = Cause.pretty(cause);
-                return Effect.logWarning("real ox execution failed", {
+                return Effect.logWarning("opencode→ox execution failed", {
                   cycleId,
                   cause: detail,
                 }).pipe(
@@ -493,7 +498,7 @@ const make = Effect.gen(function* () {
               yield* emitCouncilEvent({
                 threadId: input.threadId,
                 councilEventType: "execution_result",
-                brain: "RealOx",
+                brain: "OpenCode→Ox",
                 content: `✓ ${executionResult.output}`,
                 cycleId,
               }).pipe(Effect.catchCause(() => Effect.void));

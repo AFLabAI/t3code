@@ -133,7 +133,7 @@ const CURSOR_DRIVER_KIND = ProviderDriverKind.make("cursor");
 const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
-export const DEFAULT_MODEL = "gpt-5.6-sol";
+export const DEFAULT_MODEL = "claude-sonnet-5";
 
 /**
  * Codex default-model preference, most preferred first. The provider snapshot
@@ -144,7 +144,7 @@ export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ];
-export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-5.6-luna";
+export const DEFAULT_TEXT_GENERATION_MODEL = "claude-haiku-4-5";
 export const DEFAULT_TEXT_GENERATION_REASONING_EFFORT = "low";
 
 export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {

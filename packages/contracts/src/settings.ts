@@ -571,8 +571,8 @@ export const ServerSettings = Schema.Struct({
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
-        instanceId: ProviderInstanceId.make("codex"),
-        model: DEFAULT_TEXT_GENERATION_MODEL,
+        instanceId: ProviderInstanceId.make("opencode"),
+        model: "openai/gpt-5",
         options: [
           {
             id: "reasoningEffort",

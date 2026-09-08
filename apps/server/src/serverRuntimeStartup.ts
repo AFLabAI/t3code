@@ -164,8 +164,8 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
 );
 
 export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-sonnet-5",
 });
 
 export const resolveWelcomeBase = Effect.gen(function* () {
