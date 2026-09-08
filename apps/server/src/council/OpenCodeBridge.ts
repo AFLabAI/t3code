@@ -23,50 +23,26 @@ export interface ExecutionResult {
 }
 
 /**
- * Relay ExecutionCandidate through OpenCode to Ox executor.
- * OpenCode does NOT execute - it relays to Ox.
- * Ox is the sole execution authority.
+ * Transport relay for ExecutionCandidate.
+ * OpenCode DOES NOT EXECUTE. Execution is handled by Council API (WorkerIntegration → Ox).
+ * This is pure transport/relay - acknowledgment only.
+ * Ox is the sole execution authority. Council API owns the execution lifecycle.
  */
 export const relayToOxViaOpenCode = (request: ExecutionRequest): ExecutionResult => {
-  // This is a placeholder that relays to local Ox (file creation sandbox).
-  // In production, this would:
-  // 1. Connect to OpenCode server
-  // 2. Send ExecutionCandidate to OpenCode
-  // 3. OpenCode relays to Ox
-  // 4. Ox executes (file creation, code execution, etc.)
-  // 5. Ox returns ExecutionResult to OpenCode
-  // 6. OpenCode relays result back
+  // This is a RELAY ONLY - no execution.
+  // The actual execution happened in Council API via WorkerIntegration → RealOxExecutor
+  // during the submit_goal phase. This function acknowledges the relay.
 
-  const match = request.proposal.match(
-    /[Cc]reate\s+file\s+(\S+)\s+with\s+(?:exact\s+)?content:\s*(.+)$/s,
-  );
-  if (!match || !match[1] || !match[2]) {
-    return { success: false, error: "Could not parse file creation intent from proposal" };
-  }
+  // In a full production system, this would:
+  // 1. (Optional) Connect to OpenCode server
+  // 2. (Optional) Relay to actual Ox via HTTP
+  // 3. Wait for Ox result
+  // 4. Return result
 
-  const filename = match[1].trim();
-  const content = match[2].trim();
-
-  try {
-    const fs = require("fs");
-    const path = require("path");
-    const os = require("os");
-    const sandboxDir = path.join(os.tmpdir(), "ox_sandbox");
-
-    fs.mkdirSync(sandboxDir, { recursive: true });
-
-    const filePath = path.join(sandboxDir, filename);
-    fs.writeFileSync(filePath, content, "utf-8");
-
-    return {
-      success: true,
-      output: `Created ${filename} (${content.length} bytes)`,
-      proof_file: filePath,
-    };
-  } catch (e) {
-    return {
-      success: false,
-      error: `Ox execution failed: ${String(e)}`,
-    };
-  }
+  // For now, acknowledge that Council API will handle execution.
+  return {
+    success: true,
+    output: `ExecutionCandidate relayed to Council for execution`,
+    error: undefined,
+  };
 };
